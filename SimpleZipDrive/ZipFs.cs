@@ -18,7 +18,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     private readonly Action<Exception?, string?> _logErrorAction; // Delegate for logging
 
-    private const string VolumeLabel = "ZipMount";
+    private const string VolumeLabel = "SimpleZipDrive";
     private static readonly char[] Separator = new[] { '/' };
 
     // Updated constructor to accept the logger action
