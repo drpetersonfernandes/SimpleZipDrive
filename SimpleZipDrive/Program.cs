@@ -183,7 +183,8 @@ file static class Program
         catch (DokanException ex) // Catches Dokan-specific errors
         {
             var context = $"DokanException trying to mount on '{mountPoint}'. ZIP: '{zipFilePath}'";
-            await ErrorLogger.LogErrorAsync(ex, context); // Use async logger for top-level errors in Program.cs
+            _ = ErrorLogger.LogErrorAsync(ex, context);
+
             // Specific user guidance for common Dokan mount errors
             if (!ex.Message.Contains("AssignDriveLetter", StringComparison.OrdinalIgnoreCase) &&
                 !ex.Message.Contains("MountPoint", StringComparison.OrdinalIgnoreCase) &&
@@ -203,7 +204,8 @@ file static class Program
             // If the exception came from ZipFs constructor, it would have already been logged by ZipFs via LogErrorSync.
             // However, logging it again here with LogErrorAsync ensures it's also sent to API if that part failed in sync.
             // This also catches errors like FileStream creation failure before ZipFs is even instantiated.
-            await ErrorLogger.LogErrorAsync(ex, context);
+            _ = ErrorLogger.LogErrorAsync(ex, context);
+
             return false;
         }
         finally
