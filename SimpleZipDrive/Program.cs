@@ -152,6 +152,7 @@ file static class Program
                 Console.WriteLine($"Ctrl+C detected for mount '{mountPoint}'. Signaling unmount...");
                 try
                 {
+                    // ReSharper disable once AccessToDisposedClosure
                     unmountBlocker.Set();
                 }
                 catch (ObjectDisposedException)
