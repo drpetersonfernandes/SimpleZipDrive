@@ -2,7 +2,7 @@
 
 This application allows you to mount ZIP archive files as virtual drives or directories on your Windows system using the DokanNet library. It provides read-only access to the contents of the ZIP file as if it were a regular part of your filesystem.
 
-This version accesses the source ZIP file via a file stream directly from disk. This approach supports very large archives without consuming excessive RAM for the archive itself, regardless of its size.
+It accesses the source ZIP file via a file stream directly from disk. This approach supports very large archives without consuming excessive RAM for the archive itself, regardless of its size.
 
 For files *within* the ZIP archive, when an application (like an emulator) opens a file for reading, its entire decompressed content is cached into an in-memory stream. This significantly speeds up random access reads required by many applications.
 
@@ -124,4 +124,3 @@ This project has an GPL-3.0 license. The DokanNet library has an MIT license. Do
 
 *   [DokanNet](https://github.com/dokan-dev/dokan-dotnet) - .NET wrapper for Dokan
 *   [Dokan](https://github.com/dokan-dev/dokany) - User-mode file system library for Windows
-```
