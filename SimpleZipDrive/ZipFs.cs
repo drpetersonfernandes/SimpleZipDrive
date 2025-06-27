@@ -1,8 +1,8 @@
-using System.IO.Compression;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.RegularExpressions;
 using DokanNet;
+using ICSharpCode.SharpZipLib.Zip;
 using FileAccess = DokanNet.FileAccess;
 
 namespace SimpleZipDrive;
@@ -10,8 +10,8 @@ namespace SimpleZipDrive;
 public class ZipFs : IDokanOperations, IDisposable
 {
     private readonly Stream _sourceZipStream;
-    private readonly ZipArchive _zipArchive;
-    private readonly Dictionary<string, ZipArchiveEntry> _zipEntries = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ZipFile _zipFile;
+    private readonly Dictionary<string, ZipEntry> _zipEntries = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryCreationTimes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryLastWriteTimes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryLastAccessTimes = new(StringComparer.OrdinalIgnoreCase);
@@ -19,8 +19,8 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly Action<Exception?, string?> _logErrorAction; // Delegate for logging
 
     private const string VolumeLabel = "SimpleZipDrive";
-    private static readonly char[] Separator = new[] { '/' };
-    private const long MaxMemoryCacheSize = 1024 * 1024 * 1024; // 1024 MB (1 Gb)
+    private static readonly char[] Separator = { '/' };
+    private const long MaxMemoryCacheSize = 2000 * 1024 * 1024;
 
     // Updated constructor to accept the logger action
     public ZipFs(Stream zipFileStream, string mountPoint, Action<Exception?, string?> logErrorAction)
@@ -30,9 +30,10 @@ public class ZipFs : IDokanOperations, IDisposable
 
         try
         {
-            _zipArchive = new ZipArchive(_sourceZipStream, ZipArchiveMode.Read, true);
+            // The 'false' for isStreamOwner is important, as Program.cs manages the stream's lifetime.
+            _zipFile = new ZipFile(_sourceZipStream, false);
             InitializeEntries();
-            Console.WriteLine($"ZipFs Constructor: _sourceZipStream.CanSeek = {_sourceZipStream.CanSeek}, _sourceZipStream type = {_sourceZipStream.GetType().FullName}");
+            Console.WriteLine($"ZipFs Constructor: Using SharpZipLib. _sourceZipStream.CanSeek = {_sourceZipStream.CanSeek}, _sourceZipStream type = {_sourceZipStream.GetType().FullName}");
         }
         catch (Exception ex)
         {
@@ -47,20 +48,20 @@ public class ZipFs : IDokanOperations, IDisposable
     {
         try // Add try-catch for robustness during initialization
         {
-            foreach (var entry in _zipArchive.Entries)
+            foreach (ZipEntry entry in _zipFile)
             {
-                var normalizedPath = NormalizePath(entry.FullName);
+                var normalizedPath = NormalizePath(entry.Name);
                 _zipEntries[normalizedPath] = entry;
 
                 var currentPath = "";
                 var parts = normalizedPath.Split(Separator, StringSplitOptions.RemoveEmptyEntries);
-                for (var i = 0; i < parts.Length - (IsDirectoryEntry(entry) ? 0 : 1); i++)
+                for (var i = 0; i < parts.Length - (entry.IsDirectory ? 0 : 1); i++)
                 {
                     currentPath += "/" + parts[i];
                     if (_directoryCreationTimes.ContainsKey(currentPath)) continue;
 
-                    _directoryCreationTimes[currentPath] = entry.LastWriteTime.DateTime;
-                    _directoryLastWriteTimes[currentPath] = entry.LastWriteTime.DateTime;
+                    _directoryCreationTimes[currentPath] = entry.DateTime;
+                    _directoryLastWriteTimes[currentPath] = entry.DateTime;
                     _directoryLastAccessTimes[currentPath] = DateTime.Now;
                 }
             }
@@ -93,11 +94,6 @@ public class ZipFs : IDokanOperations, IDisposable
         return path;
     }
 
-    private static bool IsDirectoryEntry(ZipArchiveEntry entry)
-    {
-        return entry.FullName.EndsWith('/') || entry.FullName.EndsWith('\\') || (entry.Length == 0 && string.IsNullOrEmpty(entry.Name));
-    }
-
     public NtStatus CreateFile(
         string fileName,
         FileAccess access,
@@ -119,7 +115,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
         if (_zipEntries.TryGetValue(normalizedPath, out var entry))
         {
-            if (IsDirectoryEntry(entry))
+            if (entry.IsDirectory)
             {
                 // Console.WriteLine($"ZipFs.CreateFile: Path '{normalizedPath}' is an explicit directory entry.");
                 info.IsDirectory = true;
@@ -132,12 +128,12 @@ public class ZipFs : IDokanOperations, IDisposable
             }
             else
             {
-                // Console.WriteLine($"ZipFs.CreateFile: Path '{normalizedPath}' is a file entry. Length={entry.Length}.");
+                // Console.WriteLine($"ZipFs.CreateFile: Path '{normalizedPath}' is a file entry. Size={entry.Size}.");
                 info.IsDirectory = false;
                 var canRead = access.HasFlag(FileAccess.GenericRead) || access.HasFlag(FileAccess.ReadData);
                 var result = mode switch
                 {
-                    FileMode.Open => (entry.Length >= 0) ? DokanResult.Success : DokanResult.FileNotFound,
+                    FileMode.Open => (entry.Size >= 0) ? DokanResult.Success : DokanResult.FileNotFound,
                     FileMode.OpenOrCreate or FileMode.Create => DokanResult.Success,
                     FileMode.CreateNew => DokanResult.FileExists,
                     _ => DokanResult.AccessDenied
@@ -148,9 +144,9 @@ public class ZipFs : IDokanOperations, IDisposable
                 // For large files, don't cache in memory.
                 // ReadFile will handle reading directly from the zip entry.
                 // This is slower for random access but avoids OutOfMemoryException.
-                if (entry.Length > MaxMemoryCacheSize)
+                if (entry.Size > MaxMemoryCacheSize)
                 {
-                    // Console.WriteLine($"ZipFs.CreateFile: Entry '{normalizedPath}' is too large ({entry.Length} bytes) for in-memory cache. Using streaming fallback.");
+                    // Console.WriteLine($"ZipFs.CreateFile: Entry '{normalizedPath}' is too large ({entry.Size} bytes) for in-memory cache. Using streaming fallback.");
                     info.Context = null; // Ensure context is null so ReadFile uses its fallback logic.
                 }
                 else
@@ -158,24 +154,24 @@ public class ZipFs : IDokanOperations, IDisposable
                     // For smaller files, use the existing in-memory cache logic.
                     try
                     {
-                        // Console.WriteLine($"ZipFs.CreateFile: Caching entry '{normalizedPath}' to MemoryStream. Entry length: {entry.Length}");
-                        using var entryStream = entry.Open();
+                        // Console.WriteLine($"ZipFs.CreateFile: Caching entry '{normalizedPath}' to MemoryStream. Entry size: {entry.Size}");
+                        using var entryStream = _zipFile.GetInputStream(entry);
                         byte[] entryBytes;
-                        if (entry.Length == 0)
+                        if (entry.Size == 0)
                         {
                             entryBytes = Array.Empty<byte>();
                         }
                         else
                         {
-                            // The cast to (int) is safe because we've already checked entry.Length <= MaxMemoryCacheSize.
-                            using var tempMs = new MemoryStream((int)entry.Length);
+                            // The cast to (int) is safe because we've already checked entry.Size <= MaxMemoryCacheSize.
+                            using var tempMs = new MemoryStream((int)entry.Size);
                             entryStream.CopyTo(tempMs);
                             entryBytes = tempMs.ToArray();
                         }
 
-                        if (entryBytes.Length != entry.Length)
+                        if (entryBytes.Length != entry.Size)
                         {
-                            _logErrorAction(new InvalidDataException($"Mismatch reading entry '{normalizedPath}'. Expected {entry.Length}, got {entryBytes.Length}."),
+                            _logErrorAction(new InvalidDataException($"Mismatch reading entry '{normalizedPath}'. Expected {entry.Size}, got {entryBytes.Length}."),
                                 "ZipFs.CreateFile: Entry read mismatch.");
                             // Potentially return an error here if this is critical
                         }
@@ -263,19 +259,20 @@ public class ZipFs : IDokanOperations, IDisposable
             // Console.WriteLine($"ZipFs.ReadFile: No cached MemoryStream for '{normalizedPath}'. Attempting direct entry read.");
             if (!_zipEntries.TryGetValue(normalizedPath, out var entry)) return DokanResult.PathNotFound;
 
-            if (IsDirectoryEntry(entry))
+            if (entry.IsDirectory)
             {
                 _logErrorAction(new UnauthorizedAccessException($"Fallback read attempt on directory entry '{normalizedPath}'."), "ZipFs.ReadFile (fallback): Directory read attempt.");
                 return DokanResult.AccessDenied;
             }
 
-            if (offset >= entry.Length) return DokanResult.Success; // EOF
+            if (offset >= entry.Size) return DokanResult.Success; // EOF
 
             try
             {
-                using var entryStream = entry.Open();
+                using var entryStream = _zipFile.GetInputStream(entry);
                 if (offset > 0)
                 {
+                    // The stream from GetInputStream is not seekable. The existing logic handles this.
                     if (entryStream.CanSeek)
                     {
                         entryStream.Seek(offset, SeekOrigin.Begin);
@@ -313,23 +310,23 @@ public class ZipFs : IDokanOperations, IDisposable
 
         if (_zipEntries.TryGetValue(normalizedPath, out var entry))
         {
-            if (IsDirectoryEntry(entry))
+            if (entry.IsDirectory)
             {
                 fileInfo.Attributes = FileAttributes.Directory;
-                fileInfo.FileName = entry.Name; // Or derive from path
-                fileInfo.LastWriteTime = entry.LastWriteTime.DateTime;
-                fileInfo.CreationTime = entry.LastWriteTime.DateTime;
-                fileInfo.LastAccessTime = DateTime.Now; // Or entry.LastWriteTime.DateTime
+                fileInfo.FileName = Path.GetFileName(entry.Name.TrimEnd('/'));
+                fileInfo.LastWriteTime = entry.DateTime;
+                fileInfo.CreationTime = entry.DateTime;
+                fileInfo.LastAccessTime = DateTime.Now;
                 info.IsDirectory = true;
             }
             else
             {
                 fileInfo.Attributes = FileAttributes.Archive | FileAttributes.ReadOnly;
-                fileInfo.FileName = entry.Name;
-                fileInfo.Length = entry.Length;
-                fileInfo.LastWriteTime = entry.LastWriteTime.DateTime;
-                fileInfo.CreationTime = entry.LastWriteTime.DateTime;
-                fileInfo.LastAccessTime = DateTime.Now; // Or entry.LastWriteTime.DateTime
+                fileInfo.FileName = Path.GetFileName(entry.Name);
+                fileInfo.Length = entry.Size;
+                fileInfo.LastWriteTime = entry.DateTime;
+                fileInfo.CreationTime = entry.DateTime;
+                fileInfo.LastAccessTime = DateTime.Now;
                 info.IsDirectory = false;
                 if (info.Context is MemoryStream ms)
                 {
@@ -358,7 +355,7 @@ public class ZipFs : IDokanOperations, IDisposable
         files = new List<FileInformation>();
         var normalizedPath = NormalizePath(fileName);
 
-        var isExplicitDirEntry = _zipEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectoryEntry(dirEntry);
+        var isExplicitDirEntry = _zipEntries.TryGetValue(normalizedPath, out var dirEntry) && dirEntry.IsDirectory;
         var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
 
         if (!isExplicitDirEntry && !isImplicitDir) return DokanResult.PathNotFound;
@@ -388,21 +385,21 @@ public class ZipFs : IDokanOperations, IDisposable
             {
                 var fi = new FileInformation
                 {
-                    LastWriteTime = entry.LastWriteTime.DateTime,
-                    CreationTime = entry.LastWriteTime.DateTime,
-                    LastAccessTime = DateTime.Now // Or entry.LastWriteTime.DateTime
+                    LastWriteTime = entry.DateTime,
+                    CreationTime = entry.DateTime,
+                    LastAccessTime = DateTime.Now
                 };
-                if (IsDirectoryEntry(entry))
+                if (entry.IsDirectory)
                 {
                     fi.Attributes = FileAttributes.Directory;
-                    var tempFullName = entry.FullName.TrimEnd('/');
-                    fi.FileName = tempFullName.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s)) ?? entry.Name;
+                    var tempFullName = entry.Name.TrimEnd('/');
+                    fi.FileName = Path.GetFileName(tempFullName);
                 }
                 else
                 {
                     fi.Attributes = FileAttributes.Archive | FileAttributes.ReadOnly;
-                    fi.Length = entry.Length;
-                    fi.FileName = entry.Name;
+                    fi.Length = entry.Size;
+                    fi.FileName = Path.GetFileName(entry.Name);
                 }
 
                 if (!string.IsNullOrEmpty(fi.FileName)) files.Add(fi);
@@ -417,7 +414,7 @@ public class ZipFs : IDokanOperations, IDisposable
                     var remainder = k.Substring(searchPrefix.Length);
                     return !remainder.Contains('/') && !string.IsNullOrEmpty(remainder);
                 })
-                .Where(k => childEntries.All(e => NormalizePath(e.FullName).TrimEnd('/') != k)) // Only if not already listed as explicit
+                .Where(k => childEntries.All(e => NormalizePath(e.Name).TrimEnd('/') != k)) // Only if not already listed as explicit
                 .ToList();
 
             foreach (var dirPathKey in implicitChildDirs)
@@ -621,10 +618,9 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public void Dispose()
     {
-        // The ZipArchive was created with leaveOpen: true, so it will not dispose the underlying _sourceZipStream.
-        // The _sourceZipStream is managed by an 'await using' block in Program.cs and will be disposed there.
-        // We only need to dispose the ZipArchive instance itself.
-        _zipArchive?.Dispose();
+        // Close will call Dispose. Since we created ZipFile with isStreamOwner: false,
+        // it will not dispose the underlying _sourceZipStream, which is managed by Program.cs.
+        _zipFile?.Close();
         GC.SuppressFinalize(this);
     }
 }
