@@ -26,7 +26,7 @@ For files *within* the ZIP archive, when an application (like an emulator) opens
 
 1.  Clone or download this repository/source code.
 2.  Open the solution in Visual Studio (2022 or later recommended) or use the .NET CLI.
-3.  Ensure the `DokanNet` NuGet package (version 2.3.0.1 or compatible) is restored. The provided `.csproj` file includes this dependency.
+3.  Ensure the `DokanNet` and `SharpZipLib` NuGet packages are restored. The provided `.csproj` file includes these dependencies.
 4.  Build the solution (e.g., `dotnet build -c Release`).
 
 The executable `SimpleZipDrive.exe` will be in the `bin\Release\net9.0-windows` (or similar) directory.
@@ -118,9 +118,10 @@ The developer's website is [PureLogic Code](https://purelogiccode.com/).
 
 ## License
 
-This project has an GPL-3.0 license. The DokanNet library has an MIT license. Dokan library contains LGPL and MIT licensed programs.
+This project has a GPL-3.0 license. The DokanNet and SharpZipLib libraries have an MIT license. The underlying Dokan library contains LGPL and MIT licensed programs.
 
 ## Acknowledgements
 
 *   [DokanNet](https://github.com/dokan-dev/dokan-dotnet) - .NET wrapper for Dokan
 *   [Dokan](https://github.com/dokan-dev/dokany) - User-mode file system library for Windows
+*   [SharpZipLib](https://github.com/icsharpcode/SharpZipLib) - A comprehensive Zip, GZip, Tar and BZip2 library for .NET
