@@ -20,6 +20,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     private const string VolumeLabel = "SimpleZipDrive";
     private static readonly char[] Separator = new[] { '/' };
+    private const long MaxMemoryCacheSize = 1024 * 1024 * 1024; // 1024 MB (1 Gb)
 
     // Updated constructor to accept the logger action
     public ZipFs(Stream zipFileStream, string mountPoint, Action<Exception?, string?> logErrorAction)
@@ -144,51 +145,57 @@ public class ZipFs : IDokanOperations, IDisposable
 
                 if (result != DokanResult.Success || !canRead) return result;
 
-                try
+                // For large files, don't cache in memory.
+                // ReadFile will handle reading directly from the zip entry.
+                // This is slower for random access but avoids OutOfMemoryException.
+                if (entry.Length > MaxMemoryCacheSize)
                 {
-                    // Console.WriteLine($"ZipFs.CreateFile: Caching entry '{normalizedPath}' to MemoryStream. Entry length: {entry.Length}");
-                    if (entry.Length > int.MaxValue)
-                    {
-                        _logErrorAction(new IOException($"Entry '{normalizedPath}' is too large ({entry.Length} bytes) to cache in MemoryStream."),
-                            "ZipFs.CreateFile: Entry too large for MemoryStream.");
-                        return DokanResult.Error; // File too large for this operation
-                    }
-
-                    using var entryStream = entry.Open();
-                    byte[] entryBytes;
-                    if (entry.Length == 0)
-                    {
-                        entryBytes = Array.Empty<byte>();
-                    }
-                    else
-                    {
-                        using var tempMs = new MemoryStream((int)entry.Length);
-                        entryStream.CopyTo(tempMs);
-                        entryBytes = tempMs.ToArray();
-                    }
-
-                    if (entryBytes.Length != entry.Length)
-                    {
-                        _logErrorAction(new InvalidDataException($"Mismatch reading entry '{normalizedPath}'. Expected {entry.Length}, got {entryBytes.Length}."),
-                            "ZipFs.CreateFile: Entry read mismatch.");
-                        // Potentially return an error here if this is critical
-                    }
-
-                    var memoryStream = new MemoryStream(entryBytes);
-                    info.Context = memoryStream;
-                    // Console.WriteLine($"ZipFs.CreateFile: Successfully cached '{normalizedPath}' to MemoryStream ({memoryStream.Length} bytes).");
+                    // Console.WriteLine($"ZipFs.CreateFile: Entry '{normalizedPath}' is too large ({entry.Length} bytes) for in-memory cache. Using streaming fallback.");
+                    info.Context = null; // Ensure context is null so ReadFile uses its fallback logic.
                 }
-                catch (OutOfMemoryException oomEx)
+                else
                 {
-                    _logErrorAction(oomEx, $"ZipFs.CreateFile: OutOfMemoryException caching entry '{normalizedPath}'.");
-                    info.Context = null;
-                    return DokanResult.Error; // Out of memory
-                }
-                catch (Exception ex)
-                {
-                    _logErrorAction(ex, $"ZipFs.CreateFile: EXCEPTION caching entry '{normalizedPath}'.");
-                    info.Context = null;
-                    return DokanResult.Error; // Generic error
+                    // For smaller files, use the existing in-memory cache logic.
+                    try
+                    {
+                        // Console.WriteLine($"ZipFs.CreateFile: Caching entry '{normalizedPath}' to MemoryStream. Entry length: {entry.Length}");
+                        using var entryStream = entry.Open();
+                        byte[] entryBytes;
+                        if (entry.Length == 0)
+                        {
+                            entryBytes = Array.Empty<byte>();
+                        }
+                        else
+                        {
+                            // The cast to (int) is safe because we've already checked entry.Length <= MaxMemoryCacheSize.
+                            using var tempMs = new MemoryStream((int)entry.Length);
+                            entryStream.CopyTo(tempMs);
+                            entryBytes = tempMs.ToArray();
+                        }
+
+                        if (entryBytes.Length != entry.Length)
+                        {
+                            _logErrorAction(new InvalidDataException($"Mismatch reading entry '{normalizedPath}'. Expected {entry.Length}, got {entryBytes.Length}."),
+                                "ZipFs.CreateFile: Entry read mismatch.");
+                            // Potentially return an error here if this is critical
+                        }
+
+                        var memoryStream = new MemoryStream(entryBytes);
+                        info.Context = memoryStream;
+                        // Console.WriteLine($"ZipFs.CreateFile: Successfully cached '{normalizedPath}' to MemoryStream ({memoryStream.Length} bytes).");
+                    }
+                    catch (OutOfMemoryException oomEx)
+                    {
+                        _logErrorAction(oomEx, $"ZipFs.CreateFile: OutOfMemoryException caching entry '{normalizedPath}'.");
+                        info.Context = null;
+                        return DokanResult.Error; // Out of memory
+                    }
+                    catch (Exception ex)
+                    {
+                        _logErrorAction(ex, $"ZipFs.CreateFile: EXCEPTION caching entry '{normalizedPath}'.");
+                        info.Context = null;
+                        return DokanResult.Error; // Generic error
+                    }
                 }
 
                 // Console.WriteLine($"ZipFs.CreateFile: File entry '{normalizedPath}', FileMode={mode}, returning {result}.");
@@ -614,27 +621,10 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public void Dispose()
     {
-        // Console.WriteLine("ZipFs.Dispose: Disposing ZipArchive and SourceZipStream.");
+        // The ZipArchive was created with leaveOpen: true, so it will not dispose the underlying _sourceZipStream.
+        // The _sourceZipStream is managed by an 'await using' block in Program.cs and will be disposed there.
+        // We only need to dispose the ZipArchive instance itself.
         _zipArchive?.Dispose();
-        _sourceZipStream?.Dispose(); // This stream is owned by Program.cs's using block if passed from there.
-                                     // However, ZipFs takes ownership via its own using block for _zipArchive.
-                                     // If _sourceZipStream is disposed here, Program.cs should not also dispose it.
-                                     // Current Program.cs disposes it.
-                                     // Let's assume ZipFs is responsible for the _sourceZipStream it was given.
-                                     // The `using var zipFs = new ZipFs(...)` in Program.cs will call this Dispose.
-                                     // The `using Stream zipFileSourceStream = ...` in Program.cs will also dispose it.
-                                     // This is a double-dispose risk for _sourceZipStream.
-                                     // The ZipArchive constructor has an overload `leaveOpen`.
-                                     // `_zipArchive = new ZipArchive(_sourceZipStream, ZipArchiveMode.Read, leaveOpen: true);`
-                                     // If leaveOpen is true, then ZipFs should NOT dispose _sourceZipStream. Program.cs would.
-                                     // If leaveOpen is false (default), ZipArchive disposes the stream. Then ZipFs should not, and Program.cs should not.
-
-        // Given `_zipArchive = new ZipArchive(_sourceZipStream, ZipArchiveMode.Read, true);`
-        // The `true` means `leaveOpen: true`. So ZipArchive will NOT dispose _sourceZipStream.
-        // Therefore, ZipFs should NOT dispose _sourceZipStream here. Program.cs is responsible.
-        // Let's remove `_sourceZipStream?.Dispose();`
-
-        _zipArchive?.Dispose(); // ZipArchive itself should be disposed by ZipFs.
         GC.SuppressFinalize(this);
     }
 }
