@@ -13,7 +13,6 @@ public static class ErrorLogger
 
     private const string ApplicationName = "SimpleZipDrive";
     private static readonly HttpClient HttpClientInstance;
-    private static readonly bool IsApiLoggingConfigured; // Renamed for clarity
 
     private static readonly string BaseDirectory = AppDomain.CurrentDomain.BaseDirectory;
     private static readonly string ErrorLogFilePath = Path.Combine(BaseDirectory, "error.log");
@@ -25,32 +24,6 @@ public static class ErrorLogger
         {
             Timeout = TimeSpan.FromSeconds(30)
         };
-
-        // Check if API key and URL are actual values, not placeholders
-        IsApiLoggingConfigured = !string.IsNullOrWhiteSpace(ApiKey) &&
-                                 !ApiKey.Equals("YOUR_API_KEY_HERE", StringComparison.OrdinalIgnoreCase) && // General placeholder check
-                                 !ApiKey.Equals("hjh7yu6t56tyr540o9u8767676r5674534453235264c75b6t7ggghgg76trf564e", StringComparison.Ordinal) && // Specific placeholder check
-                                 !string.IsNullOrWhiteSpace(BugReportApiUrl) &&
-                                 !BugReportApiUrl.Equals("YOUR_BUG_REPORT_API_URL_HERE", StringComparison.OrdinalIgnoreCase) && // General placeholder
-                                 !BugReportApiUrl.Equals("https://www.purelogiccode.com/bugreport/api/send-bug-report", StringComparison.OrdinalIgnoreCase); // Specific placeholder
-
-        // The logic for IsApiLoggingEnabled was inverted. It should be true if NOT placeholders.
-        // Corrected logic: API logging is enabled if the configured values are NOT the placeholder values.
-        // The original logic `!ApiKey.Equals("...", StringComparison.Ordinal)` would be true if ApiKey is *different* from the placeholder,
-        // which means API logging *should* be enabled.
-        // Let's simplify: if the key/URL *are* the hardcoded actual values, then it's enabled.
-        // The previous check was effectively disabling it if the actual values were used.
-
-        // Corrected check:
-        IsApiLoggingConfigured = ApiKey == "hjh7yu6t56tyr540o9u8767676r5674534453235264c75b6t7ggghgg76trf564e" &&
-                                 BugReportApiUrl == "https://www.purelogiccode.com/bugreport/api/send-bug-report";
-
-
-        if (!IsApiLoggingConfigured)
-        {
-            Console.Error.WriteLine("ErrorLogger: API logging is disabled. API Key/URL are placeholders or not the expected configured values.");
-            // No need to call WriteToCriticalLog here for placeholder issue, console message is enough.
-        }
     }
 
     private static string FormatErrorMessage(Exception ex, string contextMessage)
@@ -122,33 +95,26 @@ public static class ErrorLogger
             WriteToCriticalLog(writeEx, $"Failed to write main error to '{ErrorLogFilePath}'. Original error: {ex.Message}");
         }
 
-        if (IsApiLoggingConfigured)
+        // Fire-and-forget the async API call from the synchronous method
+        _ = SendLogToApiAsync(logContent).ContinueWith(static task =>
         {
-            // Fire-and-forget the async API call from the synchronous method
-            _ = SendLogToApiAsync(logContent).ContinueWith(task =>
+            if (task is { IsFaulted: true, Exception: not null })
             {
-                if (task.IsFaulted && task.Exception != null)
+                WriteToCriticalLog(task.Exception.Flatten().InnerExceptions.FirstOrDefault() ?? task.Exception,
+                    "Exception in fire-and-forget SendLogToApiAsync from LogErrorSync.");
+            }
+            else if (task.IsCompletedSuccessfully)
+            {
+                if (task.Result) // if sent successfully
                 {
-                    WriteToCriticalLog(task.Exception.Flatten().InnerExceptions.FirstOrDefault() ?? task.Exception,
-                        "Exception in fire-and-forget SendLogToApiAsync from LogErrorSync.");
+                    Console.WriteLine("Error details successfully sent to remote logging service (from sync path).");
                 }
-                else if (task.IsCompletedSuccessfully)
+                else
                 {
-                    if (task.Result) // if sent successfully
-                    {
-                        Console.WriteLine("Error details successfully sent to remote logging service (from sync path).");
-                    }
-                    else
-                    {
-                        Console.Error.WriteLine("Failed to send error details to remote logging service (from sync path). Error is saved locally.");
-                    }
+                    Console.Error.WriteLine("Failed to send error details to remote logging service (from sync path). Error is saved locally.");
                 }
-            }, TaskScheduler.Default);
-        }
-        else
-        {
-            Console.WriteLine("API error logging is disabled. Error is saved locally (sync path).");
-        }
+            }
+        }, TaskScheduler.Default);
     }
 
 
@@ -190,28 +156,19 @@ public static class ErrorLogger
             WriteToCriticalLog(writeEx, $"Failed to write main error to '{ErrorLogFilePath}'. Original error: {ex.Message}");
         }
 
-        if (IsApiLoggingConfigured)
+        var sent = await SendLogToApiAsync(logContent);
+        if (sent)
         {
-            var sent = await SendLogToApiAsync(logContent);
-            if (sent)
-            {
-                Console.WriteLine("Error details successfully sent to remote logging service (async path).");
-            }
-            else
-            {
-                await Console.Error.WriteLineAsync("Failed to send error details to remote logging service (async path). Error is saved locally.");
-            }
+            Console.WriteLine("Error details successfully sent to remote logging service (async path).");
         }
         else
         {
-            Console.WriteLine("API error logging is disabled. Error is saved locally (async path).");
+            await Console.Error.WriteLineAsync("Failed to send error details to remote logging service (async path). Error is saved locally.");
         }
     }
 
     private static async Task<bool> SendLogToApiAsync(string logContent)
     {
-        if (!IsApiLoggingConfigured) return false;
-
         try
         {
             var payload = new

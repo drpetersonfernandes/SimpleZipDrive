@@ -50,6 +50,13 @@ public class ZipFs : IDokanOperations, IDisposable
         {
             foreach (ZipEntry entry in _zipFile)
             {
+                // Handle null/empty entry names
+                if (string.IsNullOrEmpty(entry.Name))
+                {
+                    _logErrorAction?.Invoke(null, $"Skipping invalid ZIP entry with null/empty name: {entry.Name}");
+                    continue;
+                }
+
                 var normalizedPath = NormalizePath(entry.Name);
                 _zipEntries[normalizedPath] = entry;
 
@@ -75,9 +82,7 @@ public class ZipFs : IDokanOperations, IDisposable
         }
         catch (Exception ex)
         {
-            _logErrorAction(ex, "Error during ZipFs.InitializeEntries.");
-            // Depending on severity, you might want to re-throw or handle differently
-            // For now, log and continue, some entries might be missing.
+            _logErrorAction?.Invoke(ex, "Error during ZipFs.InitializeEntries.");
         }
     }
 
@@ -154,7 +159,7 @@ public class ZipFs : IDokanOperations, IDisposable
                     // For smaller files, use the existing in-memory cache logic.
                     try
                     {
-                        // Console.WriteLine($"ZipFs.CreateFile: Caching entry '{normalizedPath}' to MemoryStream. Entry size: {entry.Size}");
+                        Console.WriteLine($"ZipFs.CreateFile: Caching entry '{normalizedPath}' to MemoryStream. Entry size: {entry.Size}");
                         using var entryStream = _zipFile.GetInputStream(entry);
                         byte[] entryBytes;
                         if (entry.Size == 0)
