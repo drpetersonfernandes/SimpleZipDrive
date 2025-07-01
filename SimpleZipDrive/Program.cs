@@ -8,6 +8,9 @@ file static class Program
     public static async Task Main(string[] args)
     {
         Console.WriteLine("ZIP Drive using DokanNet (Streaming Access with In-Memory Entry Cache)");
+
+        await UpdateChecker.CheckForUpdateAsync();
+
         _ = typeof(ErrorLogger); // Ensures static constructor of ErrorLogger runs
 
         string? zipFilePath;
