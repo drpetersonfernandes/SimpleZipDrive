@@ -92,11 +92,15 @@ The application will attempt to unmount the virtual drive/directory upon exit.
 
 ## Troubleshooting
 
-*   **"Dokan Error: ... MountPoint ... AssignDriveLetter ..."**:
+*   **"DOKAN INITIALIZATION FAILED" on startup**:
+    *   This error means the application could not find the Dokan library (`dokan.dll`) or communicate with the Dokan driver.
+    *   The most common cause is that **Dokan is not installed**. Please download and install it from the official source: [https://github.com/dokan-dev/dokany/releases](https://github.com/dokan-dev/dokany/releases).
+    *   After installation, please try running the application again.
+*   **"Dokan Error: ... MountPoint ... AssignDriveLetter ..." during mount**:
     *   The mount point (either specified or one of M-Q in drag-and-drop) might already be in use.
     *   You might need administrator privileges (see "Important Notes").
     *   If mounting to a folder, ensure the folder exists.
-    *   Ensure the Dokan driver is installed and functioning.
+    *   Ensure the Dokan driver is installed and functioning. You can get it from [https://github.com/dokan-dev/dokany/releases](https://github.com/dokan-dev/dokany/releases).
 *   **Drag-and-Drop Fails to Mount**:
     *   All preferred drive letters (M:, N:, O:, P:, Q:) might be in use or require administrator privileges to access. Check the console output for specific errors.
     *   Try running `SimpleZipDrive.exe` as an administrator first, then drag the file onto it.

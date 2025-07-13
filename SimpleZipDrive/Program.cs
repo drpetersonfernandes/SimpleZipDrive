@@ -49,8 +49,9 @@ file static class Program
         ILogger logger = new ConsoleLogger("[DokanNet] ");
         var mountLifecycleCompleted = false;
 
-        using (var dokan = new Dokan(logger))
+        try
         {
+            using var dokan = new Dokan(logger);
             Console.WriteLine($"Dokan Library Version: {dokan.Version}");
             Console.WriteLine($"Dokan Driver Version: {dokan.DriverVersion}");
 
@@ -101,6 +102,20 @@ file static class Program
                 }
             }
         }
+        catch (Exception ex) when (ex is DokanException || (ex is DllNotFoundException dnfEx && dnfEx.Message.Contains("dokan", StringComparison.OrdinalIgnoreCase)))
+        {
+            const string context = "Dokan library initialization failed. This is a strong indicator that Dokan is not installed.";
+            _ = ErrorLogger.LogErrorAsync(ex, context);
+
+            Console.WriteLine("\n--- DOKAN INITIALIZATION FAILED ---");
+            Console.WriteLine("Could not initialize the Dokan file system library.");
+            Console.WriteLine("This usually means the Dokan driver is not installed on your system.");
+            Console.WriteLine("\nPlease download and install the latest Dokan driver from:");
+            Console.WriteLine("https://github.com/dokan-dev/dokany/releases");
+            Console.WriteLine("\nAfter installation, please try running this application again.");
+            KeepConsoleOpenOnError();
+        }
+
 
         if (mountLifecycleCompleted) Console.WriteLine("Mount operation concluded. Application will now exit.");
         else Console.WriteLine("No mount operation was successfully initiated or an early error prevented it.");
@@ -189,16 +204,25 @@ file static class Program
             _ = ErrorLogger.LogErrorAsync(ex, context);
 
             // Specific user guidance for common Dokan mount errors
-            if (!ex.Message.Contains("AssignDriveLetter", StringComparison.OrdinalIgnoreCase) &&
-                !ex.Message.Contains("MountPoint", StringComparison.OrdinalIgnoreCase) &&
-                (!ex.Message.Contains("CreateFile", StringComparison.OrdinalIgnoreCase) ||
-                 !ex.Message.Contains("returned NTSTATUS C000003A", StringComparison.OrdinalIgnoreCase))) return false;
+            var isCommonMountError = ex.Message.Contains("AssignDriveLetter", StringComparison.OrdinalIgnoreCase) ||
+                                     ex.Message.Contains("MountPoint", StringComparison.OrdinalIgnoreCase) ||
+                                     (ex.Message.Contains("CreateFile", StringComparison.OrdinalIgnoreCase) &&
+                                      ex.Message.Contains("returned NTSTATUS C000003A", StringComparison.OrdinalIgnoreCase));
 
-            Console.WriteLine("This Dokan error might be due to:");
-            Console.WriteLine($"  - The mount point '{mountPoint}' already being in use.");
-            Console.WriteLine("  - Insufficient privileges (try running as Administrator).");
-            Console.WriteLine("  - If mounting to a folder, the specified folder path might not exist.");
-            Console.WriteLine("  - Dokan driver not installed or not running correctly.");
+            if (isCommonMountError)
+            {
+                Console.WriteLine("This Dokan error might be due to:");
+                Console.WriteLine($"  - The mount point '{mountPoint}' already being in use.");
+                Console.WriteLine("  - Insufficient privileges (try running as Administrator).");
+                Console.WriteLine("  - If mounting to a folder, the specified folder path might not exist.");
+                Console.WriteLine("  - Dokan driver not installed or not running correctly. You can get it from:");
+                Console.WriteLine("    https://github.com/dokan-dev/dokany/releases");
+            }
+            else
+            {
+                Console.WriteLine("A generic Dokan-related error occurred during mount. See logs for details.");
+            }
+
             return false;
         }
         catch (Exception ex) // Catches other exceptions during mount setup, including those from ZipFs constructor
