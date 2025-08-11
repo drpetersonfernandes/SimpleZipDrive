@@ -151,6 +151,30 @@ file static class Program
 
         try
         {
+            // Check if the mount point is a directory (not a drive root) and create it if it doesn't exist.
+            // A drive root like "C:\" will have GetPathRoot(path) == path. A folder like "C:\mount" will not.
+            try
+            {
+                if (Path.IsPathFullyQualified(mountPoint) && Path.GetPathRoot(mountPoint) != mountPoint)
+                {
+                    if (!Directory.Exists(mountPoint))
+                    {
+                        Console.WriteLine($"Mount point folder '{mountPoint}' does not exist. Attempting to create it...");
+                        Directory.CreateDirectory(mountPoint);
+                        Console.WriteLine($"Successfully created directory '{mountPoint}'.");
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or ArgumentException)
+            {
+                var context = $"Failed to create mount point directory '{mountPoint}'.";
+                _ = ErrorLogger.LogErrorAsync(ex, context);
+                Console.WriteLine($"Error: Could not create the mount point directory '{mountPoint}'.");
+                Console.WriteLine($"Reason: {ex.Message}");
+                Console.WriteLine("Please ensure the path is valid and you have sufficient permissions, or create it manually.");
+                return false; // Abort the mount attempt
+            }
+
             var fileInfoSys = new FileInfo(zipFilePath);
             var fileSize = fileInfoSys.Length;
             Console.WriteLine($"Processing ZIP file: '{zipFilePath}', Size: {fileSize / 1024.0 / 1024.0:F2} MB for mount on '{mountPoint}'");
@@ -214,7 +238,7 @@ file static class Program
                 Console.WriteLine("This Dokan error might be due to:");
                 Console.WriteLine($"  - The mount point '{mountPoint}' already being in use.");
                 Console.WriteLine("  - Insufficient privileges (try running as Administrator).");
-                Console.WriteLine("  - If mounting to a folder, the specified folder path might not exist.");
+                Console.WriteLine("  - If mounting to a folder, the application will attempt to create it if it doesn't exist. This can fail due to insufficient permissions or an invalid path.");
                 Console.WriteLine("  - Dokan driver not installed or not running correctly. You can get it from:");
                 Console.WriteLine("    https://github.com/dokan-dev/dokany/releases");
             }

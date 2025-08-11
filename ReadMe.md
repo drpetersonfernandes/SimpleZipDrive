@@ -49,7 +49,7 @@ SimpleZipDrive.exe <PathToZipFile> <MountPoint>
     *   Example: `C:\Users\YourName\Downloads\my_archive.zip`
 *   `<MountPoint>`: The desired mount point. This can be:
     *   A single drive letter (e.g., `M`, `X`, `Z`). The application will append `:\`.
-    *   A full path to an existing empty NTFS directory (e.g., `C:\mount\my_virtual_zip`). The directory must exist and should ideally be empty.
+    *   A full path to an NTFS directory (e.g., `C:\mount\my_virtual_zip`). If the directory does not exist, it will be created automatically. The directory should ideally be empty.
 
 **Command-Line Examples:**
 
@@ -60,7 +60,6 @@ SimpleZipDrive.exe <PathToZipFile> <MountPoint>
     The ZIP contents will be accessible at `M:\`.
 
 *   Mount `another_archive.zip` to a folder `C:\myvirtualdrive`:
-    *(Ensure `C:\myvirtualdrive` exists and is empty before running)*
     ```shell
     SimpleZipDrive.exe "D:\games\game_files.zip" "C:\myvirtualdrive"
     ```
@@ -99,7 +98,7 @@ The application will attempt to unmount the virtual drive/directory upon exit.
 *   **"Dokan Error: ... MountPoint ... AssignDriveLetter ..." during mount**:
     *   The mount point (either specified or one of M-Q in drag-and-drop) might already be in use.
     *   You might need administrator privileges (see "Important Notes").
-    *   If mounting to a folder, ensure the folder exists.
+    *   If mounting to a folder, the application will attempt to create it if it doesn't exist. This can fail due to insufficient permissions (try running as Administrator) or an invalid path.
     *   Ensure the Dokan driver is installed and functioning. You can get it from [https://github.com/dokan-dev/dokany/releases](https://github.com/dokan-dev/dokany/releases).
 *   **Drag-and-Drop Fails to Mount**:
     *   All preferred drive letters (M:, N:, O:, P:, Q:) might be in use or require administrator privileges to access. Check the console output for specific errors.
