@@ -105,7 +105,7 @@ The application will attempt to unmount the virtual drive/directory upon exit.
     *   Try running `SimpleZipDrive.exe` as an administrator first, then drag the file onto it.
 *   **"Error: ZIP file not found..."**: Double-check the path to your ZIP file (for command-line usage).
 *   **"Out of Memory Error"**:
-    *   This typically happens during `CreateFile` (logged by `ZipFs`), meaning an individual file *within* the ZIP was too large to cache in memory (either >2GB or system RAM exhausted by cumulative caching of multiple files). This can occur if the accessing application opens very large files or many files simultaneously.
+    *   This typically happens during `CreateFile` (logged by `ZipFs`), meaning an individual file *within* the ZIP was too large to cache in memory (either >1GB or system RAM exhausted by cumulative caching of multiple files). This can occur if the accessing application opens very large files or many files simultaneously.
 *   **Application (e.g., an emulator) fails to read files correctly:**
     *   Check the console output of `SimpleZipDrive.exe` for any errors logged by `ZipFs`.
     *   Enable Dokan kernel logging (see "Important Notes") and use DbgView to look for lower-level errors.

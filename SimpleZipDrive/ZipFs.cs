@@ -17,20 +17,19 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly Dictionary<string, DateTime> _directoryLastAccessTimes = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Action<Exception?, string?> _logErrorAction; // Delegate for logging
+    private readonly object _zipLock = new(); // **FIX 1: Lock for thread-safe access to _zipFile**
 
     private const string VolumeLabel = "SimpleZipDrive";
     private static readonly char[] Separator = { '/' };
-    private const long MaxMemoryCacheSize = 2000 * 1024 * 1024;
+    private const long MaxMemoryCacheSize = 1000 * 1024 * 1024;
 
-    // Updated constructor to accept the logger action
     public ZipFs(Stream zipFileStream, string mountPoint, Action<Exception?, string?> logErrorAction)
     {
         _sourceZipStream = zipFileStream;
-        _logErrorAction = logErrorAction ?? throw new ArgumentNullException(nameof(logErrorAction)); // Store the logger
+        _logErrorAction = logErrorAction ?? throw new ArgumentNullException(nameof(logErrorAction));
 
         try
         {
-            // The 'false' for isStreamOwner is important, as Program.cs manages the stream's lifetime.
             _zipFile = new ZipFile(_sourceZipStream, false);
             InitializeEntries();
             Console.WriteLine($"ZipFs Constructor: Using SharpZipLib. _sourceZipStream.CanSeek = {_sourceZipStream.CanSeek}, _sourceZipStream type = {_sourceZipStream.GetType().FullName}");
@@ -38,19 +37,16 @@ public class ZipFs : IDokanOperations, IDisposable
         catch (Exception ex)
         {
             _logErrorAction(ex, $"Error during ZipFs construction for mount point '{mountPoint}'.");
-            // Re-throw to ensure the constructor failure is propagated,
-            // which will be caught by Program.cs's AttemptMountLifecycle
             throw;
         }
     }
 
     private void InitializeEntries()
     {
-        try // Add try-catch for robustness during initialization
+        try
         {
             foreach (ZipEntry entry in _zipFile)
             {
-                // Handle null/empty entry names
                 if (string.IsNullOrEmpty(entry.Name))
                 {
                     _logErrorAction?.Invoke(null, $"Skipping invalid ZIP entry with null/empty name: {entry.Name}");
@@ -109,11 +105,9 @@ public class ZipFs : IDokanOperations, IDisposable
         IDokanFileInfo info)
     {
         var normalizedPath = NormalizePath(fileName);
-        // Console.WriteLine($"ZipFs.CreateFile: START - Path='{fileName}' (Norm='{normalizedPath}'), Mode={mode}, Access={access}, Options={options}, IsDirectory={info.IsDirectory}");
 
         if (info.Context is IDisposable existingContextDisposable)
         {
-            // Console.WriteLine($"ZipFs.CreateFile: Warning - info.Context was already set for '{normalizedPath}'. Disposing it.");
             existingContextDisposable.Dispose();
             info.Context = null;
         }
@@ -122,7 +116,6 @@ public class ZipFs : IDokanOperations, IDisposable
         {
             if (entry.IsDirectory)
             {
-                // Console.WriteLine($"ZipFs.CreateFile: Path '{normalizedPath}' is an explicit directory entry.");
                 info.IsDirectory = true;
                 return mode switch
                 {
@@ -133,7 +126,6 @@ public class ZipFs : IDokanOperations, IDisposable
             }
             else
             {
-                // Console.WriteLine($"ZipFs.CreateFile: Path '{normalizedPath}' is a file entry. Size={entry.Size}.");
                 info.IsDirectory = false;
                 var canRead = access.HasFlag(FileAccess.GenericRead) || access.HasFlag(FileAccess.ReadData);
                 var result = mode switch
@@ -146,66 +138,70 @@ public class ZipFs : IDokanOperations, IDisposable
 
                 if (result != DokanResult.Success || !canRead) return result;
 
-                // For large files, don't cache in memory.
-                // ReadFile will handle reading directly from the zip entry.
-                // This is slower for random access but avoids OutOfMemoryException.
+                // **FIX 2: Efficient stream handling for both large and small files**
                 if (entry.Size > MaxMemoryCacheSize)
                 {
-                    // Console.WriteLine($"ZipFs.CreateFile: Entry '{normalizedPath}' is too large ({entry.Size} bytes) for in-memory cache. Using streaming fallback.");
-                    info.Context = null; // Ensure context is null so ReadFile uses its fallback logic.
+                    // For large files, open a live stream and keep it in context.
+                    // This avoids re-decompressing on every ReadFile call.
+                    try
+                    {
+                        Stream entryStream;
+                        lock (_zipLock) // **FIX 1: Thread-safe access**
+                        {
+                            entryStream = _zipFile.GetInputStream(entry);
+                        }
+
+                        info.Context = entryStream; // Store the live stream
+                    }
+                    catch (Exception ex)
+                    {
+                        _logErrorAction(ex, $"ZipFs.CreateFile: EXCEPTION opening stream for large entry '{normalizedPath}'.");
+                        return DokanResult.Error;
+                    }
                 }
                 else
                 {
-                    // For smaller files, use the existing in-memory cache logic.
+                    // For smaller files, cache the entire decompressed file in memory for speed.
                     try
                     {
-                        Console.WriteLine($"ZipFs.CreateFile: Caching entry '{normalizedPath}' to MemoryStream. Entry size: {entry.Size}");
-                        using var entryStream = _zipFile.GetInputStream(entry);
                         byte[] entryBytes;
-                        if (entry.Size == 0)
+                        lock (_zipLock) // **FIX 1: Thread-safe access**
                         {
-                            entryBytes = Array.Empty<byte>();
-                        }
-                        else
-                        {
-                            // The cast to (int) is safe because we've already checked entry.Size <= MaxMemoryCacheSize.
-                            using var tempMs = new MemoryStream((int)entry.Size);
-                            entryStream.CopyTo(tempMs);
-                            entryBytes = tempMs.ToArray();
+                            using var entryStream = _zipFile.GetInputStream(entry);
+                            if (entry.Size == 0)
+                            {
+                                entryBytes = Array.Empty<byte>();
+                            }
+                            else
+                            {
+                                using var tempMs = new MemoryStream((int)entry.Size);
+                                entryStream.CopyTo(tempMs);
+                                entryBytes = tempMs.ToArray();
+                            }
                         }
 
                         if (entryBytes.Length != entry.Size)
                         {
                             _logErrorAction(new InvalidDataException($"Mismatch reading entry '{normalizedPath}'. Expected {entry.Size}, got {entryBytes.Length}."),
                                 "ZipFs.CreateFile: Entry read mismatch.");
-                            // Potentially return an error here if this is critical
                         }
 
                         var memoryStream = new MemoryStream(entryBytes);
                         info.Context = memoryStream;
-                        // Console.WriteLine($"ZipFs.CreateFile: Successfully cached '{normalizedPath}' to MemoryStream ({memoryStream.Length} bytes).");
-                    }
-                    catch (OutOfMemoryException oomEx)
-                    {
-                        _logErrorAction(oomEx, $"ZipFs.CreateFile: OutOfMemoryException caching entry '{normalizedPath}'.");
-                        info.Context = null;
-                        return DokanResult.Error; // Out of memory
                     }
                     catch (Exception ex)
                     {
                         _logErrorAction(ex, $"ZipFs.CreateFile: EXCEPTION caching entry '{normalizedPath}'.");
                         info.Context = null;
-                        return DokanResult.Error; // Generic error
+                        return DokanResult.Error;
                     }
                 }
 
-                // Console.WriteLine($"ZipFs.CreateFile: File entry '{normalizedPath}', FileMode={mode}, returning {result}.");
                 return result;
             }
         }
         else if (_directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/")
         {
-            // Console.WriteLine($"ZipFs.CreateFile: Path '{normalizedPath}' is an implicit directory.");
             info.IsDirectory = true;
             return mode switch
             {
@@ -215,7 +211,6 @@ public class ZipFs : IDokanOperations, IDisposable
             };
         }
 
-        // Console.WriteLine($"ZipFs.CreateFile: Path not found for '{normalizedPath}'. Returning PathNotFound.");
         return DokanResult.PathNotFound;
     }
 
@@ -226,85 +221,42 @@ public class ZipFs : IDokanOperations, IDisposable
         long offset,
         IDokanFileInfo info)
     {
-        var normalizedPath = NormalizePath(fileName);
         bytesRead = 0;
-        // Console.WriteLine($"ZipFs.ReadFile: START - Path='{fileName}' (Norm='{normalizedPath}'), Offset={offset}, BufferLength={buffer.Length}");
+        var normalizedPath = NormalizePath(fileName);
 
-        if (info.IsDirectory)
+        if (info.Context is not Stream stream)
         {
-            _logErrorAction(new UnauthorizedAccessException($"Attempt to read a directory '{normalizedPath}' as a file."), "ZipFs.ReadFile: Directory read attempt.");
-            return DokanResult.AccessDenied;
+            _logErrorAction(new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was not a Stream."), "ZipFs.ReadFile: Invalid context.");
+            return DokanResult.Error;
         }
 
-        if (offset < 0)
+        try
         {
-            _logErrorAction(new ArgumentOutOfRangeException(nameof(offset), $"Negative offset {offset} requested for '{normalizedPath}'."), "ZipFs.ReadFile: Negative offset.");
-            return DokanResult.InvalidParameter;
-        }
-
-        if (info.Context is MemoryStream cachedStream)
-        {
-            // Console.WriteLine($"ZipFs.ReadFile: Using cached MemoryStream for '{normalizedPath}'. Length={cachedStream.Length}.");
-            try
+            if (stream.CanSeek)
             {
-                if (offset >= cachedStream.Length) return DokanResult.Success; // EOF
+                // This is a MemoryStream for a small, cached file.
+                if (offset >= stream.Length) return DokanResult.Success; // EOF
 
-                cachedStream.Position = offset;
-                bytesRead = cachedStream.Read(buffer, 0, buffer.Length);
-                return DokanResult.Success;
+                stream.Position = offset;
             }
-            catch (Exception ex)
+            else
             {
-                _logErrorAction(ex, $"ZipFs.ReadFile: EXCEPTION reading from cached MemoryStream for '{normalizedPath}', Offset={offset}.");
-                return DokanResult.Error;
-            }
-        }
-        else
-        {
-            // Console.WriteLine($"ZipFs.ReadFile: No cached MemoryStream for '{normalizedPath}'. Attempting direct entry read.");
-            if (!_zipEntries.TryGetValue(normalizedPath, out var entry)) return DokanResult.PathNotFound;
-
-            if (entry.IsDirectory)
-            {
-                _logErrorAction(new UnauthorizedAccessException($"Fallback read attempt on directory entry '{normalizedPath}'."), "ZipFs.ReadFile (fallback): Directory read attempt.");
-                return DokanResult.AccessDenied;
-            }
-
-            if (offset >= entry.Size) return DokanResult.Success; // EOF
-
-            try
-            {
-                using var entryStream = _zipFile.GetInputStream(entry);
-                if (offset > 0)
+                // This is a non-seekable, forward-only decompression stream for a large file.
+                // We must rely on reads being sequential. The 'offset' parameter should match the stream's current position.
+                if (offset != stream.Position)
                 {
-                    // The stream from GetInputStream is not seekable. The existing logic handles this.
-                    if (entryStream.CanSeek)
-                    {
-                        entryStream.Seek(offset, SeekOrigin.Begin);
-                    }
-                    else
-                    {
-                        var skipBuffer = new byte[Math.Min(4096, (int)Math.Min(offset, int.MaxValue))]; // Cap skip buffer size
-                        long skippedSoFar = 0;
-                        while (skippedSoFar < offset)
-                        {
-                            var toReadThisLoop = (int)Math.Min(skipBuffer.Length, offset - skippedSoFar);
-                            var skipped = entryStream.Read(skipBuffer, 0, toReadThisLoop);
-                            if (skipped == 0) return DokanResult.Success; // EOF while skipping
-
-                            skippedSoFar += skipped;
-                        }
-                    }
+                    _logErrorAction(new InvalidOperationException($"Non-sequential read requested for non-seekable stream. Path: '{normalizedPath}', Expected offset: {stream.Position}, Requested offset: {offset}."), "ZipFs.ReadFile: Non-sequential read on large file.");
+                    return DokanResult.Error; // Or DokanResult.InvalidParameter
                 }
+            }
 
-                bytesRead = entryStream.Read(buffer, 0, buffer.Length);
-                return DokanResult.Success;
-            }
-            catch (Exception ex)
-            {
-                _logErrorAction(ex, $"ZipFs.ReadFile (fallback): EXCEPTION for '{normalizedPath}', Offset={offset}.");
-                return DokanResult.Error;
-            }
+            bytesRead = stream.Read(buffer, 0, buffer.Length);
+            return DokanResult.Success;
+        }
+        catch (Exception ex)
+        {
+            _logErrorAction(ex, $"ZipFs.ReadFile: EXCEPTION reading from stream for '{normalizedPath}', Offset={offset}.");
+            return DokanResult.Error;
         }
     }
 
@@ -333,10 +285,6 @@ public class ZipFs : IDokanOperations, IDisposable
                 fileInfo.CreationTime = entry.DateTime;
                 fileInfo.LastAccessTime = DateTime.Now;
                 info.IsDirectory = false;
-                if (info.Context is MemoryStream ms)
-                {
-                    fileInfo.Length = ms.Length;
-                }
             }
 
             return DokanResult.Success;
@@ -377,7 +325,7 @@ public class ZipFs : IDokanOperations, IDisposable
                 .Where(kvp =>
                 {
                     var path = kvp.Key;
-                    if (path.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false; // Don't list itself
+                    if (path.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
                     if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
 
                     var remainder = path.Substring(searchPrefix.Length);
@@ -419,7 +367,7 @@ public class ZipFs : IDokanOperations, IDisposable
                     var remainder = k.Substring(searchPrefix.Length);
                     return !remainder.Contains('/') && !string.IsNullOrEmpty(remainder);
                 })
-                .Where(k => childEntries.All(e => NormalizePath(e.Name).TrimEnd('/') != k)) // Only if not already listed as explicit
+                .Where(k => childEntries.All(e => NormalizePath(e.Name).TrimEnd('/') != k))
                 .ToList();
 
             foreach (var dirPathKey in implicitChildDirs)
@@ -443,7 +391,7 @@ public class ZipFs : IDokanOperations, IDisposable
         catch (Exception ex)
         {
             _logErrorAction(ex, $"Error in FindFiles for path '{fileName}'.");
-            return DokanResult.Error; // Or another appropriate error code
+            return DokanResult.Error;
         }
 
         return DokanResult.Success;
@@ -471,15 +419,12 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public void Cleanup(string fileName, IDokanFileInfo info)
     {
-        // var normalizedPath = NormalizePath(fileName);
-        // Console.WriteLine($"ZipFs.Cleanup: Path='{fileName}' (Norm='{normalizedPath}'), Context? {info.Context != null}");
         if (info.Context is IDisposable disposableContext) disposableContext.Dispose();
         info.Context = null;
     }
 
     public void CloseFile(string fileName, IDokanFileInfo info)
     {
-        // Context should have been disposed in Cleanup.
         if (info.Context is not IDisposable disposableContext) return;
 
         _logErrorAction(new InvalidOperationException($"Context was still present in CloseFile for '{fileName}'. Disposing."), "ZipFs.CloseFile: Unexpected context.");
@@ -545,7 +490,6 @@ public class ZipFs : IDokanOperations, IDisposable
     public NtStatus LockFile(string fileName, long offset, long length, IDokanFileInfo info)
     {
         return DokanResult.Success;
-        // Read-only, so locking is trivial
     }
 
     public NtStatus UnlockFile(string fileName, long offset, long length, IDokanFileInfo info)
@@ -578,11 +522,11 @@ public class ZipFs : IDokanOperations, IDisposable
         {
             files = allFiles.Where(f => IsMatchSimple(f.FileName, searchPattern)).ToList();
         }
-        catch (ArgumentException ex) // Regex pattern compilation error
+        catch (ArgumentException ex)
         {
             _logErrorAction(ex, $"Invalid search pattern '{searchPattern}' in FindFilesWithPattern for path '{fileName}'.");
-            files = new List<FileInformation>(); // Return empty list on pattern error
-            return DokanResult.InvalidParameter; // Or some other error
+            files = new List<FileInformation>();
+            return DokanResult.InvalidParameter;
         }
 
         return DokanResult.Success;
@@ -593,7 +537,6 @@ public class ZipFs : IDokanOperations, IDisposable
         if (pattern.Equals("*", StringComparison.Ordinal) || pattern.Equals("*.*", StringComparison.Ordinal)) return true;
 
         var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
-        // ArgumentException from Regex.IsMatch is caught by the caller (FindFilesWithPattern)
         return Regex.IsMatch(input, regexPattern, RegexOptions.IgnoreCase);
     }
 
@@ -603,7 +546,6 @@ public class ZipFs : IDokanOperations, IDisposable
         try
         {
             var fs = new FileSecurity();
-            // Use a well-known SID for "Everyone" to avoid localization issues that cause IdentityNotMappedException.
             fs.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null), FileSystemRights.ReadAndExecute, AccessControlType.Allow));
             fs.SetOwner(new SecurityIdentifier(WellKnownSidType.WorldSid, null));
             fs.SetGroup(new SecurityIdentifier(WellKnownSidType.WorldSid, null));
@@ -624,8 +566,6 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public void Dispose()
     {
-        // Close will call Dispose. Since we created ZipFile with isStreamOwner: false,
-        // it will not dispose the underlying _sourceZipStream, which is managed by Program.cs.
         _zipFile?.Close();
         GC.SuppressFinalize(this);
     }
