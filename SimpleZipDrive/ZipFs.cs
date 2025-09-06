@@ -603,7 +603,8 @@ public class ZipFs : IDokanOperations, IDisposable
         try
         {
             var fs = new FileSecurity();
-            fs.AddAccessRule(new FileSystemAccessRule("Everyone", FileSystemRights.ReadAndExecute, AccessControlType.Allow));
+            // Use a well-known SID for "Everyone" to avoid localization issues that cause IdentityNotMappedException.
+            fs.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null), FileSystemRights.ReadAndExecute, AccessControlType.Allow));
             fs.SetOwner(new SecurityIdentifier(WellKnownSidType.WorldSid, null));
             fs.SetGroup(new SecurityIdentifier(WellKnownSidType.WorldSid, null));
             security = fs;

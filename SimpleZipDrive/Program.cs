@@ -29,7 +29,8 @@ file static class Program
                 break;
             case >= 2:
                 zipFilePath = args[0];
-                mountPointArg = args[1];
+                // Sanitize mount point argument to remove potential quotes from user input
+                mountPointArg = args[1].Trim().Trim('"');
                 Console.WriteLine($"Standard mode: ZIP file '{zipFilePath}', Mount point arg '{mountPointArg}'.");
                 break;
             default:
