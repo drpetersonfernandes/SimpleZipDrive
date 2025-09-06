@@ -116,7 +116,6 @@ file static class Program
             KeepConsoleOpenOnError();
         }
 
-
         if (mountLifecycleCompleted) Console.WriteLine("Mount operation concluded. Application will now exit.");
         else Console.WriteLine("No mount operation was successfully initiated or an early error prevented it.");
 
