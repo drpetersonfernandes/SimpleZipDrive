@@ -19,6 +19,9 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly Action<Exception?, string?> _logErrorAction;
     private readonly object _zipLock = new();
 
+    // OPTIMIZATION: Cache for large files extracted to disk. Key: normalized path in ZIP, Value: path to temp file.
+    private readonly Dictionary<string, string> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
+
     private const string VolumeLabel = "SimpleZipDrive";
     private static readonly char[] Separator = { '/' };
 
@@ -142,30 +145,68 @@ public class ZipFs : IDokanOperations, IDisposable
 
                 try
                 {
-                    byte[] entryBytes;
-                    lock (_zipLock)
+                    // FEATURE: Hybrid caching - memory for <2GB, temp disk file for >=2GB
+                    if (entry.Size >= int.MaxValue)
                     {
-                        using var entryStream = _zipFile.GetInputStream(entry);
-                        if (entry.Size == 0)
+                        string tempFilePath;
+                        // Lock to prevent race conditions where multiple threads try to extract the same file.
+                        lock (_largeFileCache)
                         {
-                            entryBytes = Array.Empty<byte>();
-                        }
-                        else
-                        {
-                            using var tempMs = new MemoryStream((int)entry.Size);
-                            entryStream.CopyTo(tempMs);
-                            entryBytes = tempMs.ToArray();
-                        }
-                    }
+                            if (_largeFileCache.TryGetValue(normalizedPath, out var cachedPath))
+                            {
+                                // --- Large file is already cached on disk, reuse it ---
+                                tempFilePath = cachedPath;
+                                Console.WriteLine($"Reusing existing temporary cache for '{normalizedPath}'.");
+                            }
+                            else
+                            {
+                                // --- Large file: Extract to temp file on disk for the first time ---
+                                Console.WriteLine($"Large file detected: '{normalizedPath}' ({entry.Size / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
+                                tempFilePath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive_" + Guid.NewGuid().ToString("N") + ".tmp");
 
-                    if (entryBytes.Length != entry.Size)
+                                lock (_zipLock)
+                                {
+                                    using var entryStream = _zipFile.GetInputStream(entry);
+                                    using var tempFileStream = new FileStream(tempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
+                                    entryStream.CopyTo(tempFileStream);
+                                }
+
+                                // Add to cache so we don't extract it again.
+                                _largeFileCache[normalizedPath] = tempFilePath;
+                                Console.WriteLine($"Extraction complete for '{normalizedPath}'. Temp file: '{tempFilePath}'");
+                            }
+                        }
+
+                        // Open the temp file for reading and assign it as the context for this specific handle.
+                        info.Context = new FileStream(tempFilePath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
+                    }
+                    else
                     {
-                        _logErrorAction(new InvalidDataException($"Mismatch reading entry '{normalizedPath}'. Expected {entry.Size}, got {entryBytes.Length}."),
-                            "ZipFs.CreateFile: Entry read mismatch.");
-                    }
+                        // --- Small file: Cache in memory ---
+                        byte[] entryBytes;
+                        lock (_zipLock)
+                        {
+                            using var entryStream = _zipFile.GetInputStream(entry);
+                            if (entry.Size == 0)
+                            {
+                                entryBytes = Array.Empty<byte>();
+                            }
+                            else
+                            {
+                                using var tempMs = new MemoryStream((int)entry.Size);
+                                entryStream.CopyTo(tempMs);
+                                entryBytes = tempMs.ToArray();
+                            }
+                        }
 
-                    var memoryStream = new MemoryStream(entryBytes);
-                    info.Context = memoryStream;
+                        if (entryBytes.Length != entry.Size)
+                        {
+                            _logErrorAction(new InvalidDataException($"Mismatch reading entry '{normalizedPath}'. Expected {entry.Size}, got {entryBytes.Length}."),
+                                "ZipFs.CreateFile: Entry read mismatch.");
+                        }
+
+                        info.Context = new MemoryStream(entryBytes);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -209,7 +250,6 @@ public class ZipFs : IDokanOperations, IDisposable
 
         try
         {
-            // The RandomAccessZipStream and MemoryStream both handle seeking properly
             if (stream.CanSeek)
             {
                 if (offset >= stream.Length) return DokanResult.Success; // EOF
@@ -218,7 +258,6 @@ public class ZipFs : IDokanOperations, IDisposable
             }
             else
             {
-                // This should not happen with our new implementation but keep as a fallback
                 if (offset != stream.Position)
                 {
                     _logErrorAction(new InvalidOperationException($"Non-sequential read requested for non-seekable stream. Path: '{normalizedPath}', Expected offset: {stream.Position}, Requested offset: {offset}."),
@@ -396,12 +435,20 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public void Cleanup(string fileName, IDokanFileInfo info)
     {
-        if (info.Context is IDisposable disposableContext) disposableContext.Dispose();
+        // This is called when a file handle is closed.
+        // We just need to dispose the stream (MemoryStream or FileStream).
+        // The temporary file itself will be deleted on Unmount (in Dispose).
+        if (info.Context is IDisposable disposableContext)
+        {
+            disposableContext.Dispose();
+        }
+
         info.Context = null;
     }
 
     public void CloseFile(string fileName, IDokanFileInfo info)
     {
+        // Cleanup should have already run. This is a safeguard.
         if (info.Context is not IDisposable disposableContext) return;
 
         _logErrorAction(new InvalidOperationException($"Context was still present in CloseFile for '{fileName}'. Disposing."), "ZipFs.CloseFile: Unexpected context.");
@@ -544,6 +591,28 @@ public class ZipFs : IDokanOperations, IDisposable
     public void Dispose()
     {
         _zipFile?.Close();
+
+        // When the drive is unmounted, clean up all temporary files that were created.
+        lock (_largeFileCache)
+        {
+            foreach (var tempFile in _largeFileCache.Values)
+            {
+                try
+                {
+                    if (File.Exists(tempFile))
+                    {
+                        File.Delete(tempFile);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logErrorAction(ex, $"Failed to delete temp file on dispose: {tempFile}");
+                }
+            }
+
+            _largeFileCache.Clear();
+        }
+
         GC.SuppressFinalize(this);
     }
 }
