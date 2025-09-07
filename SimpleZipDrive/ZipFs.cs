@@ -21,6 +21,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     // Cache for large files extracted to disk. Key: normalized path in ZIP, Value: path to the temp file.
     private readonly Dictionary<string, string> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
+    private const int MaxMemorySize = 536870912; // 512 MB (512x1024x1024)
 
     private const string VolumeLabel = "SimpleZipDrive";
     private static readonly char[] Separator = { '/' };
@@ -145,10 +146,8 @@ public class ZipFs : IDokanOperations, IDisposable
 
                 try
                 {
-                    // FEATURE: Hybrid caching - memory for <2GB, temp disk file for >=2GB
-                    // if (entry.Size >= int.MaxValue)
-                    const int maxMemorySize = 1 * 1024 * 1024 * 1024; // 1GB
-                    if (entry.Size >= maxMemorySize)
+                    // FEATURE: Hybrid caching - memory for small files, temp disk file for large files
+                    if (entry.Size >= MaxMemorySize)
                     {
                         string tempFilePath;
                         // Lock to prevent race conditions where multiple threads try to extract the same file.
