@@ -19,7 +19,7 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly Action<Exception?, string?> _logErrorAction;
     private readonly object _zipLock = new();
 
-    // OPTIMIZATION: Cache for large files extracted to disk. Key: normalized path in ZIP, Value: path to temp file.
+    // Cache for large files extracted to disk. Key: normalized path in ZIP, Value: path to the temp file.
     private readonly Dictionary<string, string> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
 
     private const string VolumeLabel = "SimpleZipDrive";
@@ -146,7 +146,9 @@ public class ZipFs : IDokanOperations, IDisposable
                 try
                 {
                     // FEATURE: Hybrid caching - memory for <2GB, temp disk file for >=2GB
-                    if (entry.Size >= int.MaxValue)
+                    // if (entry.Size >= int.MaxValue)
+                    const int maxMemorySize = 1 * 1024 * 1024 * 1024; // 1GB
+                    if (entry.Size >= maxMemorySize)
                     {
                         string tempFilePath;
                         // Lock to prevent race conditions where multiple threads try to extract the same file.
@@ -160,7 +162,7 @@ public class ZipFs : IDokanOperations, IDisposable
                             }
                             else
                             {
-                                // --- Large file: Extract to temp file on disk for the first time ---
+                                // --- Large file: Extract to the temp file on disk for the first time ---
                                 Console.WriteLine($"Large file detected: '{normalizedPath}' ({entry.Size / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
                                 tempFilePath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive_" + Guid.NewGuid().ToString("N") + ".tmp");
 
@@ -171,7 +173,7 @@ public class ZipFs : IDokanOperations, IDisposable
                                     entryStream.CopyTo(tempFileStream);
                                 }
 
-                                // Add to cache so we don't extract it again.
+                                // Add to the cache so we don't extract it again.
                                 _largeFileCache[normalizedPath] = tempFilePath;
                                 Console.WriteLine($"Extraction complete for '{normalizedPath}'. Temp file: '{tempFilePath}'");
                             }
@@ -436,7 +438,7 @@ public class ZipFs : IDokanOperations, IDisposable
     public void Cleanup(string fileName, IDokanFileInfo info)
     {
         // This is called when a file handle is closed.
-        // We just need to dispose the stream (MemoryStream or FileStream).
+        // We just need to dispose of the stream (MemoryStream or FileStream).
         // The temporary file itself will be deleted on Unmount (in Dispose).
         if (info.Context is IDisposable disposableContext)
         {
