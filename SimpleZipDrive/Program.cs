@@ -266,6 +266,17 @@ file static class Program
                 Console.CancelKeyPress -= cancelKeyPressHandler;
             }
 
+            try
+            {
+                Directory.Delete(Path.Combine(Path.GetTempPath(), "SimpleZipDrive"), true);
+                Console.WriteLine($"Deleted temp directory for '{mountPoint}'.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Failed to delete temp directory for '{mountPoint}'.");
+                _ = ErrorLogger.LogErrorAsync(ex, $"Failed to delete temp directory for '{mountPoint}'.");
+            }
+
             unmountBlocker.Dispose();
             Console.WriteLine($"Finished mount/unmount attempt for '{mountPoint}'.");
         }
