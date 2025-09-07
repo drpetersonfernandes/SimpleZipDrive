@@ -266,15 +266,20 @@ file static class Program
                 Console.CancelKeyPress -= cancelKeyPressHandler;
             }
 
+            // Clean up the dedicated temporary directory used by this application instance.
+            var tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive");
             try
             {
-                Directory.Delete(Path.Combine(Path.GetTempPath(), "SimpleZipDrive"), true);
-                Console.WriteLine($"Deleted temp directory for '{mountPoint}'.");
+                if (Directory.Exists(tempDirectoryPath))
+                {
+                    Directory.Delete(tempDirectoryPath, true);
+                    Console.WriteLine($"Successfully deleted temporary directory: '{tempDirectoryPath}'.");
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Warning: Failed to delete temp directory for '{mountPoint}'.");
-                _ = ErrorLogger.LogErrorAsync(ex, $"Failed to delete temp directory for '{mountPoint}'.");
+                Console.WriteLine($"Warning: Failed to delete temporary directory '{tempDirectoryPath}'. This may be due to locked files or permissions.");
+                _ = ErrorLogger.LogErrorAsync(ex, $"Failed to delete temp directory '{tempDirectoryPath}'.");
             }
 
             unmountBlocker.Dispose();

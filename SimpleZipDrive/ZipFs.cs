@@ -20,9 +20,9 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly object _zipLock = new();
 
     // Cache for large files extracted to disk. Key: normalized path in ZIP, Value: path to the temp file.
-    private readonly Dictionary<string, string> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string?> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
     private const int MaxMemorySize = 536870912; // 512 MB (512x1024x1024)
-    private string _tempFilePath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive" + Guid.NewGuid().ToString("N") + ".tmp");
+    private readonly string _tempDirectoryPath;
 
     private const string VolumeLabel = "SimpleZipDrive";
     private static readonly char[] Separator = { '/' };
@@ -31,9 +31,13 @@ public class ZipFs : IDokanOperations, IDisposable
     {
         _sourceZipStream = zipFileStream;
         _logErrorAction = logErrorAction ?? throw new ArgumentNullException(nameof(logErrorAction));
+        _tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive");
 
         try
         {
+            // Ensure the dedicated temporary directory exists for this session.
+            Directory.CreateDirectory(_tempDirectoryPath);
+
             _zipFile = new ZipFile(_sourceZipStream, false);
             InitializeEntries();
             Console.WriteLine($"ZipFs Constructor: Using SharpZipLib. _sourceZipStream.CanSeek = {_sourceZipStream.CanSeek}, _sourceZipStream type = {_sourceZipStream.GetType().FullName}");
@@ -150,36 +154,40 @@ public class ZipFs : IDokanOperations, IDisposable
                     // Hybrid caching - memory for small files, temp disk file for large files
                     if (entry.Size >= MaxMemorySize)
                     {
+                        string? cachedPath;
                         // Lock to prevent race conditions where multiple threads try to extract the same file.
                         lock (_largeFileCache)
                         {
-                            if (_largeFileCache.TryGetValue(normalizedPath, out var cachedPath))
-                            {
-                                // --- Large file is already cached on disk, reuse it ---
-                                _tempFilePath = cachedPath;
-                                Console.WriteLine($"Reusing existing temporary cache for '{normalizedPath}'.");
-                            }
-                            else
+                            if (!_largeFileCache.TryGetValue(normalizedPath, out cachedPath))
                             {
                                 // --- Large file: Extract to the temp file on disk for the first time ---
                                 Console.WriteLine($"Large file detected: '{normalizedPath}' ({entry.Size / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
-                                _tempFilePath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive_" + Guid.NewGuid().ToString("N") + ".tmp");
+                                var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
 
                                 lock (_zipLock)
                                 {
                                     using var entryStream = _zipFile.GetInputStream(entry);
-                                    using var tempFileStream = new FileStream(_tempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
+                                    using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
                                     entryStream.CopyTo(tempFileStream);
                                 }
 
                                 // Add to the cache so we don't extract it again.
-                                _largeFileCache[normalizedPath] = _tempFilePath;
-                                Console.WriteLine($"Extraction complete for '{normalizedPath}'. Temp file: '{_tempFilePath}'");
+                                _largeFileCache[normalizedPath] = newTempFilePath;
+                                cachedPath = newTempFilePath;
+                                Console.WriteLine($"Extraction complete for '{normalizedPath}'. Temp file: '{newTempFilePath}'");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Reusing existing temporary cache for '{normalizedPath}'.");
                             }
                         }
 
                         // Open the temp file for reading and assign it as the context for this specific handle.
-                        info.Context = new FileStream(_tempFilePath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
+                        if (cachedPath != null)
+                        {
+                            info.Context = new FileStream(cachedPath, FileMode.Open, System.IO.FileAccess.Read,
+                                FileShare.Read);
+                        }
                     }
                     else
                     {
