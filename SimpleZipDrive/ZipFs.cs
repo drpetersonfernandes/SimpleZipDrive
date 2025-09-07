@@ -16,12 +16,11 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly Dictionary<string, DateTime> _directoryLastWriteTimes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryLastAccessTimes = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Action<Exception?, string?> _logErrorAction; // Delegate for logging
-    private readonly object _zipLock = new(); // **FIX 1: Lock for thread-safe access to _zipFile**
+    private readonly Action<Exception?, string?> _logErrorAction;
+    private readonly object _zipLock = new();
 
     private const string VolumeLabel = "SimpleZipDrive";
     private static readonly char[] Separator = { '/' };
-    private const long MaxMemoryCacheSize = 1000 * 1024 * 1024;
 
     public ZipFs(Stream zipFileStream, string mountPoint, Action<Exception?, string?> logErrorAction)
     {
@@ -141,66 +140,38 @@ public class ZipFs : IDokanOperations, IDisposable
 
                 if (result != DokanResult.Success || !canRead) return result;
 
-                if (entry.Size > MaxMemoryCacheSize)
+                try
                 {
-                    // For large files, use a random access stream that can handle seeks
-                    try
+                    byte[] entryBytes;
+                    lock (_zipLock)
                     {
-                        // Create a stream accessor that safely accesses the ZipFile with locking
-                        void StreamAccessor(ZipEntry zipEntry, Action<Stream> action)
+                        using var entryStream = _zipFile.GetInputStream(entry);
+                        if (entry.Size == 0)
                         {
-                            lock (_zipLock)
-                            {
-                                using var entryStream = _zipFile.GetInputStream(zipEntry);
-                                action(entryStream);
-                            }
+                            entryBytes = Array.Empty<byte>();
                         }
+                        else
+                        {
+                            using var tempMs = new MemoryStream((int)entry.Size);
+                            entryStream.CopyTo(tempMs);
+                            entryBytes = tempMs.ToArray();
+                        }
+                    }
 
-                        var randomAccessStream = new RandomAccessZipStream(entry, StreamAccessor);
-                        info.Context = randomAccessStream;
-                    }
-                    catch (Exception ex)
+                    if (entryBytes.Length != entry.Size)
                     {
-                        _logErrorAction(ex, $"ZipFs.CreateFile: EXCEPTION creating random access stream for large entry '{normalizedPath}'.");
-                        return DokanResult.Error;
+                        _logErrorAction(new InvalidDataException($"Mismatch reading entry '{normalizedPath}'. Expected {entry.Size}, got {entryBytes.Length}."),
+                            "ZipFs.CreateFile: Entry read mismatch.");
                     }
+
+                    var memoryStream = new MemoryStream(entryBytes);
+                    info.Context = memoryStream;
                 }
-                else
+                catch (Exception ex)
                 {
-                    // For smaller files, cache the entire decompressed file in memory for speed.
-                    try
-                    {
-                        byte[] entryBytes;
-                        lock (_zipLock) // **FIX 1: Thread-safe access**
-                        {
-                            using var entryStream = _zipFile.GetInputStream(entry);
-                            if (entry.Size == 0)
-                            {
-                                entryBytes = Array.Empty<byte>();
-                            }
-                            else
-                            {
-                                using var tempMs = new MemoryStream((int)entry.Size);
-                                entryStream.CopyTo(tempMs);
-                                entryBytes = tempMs.ToArray();
-                            }
-                        }
-
-                        if (entryBytes.Length != entry.Size)
-                        {
-                            _logErrorAction(new InvalidDataException($"Mismatch reading entry '{normalizedPath}'. Expected {entry.Size}, got {entryBytes.Length}."),
-                                "ZipFs.CreateFile: Entry read mismatch.");
-                        }
-
-                        var memoryStream = new MemoryStream(entryBytes);
-                        info.Context = memoryStream;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logErrorAction(ex, $"ZipFs.CreateFile: EXCEPTION caching entry '{normalizedPath}'.");
-                        info.Context = null;
-                        return DokanResult.Error;
-                    }
+                    _logErrorAction(ex, $"ZipFs.CreateFile: EXCEPTION caching entry '{normalizedPath}'.");
+                    info.Context = null;
+                    return DokanResult.Error;
                 }
 
                 return result;
@@ -568,225 +539,6 @@ public class ZipFs : IDokanOperations, IDisposable
     public NtStatus SetFileSecurity(string fileName, FileSystemSecurity security, AccessControlSections sections, IDokanFileInfo info)
     {
         return DokanResult.AccessDenied;
-    }
-
-    public class RandomAccessZipStream : Stream
-    {
-        private readonly ZipEntry _entry;
-        private readonly Action<ZipEntry, Action<Stream>> _streamAccessor; // Callback to safely access ZipFile
-        private readonly long _entrySize;
-        private long _currentPosition;
-        private readonly Dictionary<long, byte[]> _cachedBlocks = new();
-        private const int BlockSize = 64 * 1024; // 64KB blocks
-
-        public RandomAccessZipStream(ZipEntry entry, Action<ZipEntry, Action<Stream>> streamAccessor)
-        {
-            _entry = entry;
-            _streamAccessor = streamAccessor;
-            _entrySize = entry.Size;
-            _currentPosition = 0;
-        }
-
-        public override bool CanRead => true;
-        public override bool CanSeek => true;
-        public override bool CanWrite => false;
-        public override long Length => _entrySize;
-
-        public override long Position
-        {
-            get => _currentPosition;
-            set => _currentPosition = value;
-        }
-
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            if (_currentPosition >= _entrySize)
-                return 0;
-
-            int bytesRead;
-            var bytesToRead = (int)Math.Min(count, _entrySize - _currentPosition);
-
-            // For small reads within a reasonable range, use block caching
-            if (bytesToRead <= BlockSize * 4) // Up to 256KB
-            {
-                bytesRead = ReadWithCaching(buffer, offset, bytesToRead);
-            }
-            else
-            {
-                // For large reads, create a fresh stream and skip to position
-                bytesRead = ReadDirect(buffer, offset, bytesToRead);
-            }
-
-            _currentPosition += bytesRead;
-            return bytesRead;
-        }
-
-        private int ReadWithCaching(byte[] buffer, int offset, int count)
-        {
-            var totalBytesRead = 0;
-            var currentPosition = _currentPosition;
-
-            while (totalBytesRead < count && currentPosition < _entrySize)
-            {
-                var blockStart = (currentPosition / BlockSize) * BlockSize;
-                var blockOffset = (int)(currentPosition - blockStart);
-                var bytesFromThisBlock = Math.Min(count - totalBytesRead, BlockSize - blockOffset);
-
-                // Get or create a block
-                if (!_cachedBlocks.TryGetValue(blockStart, out var blockData))
-                {
-                    blockData = LoadBlock(blockStart);
-                    if (blockData != null)
-                    {
-                        _cachedBlocks[blockStart] = blockData;
-                    }
-                    else
-                    {
-                        break; // Error loading block
-                    }
-                }
-
-                var bytesAvailableInBlock = Math.Min(blockData.Length - blockOffset, bytesFromThisBlock);
-                if (bytesAvailableInBlock > 0)
-                {
-                    Array.Copy(blockData, blockOffset, buffer, offset + totalBytesRead, bytesAvailableInBlock);
-                    totalBytesRead += bytesAvailableInBlock;
-                    currentPosition += bytesAvailableInBlock;
-                }
-                else
-                {
-                    break;
-                }
-            }
-
-            return totalBytesRead;
-        }
-
-        private byte[]? LoadBlock(long blockStart)
-        {
-            try
-            {
-                byte[]? result = null;
-                Exception? exception = null;
-
-                _streamAccessor(_entry, stream =>
-                {
-                    try
-                    {
-                        // Skip to the block start position
-                        if (blockStart > 0)
-                        {
-                            stream.Seek(blockStart, SeekOrigin.Begin);
-                        }
-
-                        var blockSize = (int)Math.Min(BlockSize, _entrySize - blockStart);
-                        var blockData = new byte[blockSize];
-                        var totalRead = 0;
-
-                        while (totalRead < blockSize)
-                        {
-                            var read = stream.Read(blockData, totalRead, blockSize - totalRead);
-                            if (read == 0) break;
-
-                            totalRead += read;
-                        }
-
-                        result = blockData;
-                    }
-                    catch (Exception ex)
-                    {
-                        exception = ex;
-                    }
-                });
-
-                if (exception != null)
-                    throw exception;
-
-                return result;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private int ReadDirect(byte[] buffer, int offset, int count)
-        {
-            try
-            {
-                var bytesRead = 0;
-                Exception? exception = null;
-
-                _streamAccessor(_entry, stream =>
-                {
-                    try
-                    {
-                        // Skip to the current position
-                        if (_currentPosition > 0)
-                        {
-                            stream.Seek(_currentPosition, SeekOrigin.Begin);
-                        }
-
-                        bytesRead = stream.Read(buffer, offset, count);
-                    }
-                    catch (Exception ex)
-                    {
-                        exception = ex;
-                    }
-                });
-
-                if (exception != null)
-                    throw exception;
-
-                return bytesRead;
-            }
-            catch
-            {
-                return 0;
-            }
-        }
-
-        public override long Seek(long offset, SeekOrigin origin)
-        {
-            var newPosition = origin switch
-            {
-                SeekOrigin.Begin => offset,
-                SeekOrigin.Current => _currentPosition + offset,
-                SeekOrigin.End => _entrySize + offset,
-                _ => throw new ArgumentException("Invalid seek origin")
-            };
-
-            if (newPosition < 0 || newPosition > _entrySize)
-                throw new IOException("Seek position is out of range");
-
-            _currentPosition = newPosition;
-            return _currentPosition;
-        }
-
-        public override void SetLength(long value)
-        {
-            throw new NotSupportedException();
-        }
-
-        public override void Write(byte[] buffer, int offset, int count)
-        {
-            throw new NotSupportedException();
-        }
-
-        public override void Flush()
-        {
-            // No-op for read-only stream
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                _cachedBlocks.Clear();
-            }
-
-            base.Dispose(disposing);
-        }
     }
 
     public void Dispose()
