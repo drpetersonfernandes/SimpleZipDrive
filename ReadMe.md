@@ -4,7 +4,7 @@ This application allows you to mount ZIP archive files as virtual drives or dire
 
 It accesses the source ZIP file via a file stream directly from disk. This approach supports very large archives without consuming excessive RAM for the archive itself, regardless of its size.
 
-For files *within* the ZIP archive, when an application (like an emulator) opens a file for reading, its entire decompressed content is cached into an in-memory stream. This significantly speeds up random access reads required by many applications.
+For files *within* the ZIP archive, when an application (like an emulator) opens a file for reading, its entire decompressed content is cached into an in-memory stream or temporary disk file. This significantly speeds up random access reads required by many applications.
 
 ## Features
 
@@ -13,8 +13,12 @@ For files *within* the ZIP archive, when an application (like an emulator) opens
 *   Read-only access to the ZIP contents.
 *   Efficiently handles ZIP files of all sizes by streaming the main archive from disk.
 *   Caches individual decompressed file entries from the ZIP into memory upon first access for fast subsequent reads.
+*   Large file support with hybrid caching - files larger than 512MB are extracted to temporary disk files.
 *   Handles basic file and directory information (names, sizes, timestamps).
 *   Basic wildcard support for file searching within the mounted ZIP.
+*   Automatic update checking for new versions.
+*   Comprehensive error logging with both local file logging and remote error reporting.
+*   Automatic cleanup of temporary files on unmount.
 
 ## Prerequisites
 
@@ -61,7 +65,7 @@ SimpleZipDrive.exe <PathToZipFile> <MountPoint>
 
 *   Mount `another_archive.zip` to a folder `C:\myvirtualdrive`:
     ```shell
-    SimpleZipDrive.exe "D:\games\game_files.zip" "C:\myvirtualdrive"
+    SimpleZipDrive.exe "D:\games\another_archive.zip" "C:\myvirtualdrive"
     ```
     The ZIP contents will be accessible at `C:\myvirtualdrive\`.
 
@@ -85,9 +89,13 @@ The application will attempt to unmount the virtual drive/directory upon exit.
 *   **Read-Only:** This is a read-only filesystem. You cannot write, delete, or modify files within the mounted ZIP.
 *   **Memory Usage:**
     *   The source ZIP file itself is always streamed from disk, minimizing initial RAM usage for the archive.
-    *   Individual files *inside* the ZIP are fully decompressed and cached into memory when an application (like an emulator) opens them for reading. This is done to provide fast random access. If many large files are opened simultaneously by the accessing application, the `SimpleZipDrive.exe` process could consume significant RAM. Memory for a cached file is released when the accessing application closes its handle to that file.
+    *   Individual files *inside* the ZIP are fully decompressed and cached into memory when an application (like an emulator) opens them for reading. This is done to provide fast random access.
+    *   Files larger than 512MB are extracted to temporary disk files instead of being cached in memory.
+    *   If many large files are opened simultaneously by the accessing application, the `SimpleZipDrive.exe` process could consume significant RAM. Memory for a cached file is released when the accessing application closes its handle to that file.
+*   **Temporary Files:** Temporary files are created in `%TEMP%\SimpleZipDrive` for large file caching and are automatically cleaned up on unmount.
 *   **Dokan Driver:** Ensure the Dokan driver is correctly installed and running. If you have issues, reinstalling Dokan might help.
-*   **Error Handling:** The application includes basic error handling and logging to the console. If a mount fails (either via command-line or drag-and-drop), the console window will remain open with error details. For more detailed Dokan-level debugging, you can uncomment the `DokanOptions.DebugMode` and `DokanOptions.StderrOutput` lines in `Program.cs` and use a tool like DebugView (DbgView.exe from Sysinternals) to capture kernel messages.
+*   **Error Handling:** The application includes comprehensive error handling with local logging to `error.log` and `critical_error.log` files in the application directory, as well as remote error reporting. If a mount fails (either via command-line or drag-and-drop), the console window will remain open with error details. For more detailed Dokan-level debugging, you can uncomment the `DokanOptions.DebugMode` and `DokanOptions.StderrOutput` lines in `Program.cs` and use a tool like DebugView (DbgView.exe from Sysinternals) to capture kernel messages.
+*   **Automatic Updates:** The application will automatically check for updates on startup and prompt you to visit the GitHub releases page if a newer version is available.
 
 ## Troubleshooting
 
@@ -105,19 +113,24 @@ The application will attempt to unmount the virtual drive/directory upon exit.
     *   Try running `SimpleZipDrive.exe` as an administrator first, then drag the file onto it.
 *   **"Error: ZIP file not found..."**: Double-check the path to your ZIP file (for command-line usage).
 *   **"Out of Memory Error"**:
-    *   This typically happens during `CreateFile` (logged by `ZipFs`), meaning an individual file *within* the ZIP was too large to cache in memory (either >1GB or system RAM exhausted by cumulative caching of multiple files). This can occur if the accessing application opens very large files or many files simultaneously.
+    *   This typically happens during `CreateFile` (logged by `ZipFs`), meaning an individual file *within* the ZIP was too large to cache in memory. Files larger than 512MB are automatically extracted to temporary disk files to prevent this issue.
+    *   This can also occur if system RAM is exhausted by cumulative caching of multiple files. This can happen if the accessing application opens very large files or many files simultaneously.
 *   **Application (e.g., an emulator) fails to read files correctly:**
     *   Check the console output of `SimpleZipDrive.exe` for any errors logged by `ZipFs`.
+    *   Check the `error.log` file in the application directory for detailed error information.
     *   Enable Dokan kernel logging (see "Important Notes") and use DbgView to look for lower-level errors.
+*   **Temporary Directory Issues**:
+    *   If you encounter issues with temporary file creation, ensure the `%TEMP%\SimpleZipDrive` directory is writable and not locked by other processes.
+    *   The application attempts to clean up temporary files automatically, but in case of crashes, you may need to manually delete this directory.
 
 ## Support the Project
 
 If you find Simple Zip Drive useful, please consider supporting its development:
 
 *   **Star the Repository:** Show your appreciation by starring the project on GitHub!
-*   **Donate:** Contributions help cover development time and costs. You can donate at: [https://purelogiccode.com/Donate](https://purelogiccode.com/Donate)
+*   **Donate:** Contributions help cover development time and costs. You can donate at: [https://www.purelogiccode.com/Donate](https://www.purelogiccode.com/Donate)
 
-The developer's website is [PureLogic Code](https://purelogiccode.com/).
+The developer's website is [PureLogic Code](https://www.purelogiccode.com/).
 
 ## License
 
