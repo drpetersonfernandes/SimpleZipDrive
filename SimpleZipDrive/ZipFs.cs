@@ -224,6 +224,15 @@ public class ZipFs : IDokanOperations, IDisposable
                     return DokanResult.Error;
                 }
 
+                // Defensive check: If we're about to return success for a file, ensure info.Context is a Stream.
+                // This should ideally never be hit if the try block succeeded.
+                if (info.Context is not Stream)
+                {
+                    _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: Context was not set to a Stream for file '{normalizedPath}' despite successful caching attempt and returning Success."), "ZipFs.CreateFile: Context not Stream after success.");
+                    info.Context = null; // Ensure it's explicitly null
+                    return DokanResult.Error; // Force an error
+                }
+
                 return result;
             }
         }

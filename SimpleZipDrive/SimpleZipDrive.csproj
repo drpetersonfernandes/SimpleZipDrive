@@ -9,8 +9,8 @@
 	<DebugSymbols>true</DebugSymbols>
 	<ApplicationIcon>icon\zip.ico</ApplicationIcon>
 	<IsPackable>false</IsPackable>
-	<AssemblyVersion>1.4</AssemblyVersion>
-	<FileVersion>1.4</FileVersion>
+	<AssemblyVersion>1.4.1</AssemblyVersion>
+	<FileVersion>1.4.1</FileVersion>
 	<NeutralLanguage>en</NeutralLanguage>
     </PropertyGroup>
 
