@@ -257,6 +257,22 @@ file static class Program
             // This also catches errors like FileStream creation failure before ZipFs is even instantiated.
             _ = ErrorLogger.LogErrorAsync(ex, context);
 
+            // --- Specific message for ZipException ---
+            // The Zip file is corrupted or invalid.
+            if (ex is ICSharpCode.SharpZipLib.Zip.ZipException zipEx &&
+                zipEx.Message.Contains("Cannot find central directory", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("\n--- ZIP FILE ERROR ---");
+                Console.WriteLine($"Error: The ZIP file '{zipFilePath}' appears to be corrupted or invalid.");
+                Console.WriteLine("Reason: The application could not find the central directory within the ZIP archive.");
+                Console.WriteLine("Please ensure the ZIP file is complete and not corrupted.");
+            }
+            else
+            {
+                Console.WriteLine($"An unexpected error occurred during mount setup: {ex.Message}");
+                Console.WriteLine("Please check the 'error.log' file for more details.");
+            }
+
             return false;
         }
         finally

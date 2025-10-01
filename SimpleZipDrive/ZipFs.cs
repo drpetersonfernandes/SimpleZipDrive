@@ -164,6 +164,38 @@ public class ZipFs : IDokanOperations, IDisposable
                                 Console.WriteLine($"Large file detected: '{normalizedPath}' ({entry.Size / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
                                 var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
 
+                                // --- Disk space check ---
+                                try
+                                {
+                                    var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath);
+                                    if (string.IsNullOrEmpty(tempDrivePathRoot))
+                                    {
+                                        // Fallback to C: if root cannot be determined, but log a warning.
+                                        _logErrorAction(null, $"Could not determine drive root for temp path '{newTempFilePath}' for large file extraction of '{normalizedPath}'. Assuming C:\\.");
+                                        tempDrivePathRoot = "C:\\";
+                                    }
+
+                                    var tempDrive = new DriveInfo(tempDrivePathRoot);
+                                    if (!tempDrive.IsReady)
+                                    {
+                                        _logErrorAction(null, $"Temp drive '{tempDrive.Name}' is not ready for large file extraction of '{normalizedPath}'.");
+                                        return DokanResult.DiskFull;
+                                    }
+
+                                    if (tempDrive.AvailableFreeSpace < entry.Size)
+                                    {
+                                        var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entry.Size / 1024.0 / 1024.0:F2} MB) to '{newTempFilePath}'. Available: {tempDrive.AvailableFreeSpace / 1024.0 / 1024.0:F2} MB. Required: {entry.Size / 1024.0 / 1024.0:F2} MB.";
+                                        _logErrorAction(new IOException(errorMessage), "ZipFs.CreateFile: Disk space check failed.");
+                                        return DokanResult.DiskFull;
+                                    }
+                                }
+                                catch (Exception driveEx)
+                                {
+                                    // Log the error but attempt to proceed, as the CopyTo might still succeed
+                                    // if the drive check itself failed for a non-space-related reason.
+                                    _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'. Proceeding with extraction, but this check failed.");
+                                }
+
                                 lock (_zipLock)
                                 {
                                     using var entryStream = _zipFile.GetInputStream(entry);
@@ -296,8 +328,8 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public NtStatus GetFileInformation(string fileName, out FileInformation fileInfo, IDokanFileInfo info)
     {
-        var normalizedPath = NormalizePath(fileName);
         fileInfo = new FileInformation();
+        var normalizedPath = NormalizePath(fileName);
 
         if (_zipEntries.TryGetValue(normalizedPath, out var entry))
         {
