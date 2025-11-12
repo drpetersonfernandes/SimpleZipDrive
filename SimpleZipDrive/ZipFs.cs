@@ -117,12 +117,6 @@ public class ZipFs : IDokanOperations, IDisposable
     {
         var normalizedPath = NormalizePath(fileName);
 
-        if (info.Context is IDisposable existingContextDisposable)
-        {
-            existingContextDisposable.Dispose();
-            info.Context = null;
-        }
-
         if (_zipEntries.TryGetValue(normalizedPath, out var entry))
         {
             if (entry.IsDirectory)
