@@ -1,5 +1,6 @@
-﻿using DokanNet;
+using DokanNet;
 using DokanNet.Logging;
+using System.Security.Principal;
 
 namespace SimpleZipDrive;
 
@@ -45,6 +46,13 @@ file static class Program
             Console.WriteLine(errorMsg);
             KeepConsoleOpenOnError();
             return;
+        }
+
+        if (!IsAdministrator())
+        {
+            Console.WriteLine("\nWarning: Running without Administrator privileges.");
+            Console.WriteLine("Mounting to drive letters or certain paths may require elevated permissions.");
+            Console.WriteLine("If mounting fails, please try running SimpleZipDrive.exe as Administrator.");
         }
 
         ILogger logger = new ConsoleLogger("[DokanNet] ");
@@ -301,5 +309,12 @@ file static class Program
             unmountBlocker.Dispose();
             Console.WriteLine($"Finished mount/unmount attempt for '{mountPoint}'.");
         }
+    }
+
+    private static bool IsAdministrator()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var principal = new WindowsPrincipal(identity);
+        return principal.IsInRole(WindowsBuiltInRole.Administrator);
     }
 }
