@@ -2,7 +2,7 @@
 
 This application allows you to mount ZIP archive files as virtual drives or directories on your Windows system using the DokanNet library. It provides read-only access to the contents of the ZIP file as if it were a regular part of your filesystem.
 
-It accesses the source ZIP file via a file stream directly from disk. This approach supports very large archives without consuming excessive RAM for the archive itself, regardless of its size.
+It accesses the source ZIP file via a file stream directly from the disk. This approach supports very large archives without consuming excessive RAM for the archive itself, regardless of its size.
 
 For files *within* the ZIP archive, when an application (like an emulator) opens a file for reading, its entire decompressed content is cached into an in-memory stream or temporary disk file. This significantly speeds up random access reads required by many applications.
 
@@ -11,9 +11,9 @@ For files *within* the ZIP archive, when an application (like an emulator) opens
 *   Mount ZIP archives as virtual drives (e.g., `M:\`) or to an NTFS folder mount point (e.g., `C:\mount\myzip`).
 *   **Drag-and-drop a ZIP file onto the `SimpleZipDrive.exe` icon to automatically attempt mounting it.** It will try drive letters M:, N:, O:, P:, then Q: in sequence.
 *   Read-only access to the ZIP contents.
-*   Efficiently handles ZIP files of all sizes by streaming the main archive from disk.
+*   Efficiently handles ZIP files of all sizes by streaming the main archive from the disk.
 *   Caches individual decompressed file entries from the ZIP into memory upon first access for fast subsequent reads.
-*   Large file support with hybrid caching - files larger than 512MB are extracted to temporary disk files.
+*   Large file support with hybrid caching – files larger than 512MB are extracted to temporary disk files.
 *   Handles basic file and directory information (names, sizes, timestamps).
 *   Basic wildcard support for file searching within the mounted ZIP.
 *   Automatic update checking for new versions.
@@ -22,18 +22,9 @@ For files *within* the ZIP archive, when an application (like an emulator) opens
 
 ## Prerequisites
 
-1.  **.NET Runtime:** The application is built for .NET 9.0 (or a compatible newer version). You'll need the .NET Desktop Runtime installed.
+1.  **.NET Runtime:** The application is built for .NET 10.0 (or a compatible newer version). You'll need the .NET Desktop Runtime installed.
 2.  **Dokan Library:** This application depends on the Dokan user-mode file system library for Windows.
     *   Download and install the latest Dokan library from the official DokanNet GitHub releases: [https://github.com/dokan-dev/dokany/releases](https://github.com/dokan-dev/dokany/releases).
-
-## How to Build
-
-1.  Clone or download this repository/source code.
-2.  Open the solution in Visual Studio (2022 or later recommended) or use the .NET CLI.
-3.  Ensure the `DokanNet` and `SharpZipLib` NuGet packages are restored. The provided `.csproj` file includes these dependencies.
-4.  Build the solution (e.g., `dotnet build -c Release`).
-
-The executable `SimpleZipDrive.exe` will be in the `bin\Release\net9.0-windows` (or similar) directory.
 
 ## How to Use
 
@@ -71,7 +62,7 @@ SimpleZipDrive.exe <PathToZipFile> <MountPoint>
 
 **2. Drag-and-Drop (Automatic Mount Point):**
 
-*   Simply drag your `.zip` file from Windows Explorer and drop it onto the `SimpleZipDrive.exe` icon.
+*   Drag your `.zip` file from Windows Explorer and drop it onto the `SimpleZipDrive.exe` icon.
 *   The application will attempt to mount the ZIP file automatically. It will first try to use drive letter `M:\`. If `M:\` is unavailable, it will try `N:\`, then `O:\`, `P:\`, and finally `Q:\`.
 *   If a mount is successful, the console window will remain open, showing the active mount.
 *   If all preferred drive letters (M-Q) are unavailable or an error occurs, the console window will remain open displaying the error messages.
@@ -79,7 +70,7 @@ SimpleZipDrive.exe <PathToZipFile> <MountPoint>
 **To Unmount (for both methods):**
 
 *   Press `Ctrl+C` in the console window where `SimpleZipDrive.exe` is running.
-*   Alternatively, simply close the console window.
+*   Alternatively, close the console window.
 
 The application will attempt to unmount the virtual drive/directory upon exit.
 
@@ -88,7 +79,7 @@ The application will attempt to unmount the virtual drive/directory upon exit.
 *   **Administrator Privileges:** Mounting to a drive letter or certain system paths might require running the application as an Administrator. If you encounter "Access Denied" or "MountPoint" errors (especially with drag-and-drop if preferred drive letters are in use by system processes or require elevation), try running `SimpleZipDrive.exe` from an administrative command prompt, or by right-clicking the .exe and choosing "Run as administrator" before dragging a file onto it.
 *   **Read-Only:** This is a read-only filesystem. You cannot write, delete, or modify files within the mounted ZIP.
 *   **Memory Usage:**
-    *   The source ZIP file itself is always streamed from disk, minimizing initial RAM usage for the archive.
+    *   The source ZIP file itself is always streamed from the disk, minimizing initial RAM usage for the archive.
     *   Individual files *inside* the ZIP are fully decompressed and cached into memory when an application (like an emulator) opens them for reading. This is done to provide fast random access.
     *   Files larger than 512MB are extracted to temporary disk files instead of being cached in memory.
     *   If many large files are opened simultaneously by the accessing application, the `SimpleZipDrive.exe` process could consume significant RAM. Memory for a cached file is released when the accessing application closes its handle to that file.
@@ -140,4 +131,4 @@ This project has a GPL-3.0 license. The DokanNet and SharpZipLib libraries have 
 
 *   [DokanNet](https://github.com/dokan-dev/dokan-dotnet) - .NET wrapper for Dokan
 *   [Dokan](https://github.com/dokan-dev/dokany) - User-mode file system library for Windows
-*   [SharpZipLib](https://github.com/icsharpcode/SharpZipLib) - A comprehensive Zip, GZip, Tar and BZip2 library for .NET
+*   [SharpZipLib](https://github.com/icsharpcode/SharpZipLib) – A comprehensive Zip, GZip, Tar and BZip2 library for .NET
