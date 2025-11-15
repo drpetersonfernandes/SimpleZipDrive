@@ -141,7 +141,13 @@ public class ZipFs : IDokanOperations, IDisposable
                     _ => DokanResult.AccessDenied
                 };
 
-                if (result != DokanResult.Success || !canRead) return result;
+                if (result != DokanResult.Success)
+                {
+                    return result;
+                }
+
+                // If read access is not requested, we don't need to create a stream.
+                if (!canRead) return result; // Return Success, as the handle is valid for non-read operations.
 
                 try
                 {
@@ -288,8 +294,11 @@ public class ZipFs : IDokanOperations, IDisposable
 
         if (info.Context is not Stream stream)
         {
-            _logErrorAction(new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was not a Stream."), "ZipFs.ReadFile: Invalid context.");
-            return DokanResult.Error;
+            // This case is hit if CreateFile was called without read access flags.
+            // The handle is valid, but no stream was prepared. A subsequent read should be denied.
+            _logErrorAction(new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was not a Stream. This typically means the file was opened without read access."),
+                "ZipFs.ReadFile: Invalid context - returning AccessDenied.");
+            return DokanResult.AccessDenied;
         }
 
         try
