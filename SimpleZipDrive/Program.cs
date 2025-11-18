@@ -300,6 +300,11 @@ file static class Program
                     Console.WriteLine($"Successfully deleted temporary directory: '{tempDirectoryPath}'.");
                 }
             }
+            catch (DirectoryNotFoundException)
+            {
+                // Harmless race condition: another process or instance deleted it between our check and our delete call.
+                // The directory is gone, which was the goal, so we can ignore this.
+            }
             catch (Exception ex)
             {
                 Console.WriteLine($"Warning: Failed to delete temporary directory '{tempDirectoryPath}'. This may be due to locked files or permissions.");

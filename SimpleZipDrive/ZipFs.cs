@@ -170,7 +170,7 @@ public class ZipFs : IDokanOperations, IDisposable
                                     var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath);
                                     if (string.IsNullOrEmpty(tempDrivePathRoot))
                                     {
-                                        // Fallback to C: if root cannot be determined, but log a warning.
+                                        // Fallback to C: if the root cannot be determined, but log a warning.
                                         _logErrorAction(null, $"Could not determine drive root for temp path '{newTempFilePath}' for large file extraction of '{normalizedPath}'. Assuming C:\\.");
                                         tempDrivePathRoot = "C:\\";
                                     }
@@ -249,6 +249,15 @@ public class ZipFs : IDokanOperations, IDisposable
                         info.Context = new MemoryStream(entryBytes);
                     }
                 }
+                catch (ZipException zipEx)
+                {
+                    var contextMessage = $"ZipFs.CreateFile: A ZipException occurred while trying to read the file entry '{normalizedPath}' from the archive. This often indicates that this specific file's data within the ZIP is corrupt, even if the archive's central directory is readable.";
+                    _logErrorAction(zipEx, contextMessage);
+                    Console.Error.WriteLine($"\n[ZipFS Error] Failed to read file '{fileName}' from the archive. The file entry appears to be corrupt or uses an unsupported format.");
+                    Console.Error.WriteLine($"[ZipFS Error] Details: {zipEx.Message}");
+                    info.Context = null;
+                    return DokanResult.Error;
+                }
                 catch (Exception ex)
                 {
                     _logErrorAction(ex, $"ZipFs.CreateFile: EXCEPTION caching entry '{normalizedPath}'.");
@@ -295,7 +304,7 @@ public class ZipFs : IDokanOperations, IDisposable
         if (info.Context is not Stream stream)
         {
             // This case is hit if CreateFile was called without read access flags.
-            // The handle is valid, but no stream was prepared. A subsequent read should be denied.
+            // The handle is valid, but no stream was prepared. The following read should be denied.
             _logErrorAction(new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was not a Stream. This typically means the file was opened without read access."),
                 "ZipFs.ReadFile: Invalid context - returning AccessDenied.");
             return DokanResult.AccessDenied;
