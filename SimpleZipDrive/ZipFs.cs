@@ -146,9 +146,8 @@ public class ZipFs : IDokanOperations, IDisposable
                     return result;
                 }
 
-                // If read access is not requested, we don't need to create a stream.
-                if (!canRead) return result; // Return Success, as the handle is valid for non-read operations.
-
+                // Always create a stream context for files to support various access patterns.
+                // Some applications may open files without explicit read flags but still attempt to read.
                 try
                 {
                     // Hybrid caching - memory for small files, temp disk file for large files
@@ -266,7 +265,7 @@ public class ZipFs : IDokanOperations, IDisposable
                 }
 
                 // Defensive check: If we're about to return success for a file, ensure info.Context is a Stream.
-                // This should ideally never be hit if the try block succeeded.
+                // This should never be hit if the try block succeeded.
                 if (info.Context is not Stream)
                 {
                     _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: Context was not set to a Stream for file '{normalizedPath}' despite successful caching attempt and returning Success."), "ZipFs.CreateFile: Context not Stream after success.");
@@ -303,11 +302,10 @@ public class ZipFs : IDokanOperations, IDisposable
 
         if (info.Context is not Stream stream)
         {
-            // This case is hit if CreateFile was called without read access flags.
-            // The handle is valid, but no stream was prepared. The following read should be denied.
-            _logErrorAction(new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was not a Stream. This typically means the file was opened without read access."),
-                "ZipFs.ReadFile: Invalid context - returning AccessDenied.");
-            return DokanResult.AccessDenied;
+            // This should now be extremely rare, as CreateFile always creates a stream for files.
+            _logErrorAction(new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was not a Stream. This indicates an unexpected state where CreateFile succeeded but didn't create a context."),
+                "ZipFs.ReadFile: Invalid context - unexpected state.");
+            return DokanResult.Error;
         }
 
         try
