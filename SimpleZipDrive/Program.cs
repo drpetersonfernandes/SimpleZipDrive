@@ -250,6 +250,13 @@ file static class Program
                 Console.WriteLine("  - Dokan driver not installed or not running correctly. You can get it from:");
                 Console.WriteLine("    https://github.com/dokan-dev/dokany/releases");
             }
+            else if (ex.Message.Contains("Something's wrong with the Dokan driver", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("A Dokan driver error occurred. This can sometimes be resolved by:");
+                Console.WriteLine("  - Restarting your computer.");
+                Console.WriteLine("  - Reinstalling the Dokan driver. You can get the latest version from:");
+                Console.WriteLine("    https://github.com/dokan-dev/dokany/releases");
+            }
             else
             {
                 Console.WriteLine("A generic Dokan-related error occurred during mount. See logs for details.");
