@@ -122,6 +122,15 @@ public class ZipFs : IDokanOperations, IDisposable
             if (entry.IsDirectory)
             {
                 info.IsDirectory = true;
+
+                // Prevent file-like read/write access to a directory handle.
+                // Some applications might open a directory and then incorrectly try to read from it as if it were a file.
+                // This prevents a handle being created that would lead to an error in ReadFile/WriteFile.
+                if ((access & (FileAccess.ReadData | FileAccess.WriteData | FileAccess.AppendData)) != 0)
+                {
+                    return DokanResult.AccessDenied;
+                }
+
                 return mode switch
                 {
                     FileMode.Open or FileMode.OpenOrCreate or FileMode.Create => DokanResult.Success,
@@ -132,7 +141,6 @@ public class ZipFs : IDokanOperations, IDisposable
             else
             {
                 info.IsDirectory = false;
-                var canRead = access.HasFlag(FileAccess.GenericRead) || access.HasFlag(FileAccess.ReadData);
                 var result = mode switch
                 {
                     FileMode.Open => (entry.Size >= 0) ? DokanResult.Success : DokanResult.FileNotFound,
