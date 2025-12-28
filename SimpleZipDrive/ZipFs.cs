@@ -306,6 +306,13 @@ public class ZipFs : IDokanOperations, IDisposable
         IDokanFileInfo info)
     {
         bytesRead = 0;
+
+        if (info.IsDirectory)
+        {
+            // If a read is attempted on a directory handle, it will not be allowed.
+            return DokanResult.AccessDenied;
+        }
+
         var normalizedPath = NormalizePath(fileName);
 
         if (info.Context is not Stream stream)

@@ -250,6 +250,18 @@ file static class Program
                 Console.WriteLine("  - Dokan driver not installed or not running correctly. You can get it from:");
                 Console.WriteLine("    https://github.com/dokan-dev/dokany/releases");
             }
+            else if (ex.Message.Contains("Can't install the Dokan driver", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.WriteLine("\n--- DOKAN DRIVER INSTALLATION FAILED ---");
+                Console.WriteLine("The application failed to communicate with or install the Dokan kernel driver.");
+                Console.WriteLine("This can be caused by:");
+                Console.WriteLine("  - Insufficient privileges (the most common cause).");
+                Console.WriteLine("  - A problem with the Dokan installation on your system.");
+                Console.WriteLine("  - Antivirus software interfering with the driver installation.");
+                Console.WriteLine("\nPlease try running this application as an Administrator.");
+                Console.WriteLine("If the problem persists, reinstalling Dokan is recommended:");
+                Console.WriteLine("  https://github.com/dokan-dev/dokany/releases");
+            }
             else if (ex.Message.Contains("Something's wrong with the Dokan driver", StringComparison.OrdinalIgnoreCase))
             {
                 Console.WriteLine("A Dokan driver error occurred. This can sometimes be resolved by:");
