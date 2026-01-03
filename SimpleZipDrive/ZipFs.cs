@@ -124,8 +124,6 @@ public class ZipFs : IDokanOperations, IDisposable
                 info.IsDirectory = true;
 
                 // Prevent file-like read/write access to a directory handle.
-                // Some applications might open a directory and then incorrectly try to read from it as if it were a file.
-                // This prevents a handle being created that would lead to an error in ReadFile/WriteFile.
                 if ((access & (FileAccess.ReadData | FileAccess.WriteData | FileAccess.AppendData)) != 0)
                 {
                     return DokanResult.AccessDenied;
@@ -138,69 +136,51 @@ public class ZipFs : IDokanOperations, IDisposable
                     _ => DokanResult.AccessDenied
                 };
             }
-            else
+            else // It's a file
             {
                 info.IsDirectory = false;
-                var result = mode switch
-                {
-                    FileMode.Open => (entry.Size >= 0) ? DokanResult.Success : DokanResult.FileNotFound,
-                    FileMode.OpenOrCreate or FileMode.Create => DokanResult.Success,
-                    FileMode.CreateNew => DokanResult.FileExists,
-                    _ => DokanResult.AccessDenied
-                };
 
-                if (result != DokanResult.Success)
+                // Check file mode before proceeding.
+                switch (mode)
                 {
-                    return result;
+                    case FileMode.Open:
+                    case FileMode.OpenOrCreate: // On a read-only FS, OpenOrCreate on an existing file is just Open.
+                    case FileMode.Create: // Same for Create.
+                        break; // Proceed to create the stream context.
+                    case FileMode.CreateNew:
+                        return DokanResult.FileExists; // The file always exists in the archive.
+                    default: // Truncate, Append, etc., are not supported.
+                        return DokanResult.AccessDenied;
                 }
 
-                // Always create a stream context for files to support various access patterns.
-                // Some applications may open files without explicit read flags but still attempt to read.
                 try
                 {
                     // Hybrid caching - memory for small files, temp disk file for large files
                     if (entry.Size >= MaxMemorySize)
                     {
                         string? cachedPath;
-                        // Lock to prevent race conditions where multiple threads try to extract the same file.
                         lock (_largeFileCache)
                         {
                             if (!_largeFileCache.TryGetValue(normalizedPath, out cachedPath))
                             {
-                                // --- Large file: Extract to the temp file on disk for the first time ---
                                 Console.WriteLine($"Large file detected: '{normalizedPath}' ({entry.Size / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
                                 var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
 
                                 // --- Disk space check ---
                                 try
                                 {
-                                    var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath);
-                                    if (string.IsNullOrEmpty(tempDrivePathRoot))
-                                    {
-                                        // Fallback to C: if the root cannot be determined, but log a warning.
-                                        _logErrorAction(null, $"Could not determine drive root for temp path '{newTempFilePath}' for large file extraction of '{normalizedPath}'. Assuming C:\\.");
-                                        tempDrivePathRoot = "C:\\";
-                                    }
-
+                                    var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath) ?? "C:\\";
                                     var tempDrive = new DriveInfo(tempDrivePathRoot);
-                                    if (!tempDrive.IsReady)
-                                    {
-                                        _logErrorAction(null, $"Temp drive '{tempDrive.Name}' is not ready for large file extraction of '{normalizedPath}'.");
-                                        return DokanResult.DiskFull;
-                                    }
-
                                     if (tempDrive.AvailableFreeSpace < entry.Size)
                                     {
-                                        var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entry.Size / 1024.0 / 1024.0:F2} MB) to '{newTempFilePath}'. Available: {tempDrive.AvailableFreeSpace / 1024.0 / 1024.0:F2} MB. Required: {entry.Size / 1024.0 / 1024.0:F2} MB.";
+                                        var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entry.Size / 1024.0 / 1024.0:F2} MB).";
                                         _logErrorAction(new IOException(errorMessage), "ZipFs.CreateFile: Disk space check failed.");
                                         return DokanResult.DiskFull;
                                     }
                                 }
                                 catch (Exception driveEx)
                                 {
-                                    // Log the error but attempt to proceed, as the CopyTo might still succeed
-                                    // if the drive check itself failed for a non-space-related reason.
-                                    _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'. Proceeding with extraction, but this check failed.");
+                                    _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'.");
                                 }
 
                                 lock (_zipLock)
@@ -210,7 +190,6 @@ public class ZipFs : IDokanOperations, IDisposable
                                     entryStream.CopyTo(tempFileStream);
                                 }
 
-                                // Add to the cache so we don't extract it again.
                                 _largeFileCache[normalizedPath] = newTempFilePath;
                                 cachedPath = newTempFilePath;
                                 Console.WriteLine($"Extraction complete for '{normalizedPath}'. Temp file: '{newTempFilePath}'");
@@ -224,8 +203,7 @@ public class ZipFs : IDokanOperations, IDisposable
                         // Open the temp file for reading and assign it as the context for this specific handle.
                         if (cachedPath != null)
                         {
-                            info.Context = new FileStream(cachedPath, FileMode.Open, System.IO.FileAccess.Read,
-                                FileShare.Read);
+                            info.Context = new FileStream(cachedPath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
                         }
                     }
                     else
@@ -235,33 +213,28 @@ public class ZipFs : IDokanOperations, IDisposable
                         lock (_zipLock)
                         {
                             using var entryStream = _zipFile.GetInputStream(entry);
-                            if (entry.Size == 0)
-                            {
-                                entryBytes = Array.Empty<byte>();
-                            }
-                            else
-                            {
-                                using var tempMs = new MemoryStream((int)entry.Size);
-                                entryStream.CopyTo(tempMs);
-                                entryBytes = tempMs.ToArray();
-                            }
-                        }
-
-                        if (entryBytes.Length != entry.Size)
-                        {
-                            _logErrorAction(new InvalidDataException($"Mismatch reading entry '{normalizedPath}'. Expected {entry.Size}, got {entryBytes.Length}."),
-                                "ZipFs.CreateFile: Entry read mismatch.");
+                            using var tempMs = new MemoryStream((int)Math.Max(0, entry.Size));
+                            entryStream.CopyTo(tempMs);
+                            entryBytes = tempMs.ToArray();
                         }
 
                         info.Context = new MemoryStream(entryBytes);
                     }
+
+                    // Only return Success if the context was successfully created and is a valid stream.
+                    if (info.Context is Stream)
+                    {
+                        return DokanResult.Success;
+                    }
+
+                    // This should now be unreachable, but serves as a final safeguard.
+                    _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: Context was not a Stream for file '{normalizedPath}' after caching attempt."), "ZipFs.CreateFile: Context invalid post-caching.");
+                    return DokanResult.Error;
                 }
                 catch (ZipException zipEx)
                 {
-                    var contextMessage = $"ZipFs.CreateFile: A ZipException occurred while trying to read the file entry '{normalizedPath}' from the archive. This often indicates that this specific file's data within the ZIP is corrupt, even if the archive's central directory is readable.";
+                    var contextMessage = $"ZipFs.CreateFile: A ZipException occurred while trying to read the file entry '{normalizedPath}'. This often indicates the file's data within the ZIP is corrupt.";
                     _logErrorAction(zipEx, contextMessage);
-                    Console.Error.WriteLine($"\n[ZipFS Error] Failed to read file '{fileName}' from the archive. The file entry appears to be corrupt or uses an unsupported format.");
-                    Console.Error.WriteLine($"[ZipFS Error] Details: {zipEx.Message}");
                     info.Context = null;
                     return DokanResult.Error;
                 }
@@ -271,17 +244,6 @@ public class ZipFs : IDokanOperations, IDisposable
                     info.Context = null;
                     return DokanResult.Error;
                 }
-
-                // Defensive check: If we're about to return success for a file, ensure info.Context is a Stream.
-                // This should never be hit if the try block succeeded.
-                if (info.Context is not Stream)
-                {
-                    _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: Context was not set to a Stream for file '{normalizedPath}' despite successful caching attempt and returning Success."), "ZipFs.CreateFile: Context not Stream after success.");
-                    info.Context = null; // Ensure it's explicitly null
-                    return DokanResult.Error; // Force an error
-                }
-
-                return result;
             }
         }
         else if (_directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/")
@@ -309,7 +271,6 @@ public class ZipFs : IDokanOperations, IDisposable
 
         if (info.IsDirectory)
         {
-            // If a read is attempted on a directory handle, it will not be allowed.
             return DokanResult.AccessDenied;
         }
 
@@ -317,7 +278,6 @@ public class ZipFs : IDokanOperations, IDisposable
 
         if (info.Context is not Stream stream)
         {
-            // This should now be extremely rare, as CreateFile always creates a stream for files.
             _logErrorAction(new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was not a Stream. This indicates an unexpected state where CreateFile succeeded but didn't create a context."),
                 "ZipFs.ReadFile: Invalid context - unexpected state.");
             return DokanResult.Error;

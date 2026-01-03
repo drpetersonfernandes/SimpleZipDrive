@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Security.Authentication;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -11,10 +12,27 @@ public static class UpdateChecker
     private const string RepoName = "SimpleZipDrive";
     private const string LatestApiUrl = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
 
-    private static readonly HttpClient Http = new()
+    private static readonly HttpClient Http;
+
+    static UpdateChecker()
     {
-        Timeout = TimeSpan.FromSeconds(10)
-    };
+        // Configure a handler to allow the OS to negotiate the best TLS protocol.
+        // SslProtocols.None tells the system to use its default, which is the most
+        // future-proof and helps on older systems like Win7 that have TLS 1.2
+        // but don't enable it for apps by default.
+        var handler = new SocketsHttpHandler
+        {
+            SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            {
+                EnabledSslProtocols = SslProtocols.None
+            }
+        };
+
+        Http = new HttpClient(handler)
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+        };
+    }
 
     public static async Task CheckForUpdateAsync()
     {
