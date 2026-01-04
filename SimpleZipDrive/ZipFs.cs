@@ -158,6 +158,7 @@ public class ZipFs : IDokanOperations, IDisposable
                     // Hybrid caching - memory for small files, temp disk file for large files
                     if (entry.Size >= MaxMemorySize)
                     {
+                        // --- Large file: Cache to disk ---
                         string? cachedPath;
                         lock (_largeFileCache)
                         {
@@ -200,11 +201,21 @@ public class ZipFs : IDokanOperations, IDisposable
                             }
                         }
 
-                        // Open the temp file for reading and assign it as the context for this specific handle.
-                        if (cachedPath != null)
+                        // Open the temp file for reading and assign it as the context.
+                        if (!string.IsNullOrEmpty(cachedPath))
                         {
-                            info.Context = new FileStream(cachedPath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
+                            try
+                            {
+                                info.Context = new FileStream(cachedPath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
+                            }
+                            catch (Exception fsEx)
+                            {
+                                _logErrorAction(fsEx, $"ZipFs.CreateFile: Failed to open cached temp file '{cachedPath}' for reading.");
+                                info.Context = null;
+                                return DokanResult.Error;
+                            }
                         }
+                        // If cachedPath is null/empty here, something went wrong in caching but wasn't caught
                     }
                     else
                     {
@@ -221,13 +232,13 @@ public class ZipFs : IDokanOperations, IDisposable
                         info.Context = new MemoryStream(entryBytes);
                     }
 
-                    // Only return Success if the context was successfully created and is a valid stream.
+                    // Verify that context was successfully created
                     if (info.Context is Stream)
                     {
                         return DokanResult.Success;
                     }
 
-                    // This should now be unreachable, but serves as a final safeguard.
+                    // If we reach here, context creation failed silently
                     _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: Context was not a Stream for file '{normalizedPath}' after caching attempt."), "ZipFs.CreateFile: Context invalid post-caching.");
                     return DokanResult.Error;
                 }
@@ -240,6 +251,7 @@ public class ZipFs : IDokanOperations, IDisposable
                 }
                 catch (Exception ex)
                 {
+                    // General exception during caching
                     _logErrorAction(ex, $"ZipFs.CreateFile: EXCEPTION caching entry '{normalizedPath}'.");
                     info.Context = null;
                     return DokanResult.Error;
