@@ -288,10 +288,13 @@ public class ZipFs : IDokanOperations, IDisposable
 
         var normalizedPath = NormalizePath(fileName);
 
+        // Defensive null check
         if (info.Context is not Stream stream)
         {
-            _logErrorAction(new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was not a Stream. This indicates an unexpected state where CreateFile succeeded but didn't create a context."),
-                "ZipFs.ReadFile: Invalid context - unexpected state.");
+            // Log but return a more appropriate error code
+            _logErrorAction(
+                new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was null. This indicates Cleanup was called before CloseFile."),
+                "ZipFs.ReadFile: Context is null - handle already cleaned up.");
             return DokanResult.Error;
         }
 
@@ -483,23 +486,18 @@ public class ZipFs : IDokanOperations, IDisposable
     public void Cleanup(string fileName, IDokanFileInfo info)
     {
         // This is called when a file handle is closed.
-        // We just need to dispose of the stream (MemoryStream or FileStream).
-        // The temporary file itself will be deleted on Unmount (in Dispose).
+        // Do NOT dispose or null the context here - ReadFile might still be called.
+        // The stream will be properly disposed in CloseFile when the file object is destroyed.
+    }
+
+    public void CloseFile(string fileName, IDokanFileInfo info)
+    {
+        // Dispose the stream and clear the context when file object is destroyed
         if (info.Context is IDisposable disposableContext)
         {
             disposableContext.Dispose();
         }
 
-        info.Context = null;
-    }
-
-    public void CloseFile(string fileName, IDokanFileInfo info)
-    {
-        // Cleanup should have already run. This is a safeguard.
-        if (info.Context is not IDisposable disposableContext) return;
-
-        _logErrorAction(new InvalidOperationException($"Context was still present in CloseFile for '{fileName}'. Disposing."), "ZipFs.CloseFile: Unexpected context.");
-        disposableContext.Dispose();
         info.Context = null;
     }
 
