@@ -249,6 +249,14 @@ public class ZipFs : IDokanOperations, IDisposable
                     info.Context = null;
                     return DokanResult.Error;
                 }
+                catch (IOException ioEx) when ((uint)ioEx.HResult == 0x80070015) // ERROR_NOT_READY
+                {
+                    var msg = $"CRITICAL ERROR: The source drive containing the ZIP file is no longer ready. " +
+                              $"Please check the connection to drive '{Path.GetPathRoot(_tempDirectoryPath)}'.";
+                    Console.WriteLine($"\n[!!!] {msg}");
+                    // _logErrorAction(ioEx, "ZipFs.CreateFile: Source device disconnected.");
+                    return DokanResult.NotReady; // Return a specific Dokan error
+                }
                 catch (Exception ex)
                 {
                     // General exception during caching

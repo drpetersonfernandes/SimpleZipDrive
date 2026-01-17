@@ -292,7 +292,8 @@ file static class Program
                 Console.WriteLine("\n--- ZIP FILE ERROR ---");
                 Console.WriteLine($"Error: The ZIP file '{zipFilePath}' appears to be corrupted or invalid.");
                 Console.WriteLine("Reason: The application could not find the central directory within the ZIP archive.");
-                Console.WriteLine("Please ensure the ZIP file is complete and not corrupted.");
+                Console.WriteLine("Note: This application only supports standard ZIP files. It does not support .7z, .rar, or other formats.");
+                Console.WriteLine("Please ensure the file is a valid ZIP archive and is not corrupted.");
             }
             else
             {

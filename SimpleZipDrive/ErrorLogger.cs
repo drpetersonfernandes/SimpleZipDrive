@@ -57,6 +57,12 @@ public static class ErrorLogger
         return fullErrorMessage.ToString();
     }
 
+    private static bool IsUserError(Exception? ex)
+    {
+        // "Cannot find central directory" is the standard SharpZipLib error for non-zip or corrupt zip files.
+        return ex?.Message.Contains("Cannot find central directory", StringComparison.OrdinalIgnoreCase) == true;
+    }
+
     public static void LogErrorSync(Exception? ex, string? contextMessage = null)
     {
         if (ex == null)
@@ -96,25 +102,28 @@ public static class ErrorLogger
         }
 
         // Fire-and-forget the async API call from the synchronous method
-        _ = SendLogToApiAsync(logContent).ContinueWith(static task =>
+        if (!IsUserError(ex))
         {
-            if (task is { IsFaulted: true, Exception: not null })
+            _ = SendLogToApiAsync(logContent).ContinueWith(static task =>
             {
-                WriteToCriticalLog(task.Exception.Flatten().InnerExceptions.FirstOrDefault() ?? task.Exception,
-                    "Exception in fire-and-forget SendLogToApiAsync from LogErrorSync.");
-            }
-            else if (task.IsCompletedSuccessfully)
-            {
-                if (task.Result) // if sent successfully
+                if (task is { IsFaulted: true, Exception: not null })
                 {
-                    Console.WriteLine("Error details successfully sent to remote logging service (from sync path).");
+                    WriteToCriticalLog(task.Exception.Flatten().InnerExceptions.FirstOrDefault() ?? task.Exception,
+                        "Exception in fire-and-forget SendLogToApiAsync from LogErrorSync.");
                 }
-                else
+                else if (task.IsCompletedSuccessfully)
                 {
-                    Console.Error.WriteLine("Failed to send error details to remote logging service (from sync path). Error is saved locally.");
+                    if (task.Result) // if sent successfully
+                    {
+                        Console.WriteLine("Error details successfully sent to remote logging service (from sync path).");
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine("Failed to send error details to remote logging service (from sync path). Error is saved locally.");
+                    }
                 }
-            }
-        }, TaskScheduler.Default);
+            }, TaskScheduler.Default);
+        }
     }
 
 
@@ -156,14 +165,17 @@ public static class ErrorLogger
             WriteToCriticalLog(writeEx, $"Failed to write main error to '{ErrorLogFilePath}'. Original error: {ex.Message}");
         }
 
-        var sent = await SendLogToApiAsync(logContent);
-        if (sent)
+        if (!IsUserError(ex))
         {
-            Console.WriteLine("Error details successfully sent to remote logging service (async path).");
-        }
-        else
-        {
-            await Console.Error.WriteLineAsync("Failed to send error details to remote logging service (async path). Error is saved locally.");
+            var sent = await SendLogToApiAsync(logContent);
+            if (sent)
+            {
+                Console.WriteLine("Error details successfully sent to remote logging service (async path).");
+            }
+            else
+            {
+                await Console.Error.WriteLineAsync("Failed to send error details to remote logging service (async path). Error is saved locally.");
+            }
         }
     }
 
