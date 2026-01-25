@@ -25,7 +25,7 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly string _tempDirectoryPath;
 
     private const string VolumeLabel = "SimpleZipDrive";
-    private static readonly char[] Separator = { '/' };
+    private static readonly char[] Separator = ['/'];
 
     public ZipFs(Stream zipFileStream, string mountPoint, Action<Exception?, string?> logErrorAction)
     {
@@ -366,7 +366,7 @@ public class ZipFs : IDokanOperations, IDisposable
         else if (_directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/")
         {
             fileInfo.Attributes = FileAttributes.Directory;
-            fileInfo.FileName = normalizedPath.Split('/').LastOrDefault(s => !string.IsNullOrEmpty(s)) ?? "";
+            fileInfo.FileName = normalizedPath.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s)) ?? "";
             fileInfo.LastWriteTime = _directoryLastWriteTimes.TryGetValue(normalizedPath, out var lwt) ? lwt : DateTime.Now;
             fileInfo.CreationTime = _directoryCreationTimes.TryGetValue(normalizedPath, out var ct) ? ct : DateTime.Now;
             fileInfo.LastAccessTime = _directoryLastAccessTimes.TryGetValue(normalizedPath, out var lat) ? lat : DateTime.Now;
@@ -403,9 +403,9 @@ public class ZipFs : IDokanOperations, IDisposable
                     if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
 
                     var remainder = path.Substring(searchPrefix.Length);
-                    return !remainder.Contains('/') || (remainder.EndsWith('/') && remainder.Count(c => c == '/') == 1);
+                    return !remainder.Contains('/') || (remainder.EndsWith('/') && remainder.Count(static c => c == '/') == 1);
                 })
-                .Select(kvp => kvp.Value)
+                .Select(static kvp => kvp.Value)
                 .ToList();
 
             foreach (var entry in childEntries)
@@ -446,7 +446,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
             foreach (var dirPathKey in implicitChildDirs)
             {
-                var name = dirPathKey.Split('/').LastOrDefault(s => !string.IsNullOrEmpty(s));
+                var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
                 if (!string.IsNullOrEmpty(name))
                 {
                     files.Add(new FileInformation
@@ -460,7 +460,7 @@ public class ZipFs : IDokanOperations, IDisposable
                 }
             }
 
-            files = files.Where(static f => !string.IsNullOrEmpty(f.FileName)).GroupBy(f => f.FileName, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
+            files = files.Where(static f => !string.IsNullOrEmpty(f.FileName)).GroupBy(static f => f.FileName, StringComparer.OrdinalIgnoreCase).Select(static g => g.First()).ToList();
         }
         catch (Exception ex)
         {
@@ -643,7 +643,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public void Dispose()
     {
-        _zipFile?.Close();
+        _zipFile.Close();
 
         // When the drive is unmounted, clean up all temporary files that were created.
         lock (_largeFileCache)

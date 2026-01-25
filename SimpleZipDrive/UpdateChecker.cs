@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 
 namespace SimpleZipDrive;
 
-public static class UpdateChecker
+public static partial class UpdateChecker
 {
     private const string RepoOwner = "drpetersonfernandes";
     private const string RepoName = "SimpleZipDrive";
@@ -53,7 +53,7 @@ public static class UpdateChecker
             if (tagName is null || htmlUrl is null) return;
 
             // We expect tags like "release_1.0.2" – pick the 1.0.2 part.
-            var m = Regex.Match(tagName, @"\d+\.\d+\.\d+");
+            var m = MyRegex().Match(tagName);
             if (!m.Success) return;
 
             var latest = Version.Parse(m.Value);
@@ -98,4 +98,7 @@ public static class UpdateChecker
             ErrorLogger.LogErrorSync(ex, "UpdateChecker.CheckForUpdateAsync");
         }
     }
+
+    [GeneratedRegex(@"\d+\.\d+\.\d+")]
+    private static partial Regex MyRegex();
 }

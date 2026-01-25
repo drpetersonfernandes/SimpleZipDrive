@@ -40,9 +40,9 @@ file static class Program
                 return;
         }
 
-        if (zipFilePath == null || !File.Exists(zipFilePath))
+        if (!File.Exists(zipFilePath))
         {
-            var errorMsg = $"Error: ZIP file not found at '{zipFilePath ?? " unspecified"}'.";
+            var errorMsg = $"Error: ZIP file not found at '{zipFilePath}'.";
             Console.WriteLine(errorMsg);
             KeepConsoleOpenOnError();
             return;
@@ -66,12 +66,22 @@ file static class Program
 
             if (isDragAndDrop)
             {
-                char[] preferredDriveLetters = { 'M', 'N', 'O', 'P', 'Q' };
+                char[] preferredDriveLetters = ['M', 'N', 'O', 'P', 'Q'];
+                var existingDrives = DriveInfo.GetDrives().Select(static d => d.Name).ToList();
+
                 foreach (var letter in preferredDriveLetters)
                 {
                     var currentMountPoint = letter + @":\";
+
+                    // Pre-check: Is the drive letter already taken by the OS?
+                    if (existingDrives.Any(d => string.Equals(d, currentMountPoint, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        Console.WriteLine($"Drag-and-drop: Skipping '{currentMountPoint}' (already in use).");
+                        continue;
+                    }
+
                     Console.WriteLine($"Drag-and-drop: Attempting to mount on '{currentMountPoint}'...");
-                    if (!await AttemptMountLifecycle(zipFilePath, currentMountPoint, logger, dokan)) continue;
+                    if (!await AttemptMountLifecycle(zipFilePath, currentMountPoint, dokan)) continue;
 
                     mountLifecycleCompleted = true;
                     break;
@@ -100,7 +110,7 @@ file static class Program
                     mountPoint = mountPointArg.ToUpperInvariant() + @":\";
                 }
 
-                if (await AttemptMountLifecycle(zipFilePath, mountPoint, logger, dokan))
+                if (await AttemptMountLifecycle(zipFilePath, mountPoint, dokan))
                 {
                     mountLifecycleCompleted = true;
                 }
@@ -152,7 +162,7 @@ file static class Program
         if (args.Length == 0 && !Console.IsInputRedirected) KeepConsoleOpenOnError();
     }
 
-    private static async Task<bool> AttemptMountLifecycle(string zipFilePath, string mountPoint, ILogger logger, Dokan dokan)
+    private static async Task<bool> AttemptMountLifecycle(string zipFilePath, string mountPoint, Dokan dokan)
     {
         ManualResetEvent unmountBlocker = new(false);
         ConsoleCancelEventHandler? cancelKeyPressHandler = null;
@@ -196,7 +206,7 @@ file static class Program
             using var zipFs = new ZipFs(zipFileSourceStream, mountPoint, ErrorLogger.LogErrorSync);
             Console.WriteLine($"Attempting to mount on '{mountPoint}'...");
 
-            cancelKeyPressHandler = (sender, e) =>
+            cancelKeyPressHandler = (_, e) =>
             {
                 e.Cancel = true;
                 Console.WriteLine($"Ctrl+C detected for mount '{mountPoint}'. Signaling unmount...");

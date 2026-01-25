@@ -59,15 +59,22 @@ public static class ErrorLogger
 
     private static bool IsUserError(Exception? ex)
     {
+        if (ex == null) return false;
+
         // "Cannot find central directory" is the standard SharpZipLib error for non-zip or corrupt zip files.
-        return ex?.Message.Contains("Cannot find central directory", StringComparison.OrdinalIgnoreCase) == true;
+        var isZipError = ex.Message.Contains("Cannot find central directory", StringComparison.OrdinalIgnoreCase);
+
+        // "Can't assign a drive letter" is a Dokan error, usually meaning the drive is already in use.
+        var isDriveInUse = ex.Message.Contains("Can't assign a drive letter", StringComparison.OrdinalIgnoreCase);
+
+        return isZipError || isDriveInUse;
     }
 
     public static void LogErrorSync(Exception? ex, string? contextMessage = null)
     {
         if (ex == null)
         {
-            ex = new Exception("ErrorLogger.LogErrorSync was called with a null exception object.");
+            ex = new ArgumentNullException(nameof(ex), "ErrorLogger.LogErrorSync was called with a null exception object.");
             try
             {
                 throw ex;
@@ -131,7 +138,7 @@ public static class ErrorLogger
     {
         if (ex == null)
         {
-            ex = new Exception("ErrorLogger.LogErrorAsync was called with a null exception object.");
+            ex = new ArgumentNullException(nameof(ex), "ErrorLogger.LogErrorAsync was called with a null exception object.");
             try
             {
                 throw ex;
