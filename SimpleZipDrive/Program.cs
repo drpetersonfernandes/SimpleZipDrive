@@ -171,26 +171,46 @@ file static class Program
         {
             // Check if the mount point is a directory (not a drive root) and create it if it doesn't exist.
             // A drive root like "C:\" will have GetPathRoot(path) == path. A folder like "C:\mount" will not.
-            try
+            if (Path.IsPathFullyQualified(mountPoint) && Path.GetPathRoot(mountPoint) != mountPoint)
             {
-                if (Path.IsPathFullyQualified(mountPoint) && Path.GetPathRoot(mountPoint) != mountPoint)
+                var root = Path.GetPathRoot(mountPoint);
+
+                // Check if the drive exists (e.g., Z:\folder when Z:\ doesn't exist yet)
+                if (!string.IsNullOrEmpty(root) && !Directory.Exists(root))
                 {
-                    if (!Directory.Exists(mountPoint))
+                    Console.WriteLine($"Error: Cannot mount to '{mountPoint}' because drive '{root}' does not exist.");
+                    Console.WriteLine("To mount as a new virtual drive, use just the letter (e.g., 'Z' or 'Z:\\').");
+                    Console.WriteLine(@"To mount to a folder, ensure the drive exists and use a path like 'C:\mount\zip'.");
+                    return false;
+                }
+
+                // Check if parent directory exists before attempting to create subdirectory
+                var parentDir = Path.GetDirectoryName(mountPoint);
+                if (!string.IsNullOrEmpty(parentDir) && !Directory.Exists(parentDir))
+                {
+                    Console.WriteLine($"Error: Cannot create mount point '{mountPoint}'. Parent directory '{parentDir}' does not exist.");
+                    Console.WriteLine("Please create the parent directory first, or use an existing empty folder.");
+                    return false;
+                }
+
+                if (!Directory.Exists(mountPoint))
+                {
+                    try
                     {
                         Console.WriteLine($"Mount point folder '{mountPoint}' does not exist. Attempting to create it...");
                         Directory.CreateDirectory(mountPoint);
                         Console.WriteLine($"Successfully created directory '{mountPoint}'.");
                     }
+                    catch (Exception ex)
+                    {
+                        var context = $"Failed to create mount point directory '{mountPoint}'.";
+                        _ = ErrorLogger.LogErrorAsync(ex, context);
+                        Console.WriteLine($"Error: Could not create the mount point directory '{mountPoint}'.");
+                        Console.WriteLine($"Reason: {ex.Message}");
+                        Console.WriteLine("Please ensure the path is valid and you have sufficient permissions, or create it manually.");
+                        return false;
+                    }
                 }
-            }
-            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or ArgumentException)
-            {
-                var context = $"Failed to create mount point directory '{mountPoint}'.";
-                _ = ErrorLogger.LogErrorAsync(ex, context);
-                Console.WriteLine($"Error: Could not create the mount point directory '{mountPoint}'.");
-                Console.WriteLine($"Reason: {ex.Message}");
-                Console.WriteLine("Please ensure the path is valid and you have sufficient permissions, or create it manually.");
-                return false; // Abort the mount attempt
             }
 
             var fileInfoSys = new FileInfo(zipFilePath);
@@ -203,7 +223,7 @@ file static class Program
             Console.WriteLine("ZIP file opened for streaming.");
 
             // Pass ErrorLogger.LogErrorSync to ZipFs constructor
-            using var zipFs = new ZipFs(zipFileSourceStream, mountPoint, ErrorLogger.LogErrorSync);
+            using var zipFs = new ZipFs(zipFileSourceStream, mountPoint, ErrorLogger.LogErrorSync, () => ReadPassword(zipFilePath));
             Console.WriteLine($"Attempting to mount on '{mountPoint}'...");
 
             cancelKeyPressHandler = (_, e) =>
@@ -242,9 +262,6 @@ file static class Program
         }
         catch (DokanException ex) // Catches Dokan-specific errors
         {
-            var context = $"DokanException trying to mount on '{mountPoint}'. ZIP: '{zipFilePath}'";
-            _ = ErrorLogger.LogErrorAsync(ex, context);
-
             // Specific user guidance for common Dokan mount errors
             var isCommonMountError = ex.Message.Contains("AssignDriveLetter", StringComparison.OrdinalIgnoreCase) ||
                                      ex.Message.Contains("MountPoint", StringComparison.OrdinalIgnoreCase) ||
@@ -282,6 +299,13 @@ file static class Program
             else
             {
                 Console.WriteLine("A generic Dokan-related error occurred during mount. See logs for details.");
+            }
+
+            var context = $"DokanException trying to mount on '{mountPoint}'. ZIP: '{zipFilePath}'";
+            // Only log to API if it's NOT the common "driver not installed" error
+            if (!ex.Message.Contains("Can't install the Dokan driver", StringComparison.OrdinalIgnoreCase))
+            {
+                _ = ErrorLogger.LogErrorAsync(ex, context);
             }
 
             return false;
@@ -351,5 +375,33 @@ file static class Program
         using var identity = WindowsIdentity.GetCurrent();
         var principal = new WindowsPrincipal(identity);
         return principal.IsInRole(WindowsBuiltInRole.Administrator);
+    }
+
+    private static string ReadPassword(string zipPath)
+    {
+        Console.WriteLine($"\n[!] The ZIP file '{Path.GetFileName(zipPath)}' is encrypted.");
+        Console.Write("Please enter the password: ");
+
+        var password = new System.Text.StringBuilder();
+        while (true)
+        {
+            var key = Console.ReadKey(true);
+            if (key.Key == ConsoleKey.Enter)
+            {
+                Console.WriteLine();
+                break;
+            }
+
+            if (key.Key == ConsoleKey.Backspace && password.Length > 0)
+            {
+                password.Remove(password.Length - 1, 1);
+            }
+            else if (key.KeyChar != '\u0000') // Ignore non-printable chars
+            {
+                password.Append(key.KeyChar);
+            }
+        }
+
+        return password.ToString();
     }
 }

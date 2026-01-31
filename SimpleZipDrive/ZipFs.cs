@@ -23,14 +23,16 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly Dictionary<string, string?> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
     private const int MaxMemorySize = 536870912; // 512 MB (512x1024x1024)
     private readonly string _tempDirectoryPath;
+    private readonly Func<string?> _passwordProvider;
 
     private const string VolumeLabel = "SimpleZipDrive";
     private static readonly char[] Separator = ['/'];
 
-    public ZipFs(Stream zipFileStream, string mountPoint, Action<Exception?, string?> logErrorAction)
+    public ZipFs(Stream zipFileStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider)
     {
         _sourceZipStream = zipFileStream;
         _logErrorAction = logErrorAction ?? throw new ArgumentNullException(nameof(logErrorAction));
+        _passwordProvider = passwordProvider;
         _tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive");
 
         try
@@ -55,6 +57,22 @@ public class ZipFs : IDokanOperations, IDisposable
         {
             lock (_zipLock)
             {
+                // Check if any entry is encrypted to prompt for password once
+                var needsPassword = false;
+                foreach (ZipEntry entry in _zipFile)
+                {
+                    if (entry.IsCrypted)
+                    {
+                        needsPassword = true;
+                        break;
+                    }
+                }
+
+                if (needsPassword)
+                {
+                    _zipFile.Password = _passwordProvider();
+                }
+
                 foreach (ZipEntry entry in _zipFile)
                 {
                     if (string.IsNullOrEmpty(entry.Name))
@@ -244,7 +262,17 @@ public class ZipFs : IDokanOperations, IDisposable
                 }
                 catch (ZipException zipEx)
                 {
-                    var contextMessage = $"ZipFs.CreateFile: A ZipException occurred while trying to read the file entry '{normalizedPath}'. This often indicates the file's data within the ZIP is corrupt.";
+                    string contextMessage;
+                    if (zipEx.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
+                    {
+                        contextMessage = $"ZipFs.CreateFile: Password error for '{normalizedPath}'. The provided password may be incorrect or missing.";
+                        Console.WriteLine($"\n[!] Password Error: Could not decrypt '{normalizedPath}'.");
+                    }
+                    else
+                    {
+                        contextMessage = $"ZipFs.CreateFile: A ZipException occurred while trying to read the file entry '{normalizedPath}'. This often indicates the file's data within the ZIP is corrupt.";
+                    }
+
                     _logErrorAction(zipEx, contextMessage);
                     info.Context = null;
                     return DokanResult.Error;

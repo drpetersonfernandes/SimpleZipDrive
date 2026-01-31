@@ -1,134 +1,103 @@
 # Simple Zip Drive for Windows
 
-This application allows you to mount ZIP archive files as virtual drives or directories on your Windows system using the DokanNet library. It provides read-only access to the contents of the ZIP file as if it were a regular part of your filesystem.
+[![.NET 10.0](https://img.shields.io/badge/.NET-10.0-blue.svg)](https://dotnet.microsoft.com/download/dotnet/10.0)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.txt)
+[![Platform: Windows](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)](#requirements)
 
-It accesses the source ZIP file via a file stream directly from the disk. This approach supports very large archives without consuming excessive RAM for the archive itself, regardless of its size.
+**Simple Zip Drive** is a high-performance, user-mode filesystem utility that allows you to mount ZIP archives as virtual drives or NTFS directory mount points. Built on the [DokanNet](https://github.com/dokan-dev/dokan-dotnet) library, it provides seamless, read-only access to compressed data without the need for manual extraction.
 
-For files *within* the ZIP archive, when an application (like an emulator) opens a file for reading, its entire decompressed content is cached into an in-memory stream or temporary disk file. This significantly speeds up random access reads required by many applications.
+Unlike traditional ZIP utilities that extract the entire archive to a temporary folder, Simple Zip Drive utilizes a **hybrid streaming engine** to minimize memory overhead and maximize random-access performance.
 
-## Features
+![Screenshot](screenshot.png)
+---
 
-*   Mount ZIP archives as virtual drives (e.g., `M:\`) or to an NTFS folder mount point (e.g., `C:\mount\myzip`).
-*   **Drag-and-drop a ZIP file onto the `SimpleZipDrive.exe` icon to automatically attempt mounting it.** It will try drive letters M:, N:, O:, P:, then Q: in sequence.
-*   Read-only access to the ZIP contents.
-*   Efficiently handles ZIP files of all sizes by streaming the main archive from the disk.
-*   Caches individual decompressed file entries from the ZIP into memory upon first access for fast subsequent reads.
-*   Large file support with hybrid caching – files larger than 512MB are extracted to temporary disk files.
-*   Handles basic file and directory information (names, sizes, timestamps).
-*   Basic wildcard support for file searching within the mounted ZIP.
-*   Automatic update checking for new versions.
-*   Comprehensive error logging with both local file logging and remote error reporting.
-*   Automatic cleanup of temporary files on unmount.
+## 🚀 Key Features
 
-## Prerequisites
+*   **Virtual Drive Mounting:** Mount any ZIP file as a dedicated drive letter (e.g., `M:\`) or a folder path.
+*   **Hybrid Caching Engine:** 
+    *   **Small Files:** Cached in-memory for near-instantaneous access.
+    *   **Large Files (>512MB):** Automatically offloaded to a temporary disk cache to prevent RAM exhaustion.
+*   **Streaming Architecture:** The source ZIP is accessed via a direct file stream, supporting archives of virtually any size.
+*   **Zero-Configuration UI:** Supports drag-and-drop functionality for automatic mounting to the first available drive letter (M-Q).
+*   **Encrypted Archive Support:** Prompts for passwords when accessing protected ZIP files.
+*   **Automated Maintenance:** Integrated update checker and automatic cleanup of temporary cache files upon unmounting.
+*   **Enterprise Logging:** Comprehensive error tracking with local log rotation and remote diagnostic reporting.
 
-1.  **.NET Runtime:** The application is built for .NET 10.0 (or a compatible newer version). You'll need the .NET Desktop Runtime installed.
-2.  **Dokan Library:** This application depends on the Dokan user-mode file system library for Windows.
-    *   Download and install the latest Dokan library from the official DokanNet GitHub releases: [https://github.com/dokan-dev/dokany/releases](https://github.com/dokan-dev/dokany/releases).
+---
 
-## How to Use
+## 🛠 Prerequisites
 
-There are two main ways to use Simple Zip Drive:
+Before running Simple Zip Drive, ensure your system meets the following requirements:
 
-**1. Command-Line (Explicit Mount Point):**
+1.  **.NET 10.0 Runtime:** Download the latest [.NET Desktop Runtime](https://dotnet.microsoft.com/download).
+2.  **Dokan Library:** This application requires the Dokan kernel-mode driver.
+    *   Download and install the latest `DokanSetup.exe` from the [Official Releases](https://github.com/dokan-dev/dokany/releases).
 
-Run the application from the command line specifying the ZIP file and the desired mount point:
+---
+
+## 📖 Usage Guide
+
+### Method 1: Drag-and-Drop (Recommended)
+Simply drag any `.zip` file and drop it onto `SimpleZipDrive.exe`. The application will automatically attempt to mount the archive to the first available drive letter in the sequence: `M:`, `N:`, `O:`, `P:`, `Q:`.
+
+### Method 2: Command Line Interface (CLI)
+For advanced users or automation, use the following syntax:
 
 ```shell
 SimpleZipDrive.exe <PathToZipFile> <MountPoint>
 ```
 
-**Arguments:**
-
-*   `<PathToZipFile>`: The full path to the ZIP archive you want to mount.
-    *   Example: `C:\Users\YourName\Downloads\my_archive.zip`
-*   `<MountPoint>`: The desired mount point. This can be:
-    *   A single drive letter (e.g., `M`, `X`, `Z`). The application will append `:\`.
-    *   A full path to an NTFS directory (e.g., `C:\mount\my_virtual_zip`). If the directory does not exist, it will be created automatically. The directory should ideally be empty.
-
-**Command-Line Examples:**
-
-*   Mount `archive.zip` to drive `M:`
+**Examples:**
+*   **Mount to a drive letter:**
     ```shell
-    SimpleZipDrive.exe "C:\path\to\archive.zip" M
+    SimpleZipDrive.exe "C:\Data\Archive.zip" M
     ```
-    The ZIP contents will be accessible at `M:\`.
-
-*   Mount `another_archive.zip` to a folder `C:\myvirtualdrive`:
+*   **Mount to an NTFS folder:**
     ```shell
-    SimpleZipDrive.exe "D:\games\another_archive.zip" "C:\myvirtualdrive"
+    SimpleZipDrive.exe "C:\Data\Archive.zip" "C:\Mount\MyProject"
     ```
-    The ZIP contents will be accessible at `C:\myvirtualdrive\`.
 
-**2. Drag-and-Drop (Automatic Mount Point):**
+### Unmounting
+To safely unmount the drive and clean up temporary resources:
+1.  Focus the console window.
+2.  Press `Ctrl + C` or simply close the window.
 
-*   Drag your `.zip` file from Windows Explorer and drop it onto the `SimpleZipDrive.exe` icon.
-*   The application will attempt to mount the ZIP file automatically. It will first try to use drive letter `M:\`. If `M:\` is unavailable, it will try `N:\`, then `O:\`, `P:\`, and finally `Q:\`.
-*   If a mount is successful, the console window will remain open, showing the active mount.
-*   If all preferred drive letters (M-Q) are unavailable or an error occurs, the console window will remain open displaying the error messages.
+---
 
-**To Unmount (for both methods):**
+## 🔍 Technical Architecture
 
-*   Press `Ctrl+C` in the console window where `SimpleZipDrive.exe` is running.
-*   Alternatively, close the console window.
+*   **Read-Only Integrity:** The filesystem is strictly read-only. No modifications are made to the source ZIP file.
+*   **Memory Efficiency:** The application does not load the entire ZIP into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested.
+*   **Permissions:** Mounting to drive letters or system-protected directories may require **Administrator Privileges**. If you encounter "Access Denied" errors, right-click the executable and select "Run as Administrator."
+*   **Temporary Storage:** Disk-based caching for large files occurs in `%TEMP%\SimpleZipDrive`. These files are purged automatically during a graceful shutdown.
 
-The application will attempt to unmount the virtual drive/directory upon exit.
+---
 
-## Important Notes
+## ❓ Troubleshooting
 
-*   **Administrator Privileges:** Mounting to a drive letter or certain system paths might require running the application as an Administrator. If you encounter "Access Denied" or "MountPoint" errors (especially with drag-and-drop if preferred drive letters are in use by system processes or require elevation), try running `SimpleZipDrive.exe` from an administrative command prompt, or by right-clicking the .exe and choosing "Run as administrator" before dragging a file onto it.
-*   **Read-Only:** This is a read-only filesystem. You cannot write, delete, or modify files within the mounted ZIP.
-*   **Memory Usage:**
-    *   The source ZIP file itself is always streamed from the disk, minimizing initial RAM usage for the archive.
-    *   Individual files *inside* the ZIP are fully decompressed and cached into memory when an application (like an emulator) opens them for reading. This is done to provide fast random access.
-    *   Files larger than 512MB are extracted to temporary disk files instead of being cached in memory.
-    *   If many large files are opened simultaneously by the accessing application, the `SimpleZipDrive.exe` process could consume significant RAM. Memory for a cached file is released when the accessing application closes its handle to that file.
-*   **Temporary Files:** Temporary files are created in `%TEMP%\SimpleZipDrive` for large file caching and are automatically cleaned up on unmount.
-*   **Dokan Driver:** Ensure the Dokan driver is correctly installed and running. If you have issues, reinstalling Dokan might help.
-*   **Error Handling:** The application includes comprehensive error handling with local logging to `error.log` and `critical_error.log` files in the application directory, as well as remote error reporting. If a mount fails (either via command-line or drag-and-drop), the console window will remain open with error details. For more detailed Dokan-level debugging, you can uncomment the `DokanOptions.DebugMode` and `DokanOptions.StderrOutput` lines in `Program.cs` and use a tool like DebugView (DbgView.exe from Sysinternals) to capture kernel messages.
-*   **Automatic Updates:** The application will automatically check for updates on startup and prompt you to visit the GitHub releases page if a newer version is available.
+| Issue | Solution |
+| :--- | :--- |
+| **Dokan Initialization Failed** | Ensure the Dokan driver is installed and you have restarted your PC after installation. |
+| **Drive Letter in Use** | Specify a different drive letter via CLI or ensure letters M-Q are not mapped to network shares. |
+| **Out of Memory** | Occurs if too many large files are opened simultaneously. Close applications accessing the virtual drive to free up cache. |
+| **ZIP File Error** | Simple Zip Drive supports standard ZIP formats. Proprietary formats like `.7z` or `.rar` are not supported. |
 
-## Troubleshooting
+---
 
-*   **"DOKAN INITIALIZATION FAILED" on startup**:
-    *   This error means the application could not find the Dokan library (`dokan.dll`) or communicate with the Dokan driver.
-    *   The most common cause is that **Dokan is not installed**. Please download and install it from the official source: [https://github.com/dokan-dev/dokany/releases](https://github.com/dokan-dev/dokany/releases).
-    *   After installation, please try running the application again.
-*   **"Dokan Error: ... MountPoint ... AssignDriveLetter ..." during mount**:
-    *   The mount point (either specified or one of M-Q in drag-and-drop) might already be in use.
-    *   You might need administrator privileges (see "Important Notes").
-    *   If mounting to a folder, the application will attempt to create it if it doesn't exist. This can fail due to insufficient permissions (try running as Administrator) or an invalid path.
-    *   Ensure the Dokan driver is installed and functioning. You can get it from [https://github.com/dokan-dev/dokany/releases](https://github.com/dokan-dev/dokany/releases).
-*   **Drag-and-Drop Fails to Mount**:
-    *   All preferred drive letters (M:, N:, O:, P:, Q:) might be in use or require administrator privileges to access. Check the console output for specific errors.
-    *   Try running `SimpleZipDrive.exe` as an administrator first, then drag the file onto it.
-*   **"Error: ZIP file not found..."**: Double-check the path to your ZIP file (for command-line usage).
-*   **"Out of Memory Error"**:
-    *   This typically happens during `CreateFile` (logged by `ZipFs`), meaning an individual file *within* the ZIP was too large to cache in memory. Files larger than 512MB are automatically extracted to temporary disk files to prevent this issue.
-    *   This can also occur if system RAM is exhausted by cumulative caching of multiple files. This can happen if the accessing application opens very large files or many files simultaneously.
-*   **Application (e.g., an emulator) fails to read files correctly:**
-    *   Check the console output of `SimpleZipDrive.exe` for any errors logged by `ZipFs`.
-    *   Check the `error.log` file in the application directory for detailed error information.
-    *   Enable Dokan kernel logging (see "Important Notes") and use DbgView to look for lower-level errors.
-*   **Temporary Directory Issues**:
-    *   If you encounter issues with temporary file creation, ensure the `%TEMP%\SimpleZipDrive` directory is writable and not locked by other processes.
-    *   The application attempts to clean up temporary files automatically, but in case of crashes, you may need to manually delete this directory.
+## 📜 License & Acknowledgments
 
-## Support the Project
+This project is licensed under the **GNU General Public License v3.0**.
 
-If you find Simple Zip Drive useful, please consider supporting its development:
+**Third-Party Libraries:**
+*   [DokanNet](https://github.com/dokan-dev/dokan-dotnet) (MIT)
+*   [SharpZipLib](https://github.com/icsharpcode/SharpZipLib) (MIT)
 
-*   **Star the Repository:** Show your appreciation by starring the project on GitHub!
-*   **Donate:** Contributions help cover development time and costs. You can donate at: [https://www.purelogiccode.com/Donate](https://www.purelogiccode.com/Donate)
+---
 
-The developer's website is [PureLogic Code](https://www.purelogiccode.com/).
+## 🤝 Support the Project
 
-## License
+If you find this tool useful, consider supporting its continued development:
 
-This project has a GPL-3.0 license. The DokanNet and SharpZipLib libraries have an MIT license. The underlying Dokan library contains LGPL and MIT licensed programs.
-
-## Acknowledgements
-
-*   [DokanNet](https://github.com/dokan-dev/dokan-dotnet) - .NET wrapper for Dokan
-*   [Dokan](https://github.com/dokan-dev/dokany) - User-mode file system library for Windows
-*   [SharpZipLib](https://github.com/icsharpcode/SharpZipLib) – A comprehensive Zip, GZip, Tar and BZip2 library for .NET
+*   **GitHub:** [Star the Repository](https://github.com/drpetersonfernandes/SimpleZipDrive)
+*   **Donate:** [PureLogic Code Donation](https://www.purelogiccode.com/Donate)
+*   **Website:** [PureLogic Code](https://www.purelogiccode.com/)
