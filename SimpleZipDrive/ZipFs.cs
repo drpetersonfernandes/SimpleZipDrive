@@ -268,6 +268,15 @@ public class ZipFs : IDokanOperations, IDisposable
                         contextMessage = $"ZipFs.CreateFile: Password error for '{normalizedPath}'. The provided password may be incorrect or missing.";
                         Console.WriteLine($"\n[!] Password Error: Could not decrypt '{normalizedPath}'.");
                     }
+                    else if (zipEx.Message.Contains("Compression method not supported", StringComparison.OrdinalIgnoreCase))
+                    {
+                        contextMessage = $"ZipFs.CreateFile: Compression method not supported for entry '{normalizedPath}'.";
+                        Console.WriteLine($"\n--- UNSUPPORTED COMPRESSION ---");
+                        Console.WriteLine($"Error: The file '{Path.GetFileName(normalizedPath)}' uses an unsupported compression algorithm.");
+                        Console.WriteLine("Simple Zip Drive supports standard Deflate and Store methods.");
+                        Console.WriteLine("This file may be compressed with Zstandard, XZ, Brotli, LZMA, or another unsupported algorithm.");
+                        Console.WriteLine("Please re-compress the archive using standard ZIP Deflate compression.");
+                    }
                     else
                     {
                         contextMessage = $"ZipFs.CreateFile: A ZipException occurred while trying to read the file entry '{normalizedPath}'. This often indicates the file's data within the ZIP is corrupt.";
@@ -283,7 +292,21 @@ public class ZipFs : IDokanOperations, IDisposable
                               $"Please check the connection to drive '{Path.GetPathRoot(_tempDirectoryPath)}'.";
                     Console.WriteLine($"\n[!!!] {msg}");
                     // _logErrorAction(ioEx, "ZipFs.CreateFile: Source device disconnected.");
-                    return DokanResult.NotReady; // Return a specific Dokan error
+                    return DokanResult.NotReady;
+                }
+                catch (IOException ioEx) when ((uint)ioEx.HResult == 0x800703EE || (uint)ioEx.HResult == 0x80070037) // ERROR_FILE_INVALID or ERROR_DEV_NOT_EXIST
+                {
+                    Console.WriteLine($"\n--- SOURCE FILE ACCESS ERROR ---");
+                    Console.WriteLine($"Error: The source ZIP file is no longer accessible.");
+                    Console.WriteLine($"Details: {ioEx.Message}");
+                    Console.WriteLine("\nThis usually means:");
+                    Console.WriteLine("  - The external drive/USB device was disconnected");
+                    Console.WriteLine("  - The ZIP file was modified or deleted after mounting started");
+                    Console.WriteLine("  - The source device is no longer available or has errors");
+                    Console.WriteLine("\nPlease verify the drive is connected and the file has not been altered.");
+                    _logErrorAction(ioEx, $"ZipFs.CreateFile: Source file inaccessible for entry '{normalizedPath}'");
+                    info.Context = null;
+                    return DokanResult.Error;
                 }
                 catch (Exception ex)
                 {

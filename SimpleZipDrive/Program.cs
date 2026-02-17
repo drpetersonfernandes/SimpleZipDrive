@@ -48,6 +48,17 @@ file static class Program
             return;
         }
 
+        if (!Path.GetExtension(zipFilePath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"\n--- INVALID FILE TYPE ---");
+            Console.WriteLine($"Error: The file '{Path.GetFileName(zipFilePath)}' is not a supported archive.");
+            Console.WriteLine($"Detected extension: '{Path.GetExtension(zipFilePath)}' (expected: .zip)");
+            Console.WriteLine("Simple Zip Drive can only mount standard .zip files.");
+            Console.WriteLine("Executable files (.exe), disk images, and other formats are not supported.");
+            KeepConsoleOpenOnError();
+            return;
+        }
+
         if (!IsAdministrator())
         {
             Console.WriteLine("\nWarning: Running without Administrator privileges.");
