@@ -109,3 +109,6 @@
 /SimpleZipDrive/obj/SimpleZipMounter.csproj.nuget.dgspec.json
 /SimpleZipDrive/obj/SimpleZipMounter.csproj.nuget.g.props
 /SimpleZipDrive/obj/SimpleZipMounter.csproj.nuget.g.targets
+
+# Ignore build output directories
+**/bin/
