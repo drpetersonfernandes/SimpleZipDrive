@@ -75,14 +75,6 @@ public static class ErrorLogger
         if (ex == null)
         {
             ex = new ArgumentNullException(nameof(ex), "ErrorLogger.LogErrorSync was called with a null exception object.");
-            try
-            {
-                throw ex;
-            }
-            catch
-            {
-                /* ex now has a stack trace */
-            }
         }
 
         contextMessage ??= "No additional context provided.";
@@ -139,14 +131,6 @@ public static class ErrorLogger
         if (ex == null)
         {
             ex = new ArgumentNullException(nameof(ex), "ErrorLogger.LogErrorAsync was called with a null exception object.");
-            try
-            {
-                throw ex;
-            }
-            catch
-            {
-                /* ex now has a stack trace */
-            }
         }
 
         contextMessage ??= "No additional context provided.";
