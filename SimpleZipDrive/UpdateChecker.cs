@@ -100,6 +100,6 @@ public static partial class UpdateChecker
         }
     }
 
-    [GeneratedRegex(@"\d+\.\d+\.\d+")]
+    [GeneratedRegex(@"\d+\.\d+(?:\.\d+)?")]
     private static partial Regex MyRegex();
 }

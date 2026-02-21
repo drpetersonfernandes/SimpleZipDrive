@@ -550,7 +550,11 @@ public class ZipFs : IDokanOperations, IDisposable
                     if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
 
                     var remainder = path.Substring(searchPrefix.Length);
-                    return !remainder.Contains('/') || (remainder.EndsWith('/') && remainder.Count(static c => c == '/') == 1);
+                    // Include direct children (no slashes) or direct child directories (single component ending with /)
+                    var slashIndex = remainder.IndexOf('/');
+                    if (slashIndex == -1) return true; // No slash - direct child file or directory
+                    // Has slash - only include if it's a directory entry AND the slash is at the end (direct child dir)
+                    return remainder.EndsWith('/') && slashIndex == remainder.Length - 1;
                 })
                 .Select(static kvp => kvp.Value)
                 .ToList();

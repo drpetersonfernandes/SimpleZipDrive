@@ -16,7 +16,6 @@ public static class ErrorLogger
 
     private static readonly string BaseDirectory = AppDomain.CurrentDomain.BaseDirectory;
     private static readonly string ErrorLogFilePath = Path.Combine(BaseDirectory, "error.log");
-    private static readonly string CriticalLogFilePath = Path.Combine(BaseDirectory, "critical_error.log");
 
     static ErrorLogger()
     {
@@ -210,27 +209,11 @@ public static class ErrorLogger
 
     private static void WriteToCriticalLog(Exception ex, string contextMessage)
     {
-        try
-        {
-            var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
-            var criticalContent = new StringBuilder();
-            criticalContent.AppendLine("--- CRITICAL LOGGING ERROR ---");
-            criticalContent.AppendLine(CultureInfo.InvariantCulture, $"Timestamp: {DateTime.Now:yyyy-MM-dd HH:mm:ss zzz}");
-            criticalContent.AppendLine(CultureInfo.InvariantCulture, $"Application: {ApplicationName}");
-            criticalContent.AppendLine(CultureInfo.InvariantCulture, $"Version: {version}");
-            criticalContent.AppendLine(CultureInfo.InvariantCulture, $"Context: {contextMessage}");
-            criticalContent.AppendLine(CultureInfo.InvariantCulture, $"Exception Type: {ex.GetType().Name}");
-            criticalContent.AppendLine(CultureInfo.InvariantCulture, $"Exception Message: {ex.Message}");
-            criticalContent.AppendLine(CultureInfo.InvariantCulture, $"Stack Trace:\n{ex.StackTrace}");
-            criticalContent.AppendLine("--------------------------------------------------\n");
-
-            File.AppendAllText(CriticalLogFilePath, criticalContent.ToString(), Encoding.UTF8);
-            Console.Error.WriteLine($"Critical logging error recorded: {contextMessage} - {ex.Message}");
-        }
-        catch (Exception writeEx)
-        {
-            Console.Error.WriteLine($"FATAL: Could not write to critical error log '{CriticalLogFilePath}'. Reason: {writeEx.Message}");
-            Console.Error.WriteLine($"Original critical error: {contextMessage} - {ex.Message}");
-        }
+        // Only write to console - do not attempt to write to file as it will fail
+        // if the application is in a protected directory (e.g., C:\Program Files)
+        // and running as non-admin. Console output is always available.
+        Console.Error.WriteLine($"FATAL: Could not write to error log '{ErrorLogFilePath}'.");
+        Console.Error.WriteLine($"Context: {contextMessage}");
+        Console.Error.WriteLine($"Exception: {ex.GetType().Name} - {ex.Message}");
     }
 }
