@@ -226,6 +226,44 @@ file static class Program
                     return false;
                 }
 
+                // Check if mount point path contains invalid characters
+                var invalidChars = Path.GetInvalidPathChars();
+                if (mountPoint.IndexOfAny(invalidChars) >= 0)
+                {
+                    Console.WriteLine($"Error: Mount point '{mountPoint}' contains invalid path characters.");
+                    return false;
+                }
+
+                // Check if mount point already exists as a file
+                if (File.Exists(mountPoint))
+                {
+                    Console.WriteLine($"Error: Cannot mount to '{mountPoint}' because it is a file, not a directory.");
+                    Console.WriteLine("Please specify a directory path or a drive letter (e.g., 'Z' or 'Z:\\').");
+                    return false;
+                }
+
+                // Check if existing directory is empty (mounting to non-empty folder causes undefined behavior in Dokan)
+                if (Directory.Exists(mountPoint))
+                {
+                    try
+                    {
+                        var entries = Directory.GetFileSystemEntries(mountPoint);
+                        if (entries.Length > 0)
+                        {
+                            Console.WriteLine($"Error: Mount point directory '{mountPoint}' is not empty.");
+                            Console.WriteLine("Mounting to a non-empty folder can cause undefined behavior.");
+                            Console.WriteLine("Please specify an empty directory or a new path.");
+                            return false;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error: Unable to check contents of mount point directory '{mountPoint}'.");
+                        Console.WriteLine($"Reason: {ex.Message}");
+                        return false;
+                    }
+                }
+
                 if (!Directory.Exists(mountPoint))
                 {
                     try

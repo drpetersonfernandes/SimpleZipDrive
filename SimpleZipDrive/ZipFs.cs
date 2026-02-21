@@ -40,6 +40,11 @@ public class ZipFs : IDokanOperations, IDisposable
     private const string VolumeLabel = "SimpleZipDrive";
     private static readonly char[] Separator = ['/'];
 
+    // Windows path length limits
+    private const int MaxPath = 260;
+    private const int MaxPathExtended = 32767;
+    private const string ExtendedPathPrefix = @"\\?\";
+
     public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType)
     {
         _sourceArchiveStream = archiveStream;
@@ -142,6 +147,48 @@ public class ZipFs : IDokanOperations, IDisposable
         return path;
     }
 
+    /// <summary>
+    /// Validates that the path length is within acceptable limits.
+    /// Returns true if the path is valid, false if it exceeds the maximum allowed length.
+    /// </summary>
+    private static bool IsPathLengthValid(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return true;
+
+        // Check for extended-length path prefix
+        if (path.StartsWith(ExtendedPathPrefix, StringComparison.Ordinal))
+        {
+            // Extended paths can be up to 32,767 characters
+            return path.Length <= MaxPathExtended;
+        }
+
+        // Standard paths are limited to MAX_PATH (260) characters
+        return path.Length <= MaxPath;
+    }
+
+    /// <summary>
+    /// Validates path length and logs an error if it exceeds limits.
+    /// Returns NtStatus.Success if valid, or an error status if invalid.
+    /// </summary>
+    private NtStatus ValidatePathLength(string path, string operationName)
+    {
+        if (!IsPathLengthValid(path))
+        {
+            var isExtended = path.StartsWith(ExtendedPathPrefix, StringComparison.Ordinal);
+            var maxLength = isExtended ? MaxPathExtended : MaxPath;
+            var pathType = isExtended ? "extended-length" : "standard";
+
+            _logErrorAction(
+                new PathTooLongException($"Path exceeds maximum length for {pathType} paths ({maxLength} characters)."),
+                $"ZipFs.{operationName}: Path length validation failed - {path.Length} characters.");
+
+            return DokanResult.Error;
+        }
+
+        return DokanResult.Success;
+    }
+
     public NtStatus CreateFile(
         string fileName,
         FileAccess access,
@@ -151,6 +198,11 @@ public class ZipFs : IDokanOperations, IDisposable
         FileAttributes attributes,
         IDokanFileInfo info)
     {
+        // Validate path length before processing
+        var pathValidationResult = ValidatePathLength(fileName, nameof(CreateFile));
+        if (pathValidationResult != DokanResult.Success)
+            return pathValidationResult;
+
         var normalizedPath = NormalizePath(fileName);
 
         IArchiveEntry? entry;
@@ -212,20 +264,24 @@ public class ZipFs : IDokanOperations, IDisposable
                                 var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
 
                                 // --- Disk space check ---
-                                try
+                                // Only check disk space if entry size is known (non-negative)
+                                if (entrySize >= 0)
                                 {
-                                    var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath) ?? "C:\\";
-                                    var tempDrive = new DriveInfo(tempDrivePathRoot);
-                                    if (tempDrive.AvailableFreeSpace < entrySize)
+                                    try
                                     {
-                                        var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).";
-                                        _logErrorAction(new IOException(errorMessage), "ZipFs.CreateFile: Disk space check failed.");
-                                        return DokanResult.DiskFull;
+                                        var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath) ?? "C:\\";
+                                        var tempDrive = new DriveInfo(tempDrivePathRoot);
+                                        if (tempDrive.AvailableFreeSpace < entrySize)
+                                        {
+                                            var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).";
+                                            _logErrorAction(new IOException(errorMessage), "ZipFs.CreateFile: Disk space check failed.");
+                                            return DokanResult.DiskFull;
+                                        }
                                     }
-                                }
-                                catch (Exception driveEx)
-                                {
-                                    _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'.");
+                                    catch (Exception driveEx)
+                                    {
+                                        _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'.");
+                                    }
                                 }
 
                                 using var entryStream = entry.OpenEntryStream();
@@ -414,6 +470,11 @@ public class ZipFs : IDokanOperations, IDisposable
             return DokanResult.AccessDenied;
         }
 
+        // Validate path length before processing
+        var pathValidationResult = ValidatePathLength(fileName, nameof(ReadFile));
+        if (pathValidationResult != DokanResult.Success)
+            return pathValidationResult;
+
         var normalizedPath = NormalizePath(fileName);
 
         // Defensive null check
@@ -457,6 +518,12 @@ public class ZipFs : IDokanOperations, IDisposable
     public NtStatus GetFileInformation(string fileName, out FileInformation fileInfo, IDokanFileInfo info)
     {
         fileInfo = new FileInformation();
+
+        // Validate path length before processing
+        var pathValidationResult = ValidatePathLength(fileName, nameof(GetFileInformation));
+        if (pathValidationResult != DokanResult.Success)
+            return pathValidationResult;
+
         var normalizedPath = NormalizePath(fileName);
 
         IArchiveEntry? entry;
@@ -523,6 +590,12 @@ public class ZipFs : IDokanOperations, IDisposable
     public NtStatus FindFiles(string fileName, out IList<FileInformation> files, IDokanFileInfo info)
     {
         files = new List<FileInformation>();
+
+        // Validate path length before processing
+        var pathValidationResult = ValidatePathLength(fileName, nameof(FindFiles));
+        if (pathValidationResult != DokanResult.Success)
+            return pathValidationResult;
+
         var normalizedPath = NormalizePath(fileName);
 
         List<IArchiveEntry> childEntries;
@@ -750,6 +823,14 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public NtStatus FindFilesWithPattern(string fileName, string searchPattern, out IList<FileInformation> files, IDokanFileInfo info)
     {
+        // Validate path length before processing
+        var pathValidationResult = ValidatePathLength(fileName, nameof(FindFilesWithPattern));
+        if (pathValidationResult != DokanResult.Success)
+        {
+            files = new List<FileInformation>();
+            return pathValidationResult;
+        }
+
         var result = FindFiles(fileName, out var allFiles, info);
         if (result != DokanResult.Success)
         {
@@ -788,6 +869,12 @@ public class ZipFs : IDokanOperations, IDisposable
     public NtStatus GetFileSecurity(string fileName, out FileSystemSecurity? security, AccessControlSections sections, IDokanFileInfo info)
     {
         security = null;
+
+        // Validate path length before processing
+        var pathValidationResult = ValidatePathLength(fileName, nameof(GetFileSecurity));
+        if (pathValidationResult != DokanResult.Success)
+            return pathValidationResult;
+
         try
         {
             var fs = new FileSecurity();
