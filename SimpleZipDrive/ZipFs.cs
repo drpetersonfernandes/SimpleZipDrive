@@ -146,7 +146,13 @@ public class ZipFs : IDokanOperations, IDisposable
     {
         var normalizedPath = NormalizePath(fileName);
 
-        if (_archiveEntries.TryGetValue(normalizedPath, out var entry))
+        IArchiveEntry? entry;
+        lock (_archiveLock)
+        {
+            _archiveEntries.TryGetValue(normalizedPath, out entry);
+        }
+
+        if (entry != null)
         {
             if (IsDirectory(entry))
             {
@@ -191,7 +197,7 @@ public class ZipFs : IDokanOperations, IDisposable
                     {
                         // --- Large file: Cache to disk ---
                         string? cachedPath;
-                        lock (_largeFileCache)
+                        lock (_archiveLock)
                         {
                             if (!_largeFileCache.TryGetValue(normalizedPath, out cachedPath))
                             {
@@ -215,12 +221,9 @@ public class ZipFs : IDokanOperations, IDisposable
                                     _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'.");
                                 }
 
-                                lock (_archiveLock)
-                                {
-                                    using var entryStream = entry.OpenEntryStream();
-                                    using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
-                                    entryStream.CopyTo(tempFileStream);
-                                }
+                                using var entryStream = entry.OpenEntryStream();
+                                using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
+                                entryStream.CopyTo(tempFileStream);
 
                                 _largeFileCache[normalizedPath] = newTempFilePath;
                                 cachedPath = newTempFilePath;
@@ -312,15 +315,24 @@ public class ZipFs : IDokanOperations, IDisposable
                 }
             }
         }
-        else if (_directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/")
+        else
         {
-            info.IsDirectory = true;
-            return mode switch
+            bool isDirectory;
+            lock (_archiveLock)
             {
-                FileMode.Open or FileMode.OpenOrCreate or FileMode.Create => DokanResult.Success,
-                FileMode.CreateNew => DokanResult.FileExists,
-                _ => DokanResult.AccessDenied
-            };
+                isDirectory = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
+            }
+
+            if (isDirectory)
+            {
+                info.IsDirectory = true;
+                return mode switch
+                {
+                    FileMode.Open or FileMode.OpenOrCreate or FileMode.Create => DokanResult.Success,
+                    FileMode.CreateNew => DokanResult.FileExists,
+                    _ => DokanResult.AccessDenied
+                };
+            }
         }
 
         return DokanResult.PathNotFound;
@@ -385,7 +397,26 @@ public class ZipFs : IDokanOperations, IDisposable
         fileInfo = new FileInformation();
         var normalizedPath = NormalizePath(fileName);
 
-        if (_archiveEntries.TryGetValue(normalizedPath, out var entry))
+        IArchiveEntry? entry;
+        bool isImplicitDir;
+        var dirCreationTime = DateTime.Now;
+        var dirLastWriteTime = DateTime.Now;
+        var dirLastAccessTime = DateTime.Now;
+
+        lock (_archiveLock)
+        {
+            _archiveEntries.TryGetValue(normalizedPath, out entry);
+            isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
+
+            if (entry == null && isImplicitDir)
+            {
+                _directoryCreationTimes.TryGetValue(normalizedPath, out dirCreationTime);
+                _directoryLastWriteTimes.TryGetValue(normalizedPath, out dirLastWriteTime);
+                _directoryLastAccessTimes.TryGetValue(normalizedPath, out dirLastAccessTime);
+            }
+        }
+
+        if (entry != null)
         {
             if (IsDirectory(entry))
             {
@@ -413,13 +444,13 @@ public class ZipFs : IDokanOperations, IDisposable
 
             return DokanResult.Success;
         }
-        else if (_directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/")
+        else if (isImplicitDir)
         {
             fileInfo.Attributes = FileAttributes.Directory;
             fileInfo.FileName = normalizedPath.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s)) ?? "";
-            fileInfo.LastWriteTime = _directoryLastWriteTimes.TryGetValue(normalizedPath, out var lwt) ? lwt : DateTime.Now;
-            fileInfo.CreationTime = _directoryCreationTimes.TryGetValue(normalizedPath, out var ct) ? ct : DateTime.Now;
-            fileInfo.LastAccessTime = _directoryLastAccessTimes.TryGetValue(normalizedPath, out var lat) ? lat : DateTime.Now;
+            fileInfo.LastWriteTime = dirLastWriteTime;
+            fileInfo.CreationTime = dirCreationTime;
+            fileInfo.LastAccessTime = dirLastAccessTime;
             info.IsDirectory = true;
             return DokanResult.Success;
         }
@@ -432,20 +463,24 @@ public class ZipFs : IDokanOperations, IDisposable
         files = new List<FileInformation>();
         var normalizedPath = NormalizePath(fileName);
 
-        var isExplicitDirEntry = _archiveEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectory(dirEntry);
-        var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
+        List<IArchiveEntry> childEntries;
+        List<string> implicitChildDirs;
+        Dictionary<string, (DateTime CreationTime, DateTime LastWriteTime, DateTime LastAccessTime)> dirTimeSnapshot;
 
-        if (!isExplicitDirEntry && !isImplicitDir) return DokanResult.PathNotFound;
-
-        var searchPrefix = normalizedPath.TrimEnd('/') + (normalizedPath == "/" ? "" : "/");
-        if (normalizedPath == "/")
+        lock (_archiveLock)
         {
-            searchPrefix = "/";
-        }
+            var isExplicitDirEntry = _archiveEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectory(dirEntry);
+            var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
 
-        try
-        {
-            var childEntries = _archiveEntries
+            if (!isExplicitDirEntry && !isImplicitDir) return DokanResult.PathNotFound;
+
+            var searchPrefix = normalizedPath.TrimEnd('/') + (normalizedPath == "/" ? "" : "/");
+            if (normalizedPath == "/")
+            {
+                searchPrefix = "/";
+            }
+
+            childEntries = _archiveEntries
                 .Where(kvp =>
                 {
                     var path = kvp.Key;
@@ -458,6 +493,31 @@ public class ZipFs : IDokanOperations, IDisposable
                 .Select(static kvp => kvp.Value)
                 .ToList();
 
+            implicitChildDirs = _directoryCreationTimes.Keys
+                .Where(k =>
+                {
+                    if (k.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
+                    if (!k.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
+
+                    var remainder = k.Substring(searchPrefix.Length);
+                    return !remainder.Contains('/') && !string.IsNullOrEmpty(remainder);
+                })
+                .Where(k => childEntries.All(e => e.Key != null && NormalizePath(e.Key).TrimEnd('/', '\\') != k))
+                .ToList();
+
+            // Snapshot directory times while holding the lock
+            dirTimeSnapshot = new Dictionary<string, (DateTime, DateTime, DateTime)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dirPathKey in implicitChildDirs)
+            {
+                _directoryCreationTimes.TryGetValue(dirPathKey, out var ct);
+                _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
+                _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
+                dirTimeSnapshot[dirPathKey] = (ct, lwt, lat);
+            }
+        }
+
+        try
+        {
             foreach (var entry in childEntries)
             {
                 var fi = new FileInformation
@@ -485,30 +545,19 @@ public class ZipFs : IDokanOperations, IDisposable
                 if (!string.IsNullOrEmpty(fi.FileName)) files.Add(fi);
             }
 
-            var implicitChildDirs = _directoryCreationTimes.Keys
-                .Where(k =>
-                {
-                    if (k.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
-                    if (!k.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
-
-                    var remainder = k.Substring(searchPrefix.Length);
-                    return !remainder.Contains('/') && !string.IsNullOrEmpty(remainder);
-                })
-                .Where(k => childEntries.All(e => e.Key != null && NormalizePath(e.Key).TrimEnd('/', '\\') != k))
-                .ToList();
-
             foreach (var dirPathKey in implicitChildDirs)
             {
                 var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
                 if (!string.IsNullOrEmpty(name))
                 {
+                    var (ct, lwt, lat) = dirTimeSnapshot[dirPathKey];
                     files.Add(new FileInformation
                     {
                         FileName = name,
                         Attributes = FileAttributes.Directory,
-                        LastWriteTime = _directoryLastWriteTimes[dirPathKey],
-                        CreationTime = _directoryCreationTimes[dirPathKey],
-                        LastAccessTime = _directoryLastAccessTimes[dirPathKey]
+                        LastWriteTime = lwt,
+                        CreationTime = ct,
+                        LastAccessTime = lat
                     });
                 }
             }
@@ -699,7 +748,7 @@ public class ZipFs : IDokanOperations, IDisposable
         _archive.Dispose();
 
         // When the drive is unmounted, clean up all temporary files that were created.
-        lock (_largeFileCache)
+        lock (_archiveLock)
         {
             foreach (var tempFile in _largeFileCache.Values)
             {
