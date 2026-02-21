@@ -397,30 +397,75 @@ file static class Program
         return principal.IsInRole(WindowsBuiltInRole.Administrator);
     }
 
-    private static string ReadPassword(string archivePath)
+    private static string? ReadPassword(string archivePath)
     {
+        // Check if input is redirected - cannot read keys in this case
+        if (Console.IsInputRedirected)
+        {
+            Console.WriteLine("\n[!] Error: Cannot read password when input is redirected.");
+            Console.WriteLine("    Please provide the password through a different method.");
+            return null;
+        }
+
         var extension = Path.GetExtension(archivePath).ToLowerInvariant();
         var archiveType = extension.TrimStart('.');
         Console.WriteLine($"\n[!] The {archiveType.ToUpperInvariant()} file '{Path.GetFileName(archivePath)}' is encrypted.");
+        Console.WriteLine("    Press Enter to submit, Escape or Ctrl+C to cancel.");
         Console.Write("Please enter the password: ");
 
         var password = new StringBuilder();
+        var startTime = DateTime.UtcNow;
+        var timeout = TimeSpan.FromMinutes(5); // 5 minute timeout
+
         while (true)
         {
+            // Check for timeout to prevent indefinite hanging
+            if (DateTime.UtcNow - startTime > timeout)
+            {
+                Console.WriteLine("\n\n[!] Password input timed out after 5 minutes.");
+                return null;
+            }
+
+            // Use KeyAvailable to avoid blocking indefinitely
+            if (!Console.KeyAvailable)
+            {
+                Thread.Sleep(50); // Small delay to prevent CPU spinning
+                continue;
+            }
+
             var key = Console.ReadKey(true);
+
+            // Handle Enter - submit password
             if (key.Key == ConsoleKey.Enter)
             {
                 Console.WriteLine();
                 break;
             }
 
-            if (key.Key == ConsoleKey.Backspace && password.Length > 0)
+            switch (key.Key)
             {
-                password.Remove(password.Length - 1, 1);
-            }
-            else if (key.KeyChar != '\u0000') // Ignore non-printable chars
-            {
-                password.Append(key.KeyChar);
+                // Handle Escape - cancel password input
+                case ConsoleKey.Escape:
+                    Console.WriteLine("\n[!] Password input cancelled by user.");
+                    return null;
+                // Handle Ctrl+C - cancel password input
+                // Note: Console.ReadKey intercepts Ctrl+C, so we check for it explicitly
+                case ConsoleKey.C when (key.Modifiers & ConsoleModifiers.Control) != 0:
+                    Console.WriteLine("\n[!] Password input cancelled by user (Ctrl+C).");
+                    return null;
+                // Handle Backspace
+                case ConsoleKey.Backspace when password.Length > 0:
+                    password.Remove(password.Length - 1, 1);
+                    break;
+                default:
+                {
+                    if (key.KeyChar != '\u0000') // Ignore non-printable chars
+                    {
+                        password.Append(key.KeyChar);
+                    }
+
+                    break;
+                }
             }
         }
 
