@@ -79,10 +79,6 @@ file static class Program
 
         try
         {
-            using var dokan = new Dokan(logger);
-            Console.WriteLine($"Dokan Library Version: {dokan.Version}");
-            Console.WriteLine($"Dokan Driver Version: {dokan.DriverVersion}");
-
             if (isDragAndDrop)
             {
                 char[] preferredDriveLetters = ['M', 'N', 'O', 'P', 'Q'];
@@ -98,6 +94,11 @@ file static class Program
                         Console.WriteLine($"Drag-and-drop: Skipping '{currentMountPoint}' (already in use).");
                         continue;
                     }
+
+                    // Create a new Dokan instance for each mount attempt to avoid reuse issues
+                    using var dokan = new Dokan(logger);
+                    Console.WriteLine($"Dokan Library Version: {dokan.Version}");
+                    Console.WriteLine($"Dokan Driver Version: {dokan.DriverVersion}");
 
                     Console.WriteLine($"Drag-and-drop: Attempting to mount on '{currentMountPoint}'...");
                     if (!await AttemptMountLifecycle(zipFilePath, currentMountPoint, dokan, archiveType)) continue;
@@ -128,6 +129,11 @@ file static class Program
                 {
                     mountPoint = mountPointArg.ToUpperInvariant() + @":\";
                 }
+
+                // Create a new Dokan instance for this mount attempt
+                using var dokan = new Dokan(logger);
+                Console.WriteLine($"Dokan Library Version: {dokan.Version}");
+                Console.WriteLine($"Dokan Driver Version: {dokan.DriverVersion}");
 
                 if (await AttemptMountLifecycle(zipFilePath, mountPoint, dokan, archiveType))
                 {
