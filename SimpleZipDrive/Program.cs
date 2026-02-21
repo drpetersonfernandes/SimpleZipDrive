@@ -376,26 +376,9 @@ file static class Program
                 Console.CancelKeyPress -= cancelKeyPressHandler;
             }
 
-            // Clean up the dedicated temporary directory used by this application instance.
-            var tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive");
-            try
-            {
-                if (Directory.Exists(tempDirectoryPath))
-                {
-                    Directory.Delete(tempDirectoryPath, true);
-                    Console.WriteLine($"Successfully deleted temporary directory: '{tempDirectoryPath}'.");
-                }
-            }
-            catch (DirectoryNotFoundException)
-            {
-                // Harmless race condition: another process or instance deleted it between our check and our delete call.
-                // The directory is gone, which was the goal, so we can ignore this.
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Warning: Failed to delete temporary directory '{tempDirectoryPath}'. This may be due to locked files or permissions.");
-                _ = ErrorLogger.LogErrorAsync(ex, $"Failed to delete temp directory '{tempDirectoryPath}'.");
-            }
+            // Note: Temporary directory cleanup is handled by ZipFs.Dispose() which uses a unique
+            // per-instance directory (based on Process ID and GUID) to avoid collisions between
+            // multiple simultaneously running instances.
 
             Console.WriteLine($"Finished mount/unmount attempt for '{mountPoint}'.");
         }

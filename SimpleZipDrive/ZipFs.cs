@@ -40,7 +40,8 @@ public class ZipFs : IDokanOperations, IDisposable
         _logErrorAction = logErrorAction ?? throw new ArgumentNullException(nameof(logErrorAction));
         _passwordProvider = passwordProvider;
         _archiveType = archiveType.ToLowerInvariant();
-        _tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive");
+        // Use a unique temp directory per instance to avoid collisions between multiple running instances
+        _tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive", $"{Environment.ProcessId}_{Guid.NewGuid():N}");
 
         try
         {
@@ -766,6 +767,19 @@ public class ZipFs : IDokanOperations, IDisposable
             }
 
             _largeFileCache.Clear();
+        }
+
+        // Clean up the unique temporary directory for this instance
+        try
+        {
+            if (Directory.Exists(_tempDirectoryPath))
+            {
+                Directory.Delete(_tempDirectoryPath, true);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logErrorAction(ex, $"Failed to delete temp directory on dispose: {_tempDirectoryPath}");
         }
 
         GC.SuppressFinalize(this);
