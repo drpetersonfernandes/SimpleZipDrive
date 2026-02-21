@@ -60,13 +60,65 @@ public static class ErrorLogger
     {
         if (ex == null) return false;
 
-        // "Cannot find central directory" is the standard SharpZipLib error for non-zip or corrupt zip files.
-        var isZipError = ex.Message.Contains("Cannot find central directory", StringComparison.OrdinalIgnoreCase);
+        // Check exception types first (most reliable)
+        var exceptionType = ex.GetType();
+        var typeName = exceptionType.Name;
+        var fullName = exceptionType.FullName ?? string.Empty;
 
-        // "Can't assign a drive letter" is a Dokan error, usually meaning the drive is already in use.
-        var isDriveInUse = ex.Message.Contains("Can't assign a drive letter", StringComparison.OrdinalIgnoreCase);
+        // SharpCompress archive-related exceptions indicate user-provided invalid files
+        if (fullName.StartsWith("SharpCompress.", StringComparison.OrdinalIgnoreCase))
+        {
+            // ArchiveException, InvalidFormatException, etc. from SharpCompress are user errors
+            if (typeName.Contains("Archive", StringComparison.OrdinalIgnoreCase) ||
+                typeName.Contains("Format", StringComparison.OrdinalIgnoreCase) ||
+                typeName.Contains("Invalid", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
 
-        return isZipError || isDriveInUse;
+        // Dokan exceptions related to drive letter assignment
+        if (fullName.StartsWith("DokanNet.", StringComparison.OrdinalIgnoreCase))
+        {
+            // Drive-related Dokan exceptions are typically user/environment errors
+            if (typeName.Contains("Drive", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("drive letter", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        // File-related exceptions are typically user errors (file not found, access denied, etc.)
+        if (ex is FileNotFoundException or DirectoryNotFoundException or UnauthorizedAccessException or IOException)
+        {
+            return true;
+        }
+
+        // Fallback to message-based detection for cases where exception types aren't specific enough
+        // These patterns cover common SharpCompress errors for corrupt/non-archive files
+        var messageLower = ex.Message.ToLowerInvariant();
+
+        // SharpCompress archive format errors
+        var isArchiveError =
+            messageLower.Contains("cannot find central directory") || // ZIP format error
+            messageLower.Contains("invalid archive") ||
+            messageLower.Contains("unknown format") ||
+            messageLower.Contains("not a valid") ||
+            messageLower.Contains("corrupt") ||
+            (messageLower.Contains("header") && messageLower.Contains("invalid"));
+
+        // Dokan drive-related errors
+        var isDriveError =
+            messageLower.Contains("can't assign a drive letter") ||
+            (messageLower.Contains("drive letter") && messageLower.Contains("in use")) ||
+            (messageLower.Contains("mount point") && messageLower.Contains("invalid"));
+
+        // Password-related errors (user can retry with correct password)
+        var isPasswordError =
+            messageLower.Contains("password") ||
+            messageLower.Contains("encrypted");
+
+        return isArchiveError || isDriveError || isPasswordError;
     }
 
     public static void LogErrorSync(Exception? ex, string? contextMessage = null)
