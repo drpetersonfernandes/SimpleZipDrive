@@ -275,7 +275,7 @@ file static class Program
                     catch (Exception ex)
                     {
                         var context = $"Failed to create mount point directory '{mountPoint}'.";
-                        _ = ErrorLogger.LogErrorAsync(ex, context);
+                        await ErrorLogger.LogErrorAsync(ex, context);
                         Console.WriteLine($"Error: Could not create the mount point directory '{mountPoint}'.");
                         Console.WriteLine($"Reason: {ex.Message}");
                         Console.WriteLine("Please ensure the path is valid and you have sufficient permissions, or create it manually.");
@@ -377,7 +377,7 @@ file static class Program
             // Only log to API if it's NOT the common "driver not installed" error
             if (!ex.Message.Contains("Can't install the Dokan driver", StringComparison.OrdinalIgnoreCase))
             {
-                _ = ErrorLogger.LogErrorAsync(ex, context);
+                await ErrorLogger.LogErrorAsync(ex, context);
             }
 
             return false;
@@ -388,7 +388,7 @@ file static class Program
             // If the exception came from ZipFs constructor, it would have already been logged by ZipFs via LogErrorSync.
             // However, logging it again here with LogErrorAsync ensures it's also sent to API if that part failed in sync.
             // This also catches errors like FileStream creation failure before ZipFs is even instantiated.
-            _ = ErrorLogger.LogErrorAsync(ex, context);
+            await ErrorLogger.LogErrorAsync(ex, context);
 
             // --- Specific message for archive errors ---
             // The archive file is corrupted or invalid.

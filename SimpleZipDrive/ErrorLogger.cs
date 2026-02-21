@@ -151,30 +151,33 @@ public static class ErrorLogger
             WriteToCriticalLog(writeEx, $"Failed to write main error to '{ErrorLogFilePath}'. Original error: {ex.Message}");
         }
 
-        // Fire-and-forget the async API call from the synchronous method
+        // Synchronously wait for the async API call to complete (with timeout)
+        // This ensures exceptions are not lost if the app exits immediately after logging
         if (!IsUserError(ex))
         {
-            // Use a timeout-based cancellation token for fire-and-forget operations
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            _ = SendLogToApiAsync(logContent, cts.Token).ContinueWith(static task =>
+            try
             {
-                if (task is { IsFaulted: true, Exception: not null })
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var task = SendLogToApiAsync(logContent, cts.Token);
+                task.Wait(cts.Token);
+
+                if (task.Result)
                 {
-                    WriteToCriticalLog(task.Exception.Flatten().InnerExceptions.FirstOrDefault() ?? task.Exception,
-                        "Exception in fire-and-forget SendLogToApiAsync from LogErrorSync.");
+                    Console.WriteLine("Error details successfully sent to remote logging service (from sync path).");
                 }
-                else if (task.IsCompletedSuccessfully)
+                else
                 {
-                    if (task.Result) // if sent successfully
-                    {
-                        Console.WriteLine("Error details successfully sent to remote logging service (from sync path).");
-                    }
-                    else
-                    {
-                        Console.Error.WriteLine("Failed to send error details to remote logging service (from sync path). Error is saved locally.");
-                    }
+                    Console.Error.WriteLine("Failed to send error details to remote logging service (from sync path). Error is saved locally.");
                 }
-            }, TaskScheduler.Default);
+            }
+            catch (OperationCanceledException)
+            {
+                Console.Error.WriteLine("Timeout: Failed to send error details to remote logging service (from sync path). Error is saved locally.");
+            }
+            catch (Exception apiEx)
+            {
+                WriteToCriticalLog(apiEx, "Exception in SendLogToApiAsync from LogErrorSync.");
+            }
         }
     }
 

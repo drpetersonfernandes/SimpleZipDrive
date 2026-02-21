@@ -96,7 +96,7 @@ public static partial class UpdateChecker
         catch (Exception ex)
         {
             // Non-fatal: log and continue silently
-            ErrorLogger.LogErrorSync(ex, "UpdateChecker.CheckForUpdateAsync");
+            await ErrorLogger.LogErrorAsync(ex, "UpdateChecker.CheckForUpdateAsync", cancellationToken);
         }
     }
 

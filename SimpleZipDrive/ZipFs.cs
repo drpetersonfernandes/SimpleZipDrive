@@ -14,7 +14,11 @@ namespace SimpleZipDrive;
 
 public class ZipFs : IDokanOperations, IDisposable
 {
+    /// <summary>
+    /// The source archive stream. This stream is owned by the caller and is NOT disposed by this instance.
+    /// </summary>
     private readonly Stream _sourceArchiveStream;
+
     private readonly IArchive _archive;
     private readonly Dictionary<string, IArchiveEntry> _archiveEntries = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryCreationTimes = new(StringComparer.OrdinalIgnoreCase);
@@ -45,6 +49,21 @@ public class ZipFs : IDokanOperations, IDisposable
     private const int MaxPathExtended = 32767;
     private const string ExtendedPathPrefix = @"\\?\";
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ZipFs"/> class.
+    /// </summary>
+    /// <param name="archiveStream">The stream containing the archive data. The caller retains ownership of this stream and is responsible for disposing it.</param>
+    /// <param name="mountPoint">The mount point for the virtual drive (used for logging purposes).</param>
+    /// <param name="logErrorAction">Action to invoke when logging errors.</param>
+    /// <param name="passwordProvider">Function that provides the password for encrypted archives.</param>
+    /// <param name="archiveType">The type of archive ("zip", "7z", or "rar").</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="logErrorAction"/> is null.</exception>
+    /// <exception cref="NotSupportedException">Thrown when the archive type is not supported.</exception>
+    /// <remarks>
+    /// <para><strong>Important:</strong> The <paramref name="archiveStream"/> is stored by reference but NOT disposed by this instance.
+    /// The caller must ensure the stream remains open during the entire lifetime of this instance and dispose it after
+    /// this <see cref="ZipFs"/> instance has been disposed.</para>
+    /// </remarks>
     public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType)
     {
         _sourceArchiveStream = archiveStream;
@@ -58,6 +77,12 @@ public class ZipFs : IDokanOperations, IDisposable
         {
             // Ensure the dedicated temporary directory exists for this session.
             Directory.CreateDirectory(_tempDirectoryPath);
+
+            // Reset stream position to ensure archive parsing starts from the beginning
+            if (archiveStream.CanSeek)
+            {
+                archiveStream.Position = 0;
+            }
 
             _archive = OpenArchive(archiveStream);
             InitializeEntries();
@@ -87,31 +112,28 @@ public class ZipFs : IDokanOperations, IDisposable
     {
         try
         {
-            lock (_archiveLock)
+            foreach (var entry in _archive.Entries)
             {
-                foreach (var entry in _archive.Entries)
+                if (string.IsNullOrEmpty(entry.Key))
                 {
-                    if (string.IsNullOrEmpty(entry.Key))
-                    {
-                        _logErrorAction?.Invoke(null, "Skipping invalid archive entry with null/empty name.");
-                        continue;
-                    }
+                    _logErrorAction?.Invoke(null, "Skipping invalid archive entry with null/empty name.");
+                    continue;
+                }
 
-                    var normalizedPath = NormalizePath(entry.Key);
-                    _archiveEntries[normalizedPath] = entry;
+                var normalizedPath = NormalizePath(entry.Key);
+                _archiveEntries[normalizedPath] = entry;
 
-                    var currentPath = "";
-                    var parts = normalizedPath.Split(Separator, StringSplitOptions.RemoveEmptyEntries);
-                    for (var i = 0; i < parts.Length - (IsDirectory(entry) ? 0 : 1); i++)
-                    {
-                        currentPath += "/" + parts[i];
-                        if (_directoryCreationTimes.ContainsKey(currentPath)) continue;
+                var currentPath = "";
+                var parts = normalizedPath.Split(Separator, StringSplitOptions.RemoveEmptyEntries);
+                for (var i = 0; i < parts.Length - (IsDirectory(entry) ? 0 : 1); i++)
+                {
+                    currentPath += "/" + parts[i];
+                    if (_directoryCreationTimes.ContainsKey(currentPath)) continue;
 
-                        var entryTime = entry.LastModifiedTime ?? entry.CreatedTime ?? DateTime.Now;
-                        _directoryCreationTimes[currentPath] = entryTime;
-                        _directoryLastWriteTimes[currentPath] = entryTime;
-                        _directoryLastAccessTimes[currentPath] = DateTime.Now;
-                    }
+                    var entryTime = entry.LastModifiedTime ?? entry.CreatedTime ?? DateTime.Now;
+                    _directoryCreationTimes[currentPath] = entryTime;
+                    _directoryLastWriteTimes[currentPath] = entryTime;
+                    _directoryLastAccessTimes[currentPath] = DateTime.Now;
                 }
             }
 
@@ -896,8 +918,18 @@ public class ZipFs : IDokanOperations, IDisposable
         return DokanResult.AccessDenied;
     }
 
+    /// <summary>
+    /// Disposes the resources used by this instance.
+    /// </summary>
+    /// <remarks>
+    /// <para><strong>Note:</strong> This method disposes the internal archive and cleans up temporary files,
+    /// but does NOT dispose the source archive stream that was passed to the constructor. The caller is
+    /// responsible for disposing the source stream after this instance has been disposed.</para>
+    /// </remarks>
     public void Dispose()
     {
+        // Dispose the archive (which may dispose its own internal streams)
+        // Note: We do NOT dispose _sourceArchiveStream as the caller owns it
         _archive.Dispose();
 
         // When the drive is unmounted, clean up all temporary files that were created.
