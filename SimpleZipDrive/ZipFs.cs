@@ -97,6 +97,39 @@ public class ZipFs : IDokanOperations, IDisposable
 
     private IArchive OpenArchive(Stream stream)
     {
+        // First, try to open the archive without a password
+        try
+        {
+            var archiveWithoutPassword = _archiveType switch
+            {
+                "zip" => ZipArchive.OpenArchive(stream, new ReaderOptions()),
+                "7z" => SevenZipArchive.OpenArchive(stream, new ReaderOptions()),
+                "rar" => RarArchive.OpenArchive(stream, new ReaderOptions()),
+                _ => throw new NotSupportedException($"Archive type '{_archiveType}' is not supported.")
+            };
+
+            // Check if any entry is encrypted - if so, we need a password
+            var hasEncryptedEntries = archiveWithoutPassword.Entries.Any(static e => e.IsEncrypted);
+            if (!hasEncryptedEntries)
+            {
+                return archiveWithoutPassword;
+            }
+
+            // Archive has encrypted entries, dispose and reopen with password
+            archiveWithoutPassword.Dispose();
+        }
+        catch (Exception ex) when (IsPasswordRequiredException(ex))
+        {
+            // Password is required, will prompt below
+        }
+
+        // Reset stream position for retry with password
+        if (stream.CanSeek)
+        {
+            stream.Position = 0;
+        }
+
+        // Prompt for password and retry
         var password = _passwordProvider();
 
         return _archiveType switch
@@ -106,6 +139,14 @@ public class ZipFs : IDokanOperations, IDisposable
             "rar" => RarArchive.OpenArchive(stream, new ReaderOptions { Password = password }),
             _ => throw new NotSupportedException($"Archive type '{_archiveType}' is not supported.")
         };
+    }
+
+    private static bool IsPasswordRequiredException(Exception ex)
+    {
+        var message = ex.Message.ToLowerInvariant();
+        return message.Contains("password") ||
+               message.Contains("encrypted") ||
+               (message.Contains("rar") && message.Contains("header"));
     }
 
     private void InitializeEntries()

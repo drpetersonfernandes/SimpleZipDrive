@@ -447,7 +447,7 @@ file static class Program
 
         var extension = Path.GetExtension(archivePath).ToLowerInvariant();
         var archiveType = extension.TrimStart('.');
-        Console.WriteLine($"\n[!] The {archiveType.ToUpperInvariant()} file '{Path.GetFileName(archivePath)}' is encrypted.");
+        Console.WriteLine($"\n[!] The {archiveType.ToUpperInvariant()} file '{Path.GetFileName(archivePath)}' is password protected.");
         Console.WriteLine("    Press Enter to submit, Escape or Ctrl+C to cancel.");
         Console.Write("Please enter the password: ");
 
