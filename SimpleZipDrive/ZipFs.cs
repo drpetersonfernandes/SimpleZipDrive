@@ -27,6 +27,12 @@ public class ZipFs : IDokanOperations, IDisposable
     // Cache for large files extracted to disk. Key: normalized path in archive, Value: path to the temp file.
     private readonly Dictionary<string, string?> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
     private const int MaxMemorySize = 536870912; // 512 MB (512x1024x1024)
+
+    // Memory throttling for small files to prevent unbounded resource consumption
+    private const long MaxTotalMemoryCache = 1073741824; // 1 GB total limit for all small files (1x1024x1024x1024)
+    private long _currentMemoryUsage;
+    private readonly object _memoryLock = new();
+
     private readonly string _tempDirectoryPath;
     private readonly Func<string?> _passwordProvider;
     private readonly string _archiveType;
@@ -254,17 +260,72 @@ public class ZipFs : IDokanOperations, IDisposable
                     }
                     else
                     {
-                        // --- Small file: Cache in memory ---
-                        byte[] entryBytes;
-                        lock (_archiveLock)
+                        // --- Small file: Cache in memory with throttling ---
+                        // Check if adding this file would exceed total memory limit
+                        bool useDiskCache;
+
+                        lock (_memoryLock)
                         {
-                            using var entryStream = entry.OpenEntryStream();
-                            using var tempMs = new MemoryStream(entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096);
-                            entryStream.CopyTo(tempMs);
-                            entryBytes = tempMs.ToArray();
+                            var projectedMemoryUsage = _currentMemoryUsage + entrySize;
+                            useDiskCache = projectedMemoryUsage > MaxTotalMemoryCache;
                         }
 
-                        info.Context = new MemoryStream(entryBytes);
+                        if (useDiskCache)
+                        {
+                            // --- Memory limit exceeded: Fall back to disk caching ---
+                            Console.WriteLine($"Memory limit approaching. Using disk cache for small file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).");
+
+                            string? cachedPath;
+                            lock (_archiveLock)
+                            {
+                                if (!_largeFileCache.TryGetValue(normalizedPath, out cachedPath))
+                                {
+                                    var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
+
+                                    using var entryStream = entry.OpenEntryStream();
+                                    using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
+                                    entryStream.CopyTo(tempFileStream);
+
+                                    _largeFileCache[normalizedPath] = newTempFilePath;
+                                    cachedPath = newTempFilePath;
+                                }
+                            }
+
+                            if (!string.IsNullOrEmpty(cachedPath))
+                            {
+                                try
+                                {
+                                    info.Context = new FileStream(cachedPath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
+                                }
+                                catch (Exception fsEx)
+                                {
+                                    _logErrorAction(fsEx, $"ZipFs.CreateFile: Failed to open disk-cached temp file '{cachedPath}' for reading.");
+                                    info.Context = null;
+                                    return DokanResult.Error;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            // --- Small file: Cache in memory ---
+                            byte[] entryBytes;
+                            lock (_archiveLock)
+                            {
+                                using var entryStream = entry.OpenEntryStream();
+                                using var tempMs = new MemoryStream(entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096);
+                                entryStream.CopyTo(tempMs);
+                                entryBytes = tempMs.ToArray();
+                            }
+
+                            // Track memory usage
+                            lock (_memoryLock)
+                            {
+                                _currentMemoryUsage += entryBytes.Length;
+                            }
+
+                            // Wrap in a custom stream that tracks disposal for memory accounting
+                            info.Context = new TrackedMemoryStream(entryBytes, this);
+                        }
                     }
 
                     // Verify that context was successfully created
@@ -783,5 +844,46 @@ public class ZipFs : IDokanOperations, IDisposable
         }
 
         GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// A MemoryStream wrapper that tracks memory usage and decrements the counter when disposed.
+    /// Used to prevent unbounded memory consumption when many small files are opened.
+    /// </summary>
+    private class TrackedMemoryStream : MemoryStream
+    {
+        private readonly ZipFs _owner;
+        private readonly int _size;
+        private bool _disposed;
+
+        public TrackedMemoryStream(byte[] buffer, ZipFs owner) : base(buffer, false)
+        {
+            _owner = owner;
+            _size = buffer.Length;
+            _disposed = false;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (!_disposed)
+            {
+                if (disposing)
+                {
+                    // Decrement the memory usage counter
+                    lock (_owner._memoryLock)
+                    {
+                        _owner._currentMemoryUsage -= _size;
+                        if (_owner._currentMemoryUsage < 0)
+                        {
+                            _owner._currentMemoryUsage = 0; // Safety check
+                        }
+                    }
+                }
+
+                _disposed = true;
+            }
+
+            base.Dispose(disposing);
+        }
     }
 }
