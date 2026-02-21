@@ -193,6 +193,7 @@ file static class Program
     {
         ManualResetEvent unmountBlocker = new(false);
         ConsoleCancelEventHandler? cancelKeyPressHandler = null;
+        var isDisposing = false;
 
         try
         {
@@ -257,6 +258,14 @@ file static class Program
             {
                 e.Cancel = true;
                 Console.WriteLine($"Ctrl+C detected for mount '{mountPoint}'. Signaling unmount...");
+                
+                // Check if we're already disposing to avoid ObjectDisposedException
+                if (isDisposing)
+                {
+                    Console.WriteLine($"Ctrl+C for '{mountPoint}': unmountBlocker.Set() skipped as shutdown is already in progress.");
+                    return;
+                }
+                
                 try
                 {
                     // ReSharper disable once AccessToDisposedClosure
@@ -366,6 +375,14 @@ file static class Program
         }
         finally
         {
+            // Set flag to signal that we're disposing - this prevents the cancel handler
+            // from trying to access unmountBlocker after disposal
+            isDisposing = true;
+
+            // Dispose unmountBlocker BEFORE unsubscribing the handler to prevent race condition
+            // where OS invokes handler between unsubscription and disposal
+            unmountBlocker.Dispose();
+
             if (cancelKeyPressHandler != null)
             {
                 Console.CancelKeyPress -= cancelKeyPressHandler;
@@ -392,7 +409,6 @@ file static class Program
                 _ = ErrorLogger.LogErrorAsync(ex, $"Failed to delete temp directory '{tempDirectoryPath}'.");
             }
 
-            unmountBlocker.Dispose();
             Console.WriteLine($"Finished mount/unmount attempt for '{mountPoint}'.");
         }
     }
