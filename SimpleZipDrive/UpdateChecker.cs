@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Security;
 using System.Reflection;
 using System.Security.Authentication;
 using System.Text.Json;
@@ -22,7 +23,7 @@ public static partial class UpdateChecker
         // but don't enable it for apps by default.
         var handler = new SocketsHttpHandler
         {
-            SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+            SslOptions = new SslClientAuthenticationOptions
             {
                 EnabledSslProtocols = SslProtocols.None
             }

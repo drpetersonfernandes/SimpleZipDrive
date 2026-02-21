@@ -1,3 +1,10 @@
+# Build results
+[Dd]ebug/
+[Rr]elease/
+[Bb]in/
+[Oo]bj/
+
+# Keep old entries for compatibility
 /SimpleZipDrive/obj/Debug/net8.0-windows/.NETCoreApp,Version=v8.0.AssemblyAttributes.cs
 /SimpleZipDrive/obj/Debug/net8.0-windows/SimpleZipMounter.AssemblyInfo.cs
 /SimpleZipDrive/obj/Debug/net8.0-windows/SimpleZipMounter.AssemblyInfoInputs.cache

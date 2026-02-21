@@ -1,25 +1,29 @@
 # Simple Zip Drive for Windows
 
-[![.NET 10.0](https://img.shields.io/badge/.NET-10.0-blue.svg)](https://dotnet.microsoft.com/download/dotnet/10.0)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.txt)
 [![Platform: Windows](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)](#requirements)
+[![.NET 10.0](https://img.shields.io/badge/.NET-10.0-blue.svg)](https://dotnet.microsoft.com/download/dotnet/10.0)
+[![Platform](https://img.shields.io/badge/platform-Windows%20x64%20%7C%20ARM64-blue)](https://github.com/drpetersonfernandes/SimpleZipDrive/releases)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.txt)
+[![GitHub release](https://img.shields.io/github/v/release/drpetersonfernandes/SimpleZipDrive)](https://github.com/drpetersonfernandes/SimpleZipDrive/releases)
 
-**Simple Zip Drive** is a high-performance, user-mode filesystem utility that allows you to mount ZIP archives as virtual drives or NTFS directory mount points. Built on the [DokanNet](https://github.com/dokan-dev/dokan-dotnet) library, it provides seamless, read-only access to compressed data without the need for manual extraction.
+**Simple Zip Drive** is a high-performance, user-mode filesystem utility that allows you to mount ZIP, 7Z, and RAR archives as virtual drives or NTFS directory mount points. Built on the [DokanNet](https://github.com/dokan-dev/dokan-dotnet) library, it provides seamless, read-only access to compressed data without the need for manual extraction.
 
-Unlike traditional ZIP utilities that extract the entire archive to a temporary folder, Simple Zip Drive utilizes a **hybrid streaming engine** to minimize memory overhead and maximize random-access performance.
+Unlike traditional archive utilities that extract the entire archive to a temporary folder, Simple Zip Drive utilizes a **hybrid streaming engine** to minimize memory overhead and maximize random-access performance.
 
 ![Screenshot](screenshot.png)
+
 ---
 
 ## 🚀 Key Features
 
-*   **Virtual Drive Mounting:** Mount any ZIP file as a dedicated drive letter (e.g., `M:\`) or a folder path.
-*   **Hybrid Caching Engine:** 
+*   **Multi-Format Support:** Mount ZIP, 7Z, and RAR archives seamlessly.
+*   **Virtual Drive Mounting:** Mount any supported archive as a dedicated drive letter (e.g., `M:\`) or a folder path.
+*   **Hybrid Caching Engine:**
     *   **Small Files:** Cached in-memory for near-instantaneous access.
     *   **Large Files (>512MB):** Automatically offloaded to a temporary disk cache to prevent RAM exhaustion.
-*   **Streaming Architecture:** The source ZIP is accessed via a direct file stream, supporting archives of virtually any size.
+*   **Streaming Architecture:** The source archive is accessed via a direct file stream, supporting archives of virtually any size.
 *   **Zero-Configuration UI:** Supports drag-and-drop functionality for automatic mounting to the first available drive letter (M-Q).
-*   **Encrypted Archive Support:** Prompts for passwords when accessing protected ZIP files.
+*   **Encrypted Archive Support:** Prompts for passwords when accessing protected archives.
 *   **Automated Maintenance:** Integrated update checker and automatic cleanup of temporary cache files upon unmounting.
 *   **Enterprise Logging:** Comprehensive error tracking with local log rotation and remote diagnostic reporting.
 
@@ -38,19 +42,27 @@ Before running Simple Zip Drive, ensure your system meets the following requirem
 ## 📖 Usage Guide
 
 ### Method 1: Drag-and-Drop (Recommended)
-Simply drag any `.zip` file and drop it onto `SimpleZipDrive.exe`. The application will automatically attempt to mount the archive to the first available drive letter in the sequence: `M:`, `N:`, `O:`, `P:`, `Q:`.
+Simply drag any `.zip`, `.7z`, or `.rar` file and drop it onto `SimpleZipDrive.exe`. The application will automatically attempt to mount the archive to the first available drive letter in the sequence: `M:`, `N:`, `O:`, `P:`, `Q:`.
 
 ### Method 2: Command Line Interface (CLI)
 For advanced users or automation, use the following syntax:
 
 ```shell
-SimpleZipDrive.exe <PathToZipFile> <MountPoint>
+SimpleZipDrive.exe <PathToArchiveFile> <MountPoint>
 ```
 
 **Examples:**
-*   **Mount to a drive letter:**
+*   **Mount a ZIP file to a drive letter:**
     ```shell
     SimpleZipDrive.exe "C:\Data\Archive.zip" M
+    ```
+*   **Mount a 7Z file to a drive letter:**
+    ```shell
+    SimpleZipDrive.exe "C:\Data\Archive.7z" N
+    ```
+*   **Mount a RAR file to a drive letter:**
+    ```shell
+    SimpleZipDrive.exe "C:\Data\Archive.rar" O
     ```
 *   **Mount to an NTFS folder:**
     ```shell
@@ -66,8 +78,8 @@ To safely unmount the drive and clean up temporary resources:
 
 ## 🔍 Technical Architecture
 
-*   **Read-Only Integrity:** The filesystem is strictly read-only. No modifications are made to the source ZIP file.
-*   **Memory Efficiency:** The application does not load the entire ZIP into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested.
+*   **Read-Only Integrity:** The filesystem is strictly read-only. No modifications are made to the source archive.
+*   **Memory Efficiency:** The application does not load the entire archive into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested.
 *   **Permissions:** Mounting to drive letters or system-protected directories may require **Administrator Privileges**. If you encounter "Access Denied" errors, right-click the executable and select "Run as Administrator."
 *   **Temporary Storage:** Disk-based caching for large files occurs in `%TEMP%\SimpleZipDrive`. These files are purged automatically during a graceful shutdown.
 
@@ -80,24 +92,23 @@ To safely unmount the drive and clean up temporary resources:
 | **Dokan Initialization Failed** | Ensure the Dokan driver is installed and you have restarted your PC after installation. |
 | **Drive Letter in Use** | Specify a different drive letter via CLI or ensure letters M-Q are not mapped to network shares. |
 | **Out of Memory** | Occurs if too many large files are opened simultaneously. Close applications accessing the virtual drive to free up cache. |
-| **ZIP File Error** | Simple Zip Drive supports standard ZIP formats. Proprietary formats like `.7z` or `.rar` are not supported. |
+| **Archive File Error** | Simple Zip Drive supports standard ZIP, 7Z, and RAR formats. Other formats like `.tar.gz` or `.bz2` are not supported. |
+| **Password Prompt Not Appearing** | Some encrypted archives may use unsupported encryption methods. Ensure your archive uses standard ZIP, 7Z, or RAR encryption. |
 
 ---
 
 ## 📜 License & Acknowledgments
 
-This project is licensed under the **GNU General Public License v3.0**.
+This project is licensed under the GPLv3 License – see the [LICENSE](LICENSE.txt) file for details.
 
 **Third-Party Libraries:**
 *   [DokanNet](https://github.com/dokan-dev/dokan-dotnet) (MIT)
-*   [SharpZipLib](https://github.com/icsharpcode/SharpZipLib) (MIT)
+*   [SharpCompress](https://github.com/adamhathcock/sharpcompress) (MIT)
 
 ---
 
-## 🤝 Support the Project
+## 🤝 Contributing & Support
 
-If you find this tool useful, consider supporting its continued development:
+*   **Donate:** If you find this project useful, consider [supporting the developer](https://www.purelogiccode.com/donate).
 
-*   **GitHub:** [Star the Repository](https://github.com/drpetersonfernandes/SimpleZipDrive)
-*   **Donate:** [PureLogic Code Donation](https://www.purelogiccode.com/Donate)
-*   **Website:** [PureLogic Code](https://www.purelogiccode.com/)
+**⭐ If you like this project, please give us a star on GitHub! ⭐**

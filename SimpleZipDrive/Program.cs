@@ -1,6 +1,8 @@
+using System.Security.Principal;
+using System.Text;
 using DokanNet;
 using DokanNet.Logging;
-using System.Security.Principal;
+using FileAccess = System.IO.FileAccess;
 
 namespace SimpleZipDrive;
 
@@ -8,7 +10,8 @@ file static class Program
 {
     public static async Task Main(string[] args)
     {
-        Console.WriteLine("ZIP Drive using DokanNet (Streaming Access with In-Memory Entry Cache)");
+        Console.WriteLine("Archive Drive using DokanNet (Streaming Access with In-Memory Entry Cache)");
+        Console.WriteLine("Supports: ZIP, 7Z, and RAR archives");
 
         await UpdateChecker.CheckForUpdateAsync();
 
@@ -18,21 +21,26 @@ file static class Program
         string? mountPointArg = null;
         var isDragAndDrop = false;
 
+        string? archiveType;
+        string[] supportedExtensions = [".zip", ".7z", ".rar"];
+
         switch (args.Length)
         {
             case 1 when
                 !string.IsNullOrWhiteSpace(args[0]) &&
                 File.Exists(args[0]) &&
-                Path.GetExtension(args[0]).Equals(".zip", StringComparison.OrdinalIgnoreCase):
+                supportedExtensions.Any(ext => Path.GetExtension(args[0]).Equals(ext, StringComparison.OrdinalIgnoreCase)):
                 zipFilePath = args[0];
+                archiveType = GetArchiveType(zipFilePath);
                 isDragAndDrop = true;
-                Console.WriteLine($"Drag-and-drop mode: Detected ZIP file '{zipFilePath}'.");
+                Console.WriteLine($"Drag-and-drop mode: Detected {archiveType.ToUpperInvariant()} file '{zipFilePath}'.");
                 break;
             case >= 2:
                 zipFilePath = args[0];
+                archiveType = GetArchiveType(zipFilePath);
                 // Sanitize mount point argument to remove potential quotes from user input
                 mountPointArg = args[1].Trim().Trim('"');
-                Console.WriteLine($"Standard mode: ZIP file '{zipFilePath}', Mount point arg '{mountPointArg}'.");
+                Console.WriteLine($"Standard mode: {archiveType.ToUpperInvariant()} file '{zipFilePath}', Mount point arg '{mountPointArg}'.");
                 break;
             default:
                 PrintUsage();
@@ -48,12 +56,12 @@ file static class Program
             return;
         }
 
-        if (!Path.GetExtension(zipFilePath).Equals(".zip", StringComparison.OrdinalIgnoreCase))
+        if (!supportedExtensions.Any(ext => Path.GetExtension(zipFilePath).Equals(ext, StringComparison.OrdinalIgnoreCase)))
         {
-            Console.WriteLine($"\n--- INVALID FILE TYPE ---");
+            Console.WriteLine("\n--- INVALID FILE TYPE ---");
             Console.WriteLine($"Error: The file '{Path.GetFileName(zipFilePath)}' is not a supported archive.");
-            Console.WriteLine($"Detected extension: '{Path.GetExtension(zipFilePath)}' (expected: .zip)");
-            Console.WriteLine("Simple Zip Drive can only mount standard .zip files.");
+            Console.WriteLine($"Detected extension: '{Path.GetExtension(zipFilePath)}' (expected: .zip, .7z, or .rar)");
+            Console.WriteLine("Simple Zip Drive can only mount ZIP, 7Z, and RAR archives.");
             Console.WriteLine("Executable files (.exe), disk images, and other formats are not supported.");
             KeepConsoleOpenOnError();
             return;
@@ -92,7 +100,7 @@ file static class Program
                     }
 
                     Console.WriteLine($"Drag-and-drop: Attempting to mount on '{currentMountPoint}'...");
-                    if (!await AttemptMountLifecycle(zipFilePath, currentMountPoint, dokan)) continue;
+                    if (!await AttemptMountLifecycle(zipFilePath, currentMountPoint, dokan, archiveType)) continue;
 
                     mountLifecycleCompleted = true;
                     break;
@@ -121,7 +129,7 @@ file static class Program
                     mountPoint = mountPointArg.ToUpperInvariant() + @":\";
                 }
 
-                if (await AttemptMountLifecycle(zipFilePath, mountPoint, dokan))
+                if (await AttemptMountLifecycle(zipFilePath, mountPoint, dokan, archiveType))
                 {
                     mountLifecycleCompleted = true;
                 }
@@ -154,11 +162,19 @@ file static class Program
 
     private static void PrintUsage()
     {
-        Console.WriteLine("\nUsage 1 (Explicit Mount): SimpleZipDrive.exe <PathToZipFile> <MountPoint>");
+        Console.WriteLine("\nUsage 1 (Explicit Mount): SimpleZipDrive.exe <PathToArchiveFile> <MountPoint>");
         Console.WriteLine("""  Example: SimpleZipDrive.exe "C:\path\to\archive.zip" M""");
+        Console.WriteLine("""  Example: SimpleZipDrive.exe "C:\path\to\archive.7z" N""");
+        Console.WriteLine("""  Example: SimpleZipDrive.exe "C:\path\to\archive.rar" O""");
         Console.WriteLine(@"  MountPoint can be a drive letter (e.g., M) or a path to an existing empty folder (e.g., C:\mount\zip)");
-        Console.WriteLine("\nUsage 2 (Drag-and-Drop): Drag a .zip file onto the SimpleZipDrive.exe icon.");
+        Console.WriteLine("\nUsage 2 (Drag-and-Drop): Drag a .zip, .7z, or .rar file onto the SimpleZipDrive.exe icon.");
         Console.WriteLine(@"  It will attempt to mount on M:\, then N:\, O:\, P:\, Q:\ automatically.");
+    }
+
+    private static string GetArchiveType(string filePath)
+    {
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+        return extension.TrimStart('.');
     }
 
     private static void KeepConsoleOpenOnError()
@@ -173,7 +189,7 @@ file static class Program
         if (args.Length == 0 && !Console.IsInputRedirected) KeepConsoleOpenOnError();
     }
 
-    private static async Task<bool> AttemptMountLifecycle(string zipFilePath, string mountPoint, Dokan dokan)
+    private static async Task<bool> AttemptMountLifecycle(string zipFilePath, string mountPoint, Dokan dokan, string archiveType)
     {
         ManualResetEvent unmountBlocker = new(false);
         ConsoleCancelEventHandler? cancelKeyPressHandler = null;
@@ -226,15 +242,15 @@ file static class Program
 
             var fileInfoSys = new FileInfo(zipFilePath);
             var fileSize = fileInfoSys.Length;
-            Console.WriteLine($"Processing ZIP file: '{zipFilePath}', Size: {fileSize / 1024.0 / 1024.0:F2} MB for mount on '{mountPoint}'");
+            Console.WriteLine($"Processing {archiveType.ToUpperInvariant()} file: '{zipFilePath}', Size: {fileSize / 1024.0 / 1024.0:F2} MB for mount on '{mountPoint}'");
 
-            Console.WriteLine($"Opening ZIP file '{zipFilePath}' for streaming access...");
+            Console.WriteLine($"Opening {archiveType.ToUpperInvariant()} file '{zipFilePath}' for streaming access...");
             // The stream is created here and its lifetime is managed by this 'await using'
-            await using Stream zipFileSourceStream = new FileStream(zipFilePath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
-            Console.WriteLine("ZIP file opened for streaming.");
+            await using Stream zipFileSourceStream = new FileStream(zipFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            Console.WriteLine($"{archiveType.ToUpperInvariant()} file opened for streaming.");
 
             // Pass ErrorLogger.LogErrorSync to ZipFs constructor
-            using var zipFs = new ZipFs(zipFileSourceStream, mountPoint, ErrorLogger.LogErrorSync, () => ReadPassword(zipFilePath));
+            using var zipFs = new ZipFs(zipFileSourceStream, mountPoint, ErrorLogger.LogErrorSync, () => ReadPassword(zipFilePath), archiveType);
             Console.WriteLine($"Attempting to mount on '{mountPoint}'...");
 
             cancelKeyPressHandler = (_, e) =>
@@ -329,16 +345,16 @@ file static class Program
             // This also catches errors like FileStream creation failure before ZipFs is even instantiated.
             _ = ErrorLogger.LogErrorAsync(ex, context);
 
-            // --- Specific message for ZipException ---
-            // The Zip file is corrupted or invalid.
-            if (ex is ICSharpCode.SharpZipLib.Zip.ZipException zipEx &&
-                zipEx.Message.Contains("Cannot find central directory", StringComparison.OrdinalIgnoreCase))
+            // --- Specific message for archive errors ---
+            // The archive file is corrupted or invalid.
+            if (ex.Message.Contains("Cannot find central directory", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("Invalid archive", StringComparison.OrdinalIgnoreCase) ||
+                ex.Message.Contains("Archive is invalid", StringComparison.OrdinalIgnoreCase))
             {
-                Console.WriteLine("\n--- ZIP FILE ERROR ---");
-                Console.WriteLine($"Error: The ZIP file '{zipFilePath}' appears to be corrupted or invalid.");
-                Console.WriteLine("Reason: The application could not find the central directory within the ZIP archive.");
-                Console.WriteLine("Note: This application only supports standard ZIP files. It does not support .7z, .rar, or other formats.");
-                Console.WriteLine("Please ensure the file is a valid ZIP archive and is not corrupted.");
+                Console.WriteLine($"\n--- {archiveType.ToUpperInvariant()} FILE ERROR ---");
+                Console.WriteLine($"Error: The {archiveType.ToUpperInvariant()} file '{zipFilePath}' appears to be corrupted or invalid.");
+                Console.WriteLine("Reason: The application could not read the archive structure.");
+                Console.WriteLine($"Please ensure the file is a valid {archiveType.ToUpperInvariant()} archive and is not corrupted.");
             }
             else
             {
@@ -388,12 +404,14 @@ file static class Program
         return principal.IsInRole(WindowsBuiltInRole.Administrator);
     }
 
-    private static string ReadPassword(string zipPath)
+    private static string ReadPassword(string archivePath)
     {
-        Console.WriteLine($"\n[!] The ZIP file '{Path.GetFileName(zipPath)}' is encrypted.");
+        var extension = Path.GetExtension(archivePath).ToLowerInvariant();
+        var archiveType = extension.TrimStart('.');
+        Console.WriteLine($"\n[!] The {archiveType.ToUpperInvariant()} file '{Path.GetFileName(archivePath)}' is encrypted.");
         Console.Write("Please enter the password: ");
 
-        var password = new System.Text.StringBuilder();
+        var password = new StringBuilder();
         while (true)
         {
             var key = Console.ReadKey(true);

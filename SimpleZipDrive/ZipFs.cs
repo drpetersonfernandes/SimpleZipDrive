@@ -2,37 +2,44 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.RegularExpressions;
 using DokanNet;
-using ICSharpCode.SharpZipLib.Zip;
+using SharpCompress.Archives;
+using SharpCompress.Archives.Rar;
+using SharpCompress.Archives.SevenZip;
+using SharpCompress.Archives.Zip;
+using SharpCompress.Common;
+using SharpCompress.Readers;
 using FileAccess = DokanNet.FileAccess;
 
 namespace SimpleZipDrive;
 
 public class ZipFs : IDokanOperations, IDisposable
 {
-    private readonly Stream _sourceZipStream;
-    private readonly ZipFile _zipFile;
-    private readonly Dictionary<string, ZipEntry> _zipEntries = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Stream _sourceArchiveStream;
+    private readonly IArchive _archive;
+    private readonly Dictionary<string, IArchiveEntry> _archiveEntries = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryCreationTimes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryLastWriteTimes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryLastAccessTimes = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Action<Exception?, string?> _logErrorAction;
-    private readonly object _zipLock = new();
+    private readonly object _archiveLock = new();
 
-    // Cache for large files extracted to disk. Key: normalized path in ZIP, Value: path to the temp file.
+    // Cache for large files extracted to disk. Key: normalized path in archive, Value: path to the temp file.
     private readonly Dictionary<string, string?> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
     private const int MaxMemorySize = 536870912; // 512 MB (512x1024x1024)
     private readonly string _tempDirectoryPath;
     private readonly Func<string?> _passwordProvider;
+    private readonly string _archiveType;
 
     private const string VolumeLabel = "SimpleZipDrive";
     private static readonly char[] Separator = ['/'];
 
-    public ZipFs(Stream zipFileStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider)
+    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType)
     {
-        _sourceZipStream = zipFileStream;
+        _sourceArchiveStream = archiveStream;
         _logErrorAction = logErrorAction ?? throw new ArgumentNullException(nameof(logErrorAction));
         _passwordProvider = passwordProvider;
+        _archiveType = archiveType.ToLowerInvariant();
         _tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive");
 
         try
@@ -40,9 +47,9 @@ public class ZipFs : IDokanOperations, IDisposable
             // Ensure the dedicated temporary directory exists for this session.
             Directory.CreateDirectory(_tempDirectoryPath);
 
-            _zipFile = new ZipFile(_sourceZipStream, false);
+            _archive = OpenArchive(archiveStream);
             InitializeEntries();
-            Console.WriteLine($"ZipFs Constructor: Using SharpZipLib. _sourceZipStream.CanSeek = {_sourceZipStream.CanSeek}, _sourceZipStream type = {_sourceZipStream.GetType().FullName}");
+            Console.WriteLine($"ZipFs Constructor: Using SharpCompress. Archive type: {_archiveType}, _sourceArchiveStream.CanSeek = {_sourceArchiveStream.CanSeek}, _sourceArchiveStream type = {_sourceArchiveStream.GetType().FullName}");
         }
         catch (Exception ex)
         {
@@ -51,48 +58,46 @@ public class ZipFs : IDokanOperations, IDisposable
         }
     }
 
+    private IArchive OpenArchive(Stream stream)
+    {
+        var password = _passwordProvider();
+
+        return _archiveType switch
+        {
+            "zip" => ZipArchive.OpenArchive(stream, new ReaderOptions { Password = password }),
+            "7z" => SevenZipArchive.OpenArchive(stream, new ReaderOptions { Password = password }),
+            "rar" => RarArchive.OpenArchive(stream, new ReaderOptions { Password = password }),
+            _ => throw new NotSupportedException($"Archive type '{_archiveType}' is not supported.")
+        };
+    }
+
     private void InitializeEntries()
     {
         try
         {
-            lock (_zipLock)
+            lock (_archiveLock)
             {
-                // Check if any entry is encrypted to prompt for password once
-                var needsPassword = false;
-                foreach (ZipEntry entry in _zipFile)
+                foreach (var entry in _archive.Entries)
                 {
-                    if (entry.IsCrypted)
+                    if (string.IsNullOrEmpty(entry.Key))
                     {
-                        needsPassword = true;
-                        break;
-                    }
-                }
-
-                if (needsPassword)
-                {
-                    _zipFile.Password = _passwordProvider();
-                }
-
-                foreach (ZipEntry entry in _zipFile)
-                {
-                    if (string.IsNullOrEmpty(entry.Name))
-                    {
-                        _logErrorAction?.Invoke(null, $"Skipping invalid ZIP entry with null/empty name: {entry.Name}");
+                        _logErrorAction?.Invoke(null, "Skipping invalid archive entry with null/empty name.");
                         continue;
                     }
 
-                    var normalizedPath = NormalizePath(entry.Name);
-                    _zipEntries[normalizedPath] = entry;
+                    var normalizedPath = NormalizePath(entry.Key);
+                    _archiveEntries[normalizedPath] = entry;
 
                     var currentPath = "";
                     var parts = normalizedPath.Split(Separator, StringSplitOptions.RemoveEmptyEntries);
-                    for (var i = 0; i < parts.Length - (entry.IsDirectory ? 0 : 1); i++)
+                    for (var i = 0; i < parts.Length - (IsDirectory(entry) ? 0 : 1); i++)
                     {
                         currentPath += "/" + parts[i];
                         if (_directoryCreationTimes.ContainsKey(currentPath)) continue;
 
-                        _directoryCreationTimes[currentPath] = entry.DateTime;
-                        _directoryLastWriteTimes[currentPath] = entry.DateTime;
+                        var entryTime = entry.LastModifiedTime ?? entry.CreatedTime ?? DateTime.Now;
+                        _directoryCreationTimes[currentPath] = entryTime;
+                        _directoryLastWriteTimes[currentPath] = entryTime;
                         _directoryLastAccessTimes[currentPath] = DateTime.Now;
                     }
                 }
@@ -109,6 +114,12 @@ public class ZipFs : IDokanOperations, IDisposable
         {
             _logErrorAction?.Invoke(ex, "Error during ZipFs.InitializeEntries.");
         }
+    }
+
+    private static bool IsDirectory(IArchiveEntry entry)
+    {
+        // Check if the entry key ends with a path separator indicating it's a directory
+        return entry.Key != null && (entry.Key.EndsWith('/') || entry.Key.EndsWith('\\'));
     }
 
     private static string NormalizePath(string path)
@@ -135,9 +146,9 @@ public class ZipFs : IDokanOperations, IDisposable
     {
         var normalizedPath = NormalizePath(fileName);
 
-        if (_zipEntries.TryGetValue(normalizedPath, out var entry))
+        if (_archiveEntries.TryGetValue(normalizedPath, out var entry))
         {
-            if (entry.IsDirectory)
+            if (IsDirectory(entry))
             {
                 info.IsDirectory = true;
 
@@ -173,8 +184,10 @@ public class ZipFs : IDokanOperations, IDisposable
 
                 try
                 {
+                    var entrySize = entry.Size;
+
                     // Hybrid caching - memory for small files, temp disk file for large files
-                    if (entry.Size >= MaxMemorySize)
+                    if (entrySize is >= MaxMemorySize or < 0)
                     {
                         // --- Large file: Cache to disk ---
                         string? cachedPath;
@@ -182,7 +195,7 @@ public class ZipFs : IDokanOperations, IDisposable
                         {
                             if (!_largeFileCache.TryGetValue(normalizedPath, out cachedPath))
                             {
-                                Console.WriteLine($"Large file detected: '{normalizedPath}' ({entry.Size / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
+                                Console.WriteLine($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
                                 var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
 
                                 // --- Disk space check ---
@@ -190,9 +203,9 @@ public class ZipFs : IDokanOperations, IDisposable
                                 {
                                     var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath) ?? "C:\\";
                                     var tempDrive = new DriveInfo(tempDrivePathRoot);
-                                    if (tempDrive.AvailableFreeSpace < entry.Size)
+                                    if (tempDrive.AvailableFreeSpace < entrySize)
                                     {
-                                        var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entry.Size / 1024.0 / 1024.0:F2} MB).";
+                                        var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).";
                                         _logErrorAction(new IOException(errorMessage), "ZipFs.CreateFile: Disk space check failed.");
                                         return DokanResult.DiskFull;
                                     }
@@ -202,9 +215,9 @@ public class ZipFs : IDokanOperations, IDisposable
                                     _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'.");
                                 }
 
-                                lock (_zipLock)
+                                lock (_archiveLock)
                                 {
-                                    using var entryStream = _zipFile.GetInputStream(entry);
+                                    using var entryStream = entry.OpenEntryStream();
                                     using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
                                     entryStream.CopyTo(tempFileStream);
                                 }
@@ -239,10 +252,10 @@ public class ZipFs : IDokanOperations, IDisposable
                     {
                         // --- Small file: Cache in memory ---
                         byte[] entryBytes;
-                        lock (_zipLock)
+                        lock (_archiveLock)
                         {
-                            using var entryStream = _zipFile.GetInputStream(entry);
-                            using var tempMs = new MemoryStream((int)Math.Max(0, entry.Size));
+                            using var entryStream = entry.OpenEntryStream();
+                            using var tempMs = new MemoryStream(entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096);
                             entryStream.CopyTo(tempMs);
                             entryBytes = tempMs.ToArray();
                         }
@@ -260,35 +273,17 @@ public class ZipFs : IDokanOperations, IDisposable
                     _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: Context was not a Stream for file '{normalizedPath}' after caching attempt."), "ZipFs.CreateFile: Context invalid post-caching.");
                     return DokanResult.Error;
                 }
-                catch (ZipException zipEx)
+                catch (CryptographicException cryptoEx)
                 {
-                    string contextMessage;
-                    if (zipEx.Message.Contains("password", StringComparison.OrdinalIgnoreCase))
-                    {
-                        contextMessage = $"ZipFs.CreateFile: Password error for '{normalizedPath}'. The provided password may be incorrect or missing.";
-                        Console.WriteLine($"\n[!] Password Error: Could not decrypt '{normalizedPath}'.");
-                    }
-                    else if (zipEx.Message.Contains("Compression method not supported", StringComparison.OrdinalIgnoreCase))
-                    {
-                        contextMessage = $"ZipFs.CreateFile: Compression method not supported for entry '{normalizedPath}'.";
-                        Console.WriteLine($"\n--- UNSUPPORTED COMPRESSION ---");
-                        Console.WriteLine($"Error: The file '{Path.GetFileName(normalizedPath)}' uses an unsupported compression algorithm.");
-                        Console.WriteLine("Simple Zip Drive supports standard Deflate and Store methods.");
-                        Console.WriteLine("This file may be compressed with Zstandard, XZ, Brotli, LZMA, or another unsupported algorithm.");
-                        Console.WriteLine("Please re-compress the archive using standard ZIP Deflate compression.");
-                    }
-                    else
-                    {
-                        contextMessage = $"ZipFs.CreateFile: A ZipException occurred while trying to read the file entry '{normalizedPath}'. This often indicates the file's data within the ZIP is corrupt.";
-                    }
-
-                    _logErrorAction(zipEx, contextMessage);
+                    var contextMessage = $"ZipFs.CreateFile: Password error for '{normalizedPath}'. The provided password may be incorrect or missing.";
+                    Console.WriteLine($"\n[!] Password Error: Could not decrypt '{normalizedPath}'.");
+                    _logErrorAction(cryptoEx, contextMessage);
                     info.Context = null;
                     return DokanResult.Error;
                 }
                 catch (IOException ioEx) when ((uint)ioEx.HResult == 0x80070015) // ERROR_NOT_READY
                 {
-                    var msg = $"CRITICAL ERROR: The source drive containing the ZIP file is no longer ready. " +
+                    var msg = $"CRITICAL ERROR: The source drive containing the archive file is no longer ready. " +
                               $"Please check the connection to drive '{Path.GetPathRoot(_tempDirectoryPath)}'.";
                     Console.WriteLine($"\n[!!!] {msg}");
                     // _logErrorAction(ioEx, "ZipFs.CreateFile: Source device disconnected.");
@@ -296,12 +291,12 @@ public class ZipFs : IDokanOperations, IDisposable
                 }
                 catch (IOException ioEx) when ((uint)ioEx.HResult == 0x800703EE || (uint)ioEx.HResult == 0x80070037) // ERROR_FILE_INVALID or ERROR_DEV_NOT_EXIST
                 {
-                    Console.WriteLine($"\n--- SOURCE FILE ACCESS ERROR ---");
-                    Console.WriteLine($"Error: The source ZIP file is no longer accessible.");
+                    Console.WriteLine("\n--- SOURCE FILE ACCESS ERROR ---");
+                    Console.WriteLine("Error: The source archive file is no longer accessible.");
                     Console.WriteLine($"Details: {ioEx.Message}");
                     Console.WriteLine("\nThis usually means:");
                     Console.WriteLine("  - The external drive/USB device was disconnected");
-                    Console.WriteLine("  - The ZIP file was modified or deleted after mounting started");
+                    Console.WriteLine("  - The archive file was modified or deleted after mounting started");
                     Console.WriteLine("  - The source device is no longer available or has errors");
                     Console.WriteLine("\nPlease verify the drive is connected and the file has not been altered.");
                     _logErrorAction(ioEx, $"ZipFs.CreateFile: Source file inaccessible for entry '{normalizedPath}'");
@@ -390,24 +385,28 @@ public class ZipFs : IDokanOperations, IDisposable
         fileInfo = new FileInformation();
         var normalizedPath = NormalizePath(fileName);
 
-        if (_zipEntries.TryGetValue(normalizedPath, out var entry))
+        if (_archiveEntries.TryGetValue(normalizedPath, out var entry))
         {
-            if (entry.IsDirectory)
+            if (IsDirectory(entry))
             {
                 fileInfo.Attributes = FileAttributes.Directory;
-                fileInfo.FileName = Path.GetFileName(entry.Name.TrimEnd('/'));
-                fileInfo.LastWriteTime = entry.DateTime;
-                fileInfo.CreationTime = entry.DateTime;
+                if (entry.Key != null)
+                {
+                    fileInfo.FileName = Path.GetFileName(entry.Key.TrimEnd('/', '\\'));
+                }
+
+                fileInfo.LastWriteTime = entry.LastModifiedTime ?? DateTime.Now;
+                fileInfo.CreationTime = entry.CreatedTime ?? DateTime.Now;
                 fileInfo.LastAccessTime = DateTime.Now;
                 info.IsDirectory = true;
             }
             else
             {
                 fileInfo.Attributes = FileAttributes.Archive | FileAttributes.ReadOnly;
-                fileInfo.FileName = Path.GetFileName(entry.Name);
+                fileInfo.FileName = Path.GetFileName(entry.Key) ?? throw new InvalidOperationException("entry.Key is null");
                 fileInfo.Length = entry.Size;
-                fileInfo.LastWriteTime = entry.DateTime;
-                fileInfo.CreationTime = entry.DateTime;
+                fileInfo.LastWriteTime = entry.LastModifiedTime ?? DateTime.Now;
+                fileInfo.CreationTime = entry.CreatedTime ?? DateTime.Now;
                 fileInfo.LastAccessTime = DateTime.Now;
                 info.IsDirectory = false;
             }
@@ -433,7 +432,7 @@ public class ZipFs : IDokanOperations, IDisposable
         files = new List<FileInformation>();
         var normalizedPath = NormalizePath(fileName);
 
-        var isExplicitDirEntry = _zipEntries.TryGetValue(normalizedPath, out var dirEntry) && dirEntry.IsDirectory;
+        var isExplicitDirEntry = _archiveEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectory(dirEntry);
         var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
 
         if (!isExplicitDirEntry && !isImplicitDir) return DokanResult.PathNotFound;
@@ -446,7 +445,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
         try
         {
-            var childEntries = _zipEntries
+            var childEntries = _archiveEntries
                 .Where(kvp =>
                 {
                     var path = kvp.Key;
@@ -463,21 +462,24 @@ public class ZipFs : IDokanOperations, IDisposable
             {
                 var fi = new FileInformation
                 {
-                    LastWriteTime = entry.DateTime,
-                    CreationTime = entry.DateTime,
+                    LastWriteTime = entry.LastModifiedTime ?? DateTime.Now,
+                    CreationTime = entry.CreatedTime ?? DateTime.Now,
                     LastAccessTime = DateTime.Now
                 };
-                if (entry.IsDirectory)
+                if (IsDirectory(entry))
                 {
                     fi.Attributes = FileAttributes.Directory;
-                    var tempFullName = entry.Name.TrimEnd('/');
-                    fi.FileName = Path.GetFileName(tempFullName);
+                    if (entry.Key != null)
+                    {
+                        var tempFullName = entry.Key.TrimEnd('/', '\\');
+                        fi.FileName = Path.GetFileName(tempFullName);
+                    }
                 }
                 else
                 {
                     fi.Attributes = FileAttributes.Archive | FileAttributes.ReadOnly;
                     fi.Length = entry.Size;
-                    fi.FileName = Path.GetFileName(entry.Name);
+                    fi.FileName = Path.GetFileName(entry.Key) ?? throw new InvalidOperationException("entry.key is null");
                 }
 
                 if (!string.IsNullOrEmpty(fi.FileName)) files.Add(fi);
@@ -492,7 +494,7 @@ public class ZipFs : IDokanOperations, IDisposable
                     var remainder = k.Substring(searchPrefix.Length);
                     return !remainder.Contains('/') && !string.IsNullOrEmpty(remainder);
                 })
-                .Where(k => childEntries.All(e => NormalizePath(e.Name).TrimEnd('/') != k))
+                .Where(k => childEntries.All(e => e.Key != null && NormalizePath(e.Key).TrimEnd('/', '\\') != k))
                 .ToList();
 
             foreach (var dirPathKey in implicitChildDirs)
@@ -562,7 +564,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public NtStatus GetDiskFreeSpace(out long freeBytesAvailable, out long totalNumberOfBytes, out long totalNumberOfFreeBytes, IDokanFileInfo info)
     {
-        totalNumberOfBytes = _sourceZipStream.CanSeek ? _sourceZipStream.Length : 0;
+        totalNumberOfBytes = _sourceArchiveStream.CanSeek ? _sourceArchiveStream.Length : 0;
         freeBytesAvailable = 0;
         totalNumberOfFreeBytes = 0;
         return DokanResult.Success;
@@ -694,7 +696,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public void Dispose()
     {
-        _zipFile.Close();
+        _archive.Dispose();
 
         // When the drive is unmounted, clean up all temporary files that were created.
         lock (_largeFileCache)
