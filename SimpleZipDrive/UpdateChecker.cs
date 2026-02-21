@@ -35,7 +35,7 @@ public static partial class UpdateChecker
         };
     }
 
-    public static async Task CheckForUpdateAsync()
+    public static async Task CheckForUpdateAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -43,11 +43,11 @@ public static partial class UpdateChecker
             if (!Http.DefaultRequestHeaders.Contains("User-Agent"))
                 Http.DefaultRequestHeaders.Add("User-Agent", $"{RepoName}-UpdateChecker");
 
-            using var resp = await Http.GetAsync(LatestApiUrl);
+            using var resp = await Http.GetAsync(LatestApiUrl, cancellationToken);
             if (!resp.IsSuccessStatusCode) return; // silent if offline or GitHub unhappy
 
-            await using var jsonStream = await resp.Content.ReadAsStreamAsync();
-            using var doc = await JsonDocument.ParseAsync(jsonStream);
+            await using var jsonStream = await resp.Content.ReadAsStreamAsync(cancellationToken);
+            using var doc = await JsonDocument.ParseAsync(jsonStream, cancellationToken: cancellationToken);
 
             var tagName = doc.RootElement.GetProperty("tag_name").GetString();
             var htmlUrl = doc.RootElement.GetProperty("html_url").GetString();

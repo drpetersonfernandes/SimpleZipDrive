@@ -102,7 +102,9 @@ public static class ErrorLogger
         // Fire-and-forget the async API call from the synchronous method
         if (!IsUserError(ex))
         {
-            _ = SendLogToApiAsync(logContent).ContinueWith(static task =>
+            // Use a timeout-based cancellation token for fire-and-forget operations
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            _ = SendLogToApiAsync(logContent, cts.Token).ContinueWith(static task =>
             {
                 if (task is { IsFaulted: true, Exception: not null })
                 {
@@ -125,7 +127,7 @@ public static class ErrorLogger
     }
 
 
-    public static async Task LogErrorAsync(Exception? ex, string? contextMessage = null)
+    public static async Task LogErrorAsync(Exception? ex, string? contextMessage = null, CancellationToken cancellationToken = default)
     {
         if (ex == null)
         {
@@ -147,7 +149,7 @@ public static class ErrorLogger
 
         try
         {
-            await File.AppendAllTextAsync(ErrorLogFilePath, logContent, Encoding.UTF8);
+            await File.AppendAllTextAsync(ErrorLogFilePath, logContent, Encoding.UTF8, cancellationToken);
         }
         catch (Exception writeEx)
         {
@@ -157,7 +159,7 @@ public static class ErrorLogger
 
         if (!IsUserError(ex))
         {
-            var sent = await SendLogToApiAsync(logContent);
+            var sent = await SendLogToApiAsync(logContent, cancellationToken);
             if (sent)
             {
                 Console.WriteLine("Error details successfully sent to remote logging service (async path).");
@@ -169,7 +171,7 @@ public static class ErrorLogger
         }
     }
 
-    private static async Task<bool> SendLogToApiAsync(string logContent)
+    private static async Task<bool> SendLogToApiAsync(string logContent, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -185,7 +187,7 @@ public static class ErrorLogger
             request.Headers.Add("X-API-KEY", ApiKey);
             request.Content = httpContent;
 
-            using var response = await HttpClientInstance.SendAsync(request);
+            using var response = await HttpClientInstance.SendAsync(request, cancellationToken);
 
             if (response.IsSuccessStatusCode)
             {
@@ -193,7 +195,7 @@ public static class ErrorLogger
             }
             else
             {
-                var responseContent = await response.Content.ReadAsStringAsync();
+                var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 WriteToCriticalLog(
                     new HttpRequestException($"API request failed with status code {response.StatusCode}. Response: {responseContent}"),
                     "Error sending log to API.");
