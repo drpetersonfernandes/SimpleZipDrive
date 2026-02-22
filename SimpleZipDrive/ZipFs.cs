@@ -49,18 +49,7 @@ public class ZipFs : IDokanOperations, IDisposable
     private const int MaxPathExtended = 32767;
     private const string ExtendedPathPrefix = @"\\?\";
 
-    // Executable file extensions that require extraction to temp for execution
-    private static readonly HashSet<string> ExecutableExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".exe", ".dll", ".sys", ".drv", ".com", ".bat", ".cmd",
-        ".msi", ".msp", ".mst", ".ps1", ".vbs", ".js", ".wsf",
-        ".jar", ".py", ".rb", ".pl", ".sh"
-    };
 
-    // Cache for extracted executables. Key: normalized path in archive, Value: path to the extracted temp file.
-    private readonly Dictionary<string, string> _executableCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly object _executableLock = new();
-    private readonly string _executableTempDirectory;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ZipFs"/> class.
@@ -83,17 +72,14 @@ public class ZipFs : IDokanOperations, IDisposable
         _logErrorAction = logErrorAction ?? throw new ArgumentNullException(nameof(logErrorAction));
         _passwordProvider = passwordProvider;
         _archiveType = archiveType.ToLowerInvariant();
-        // Use a unique temp directory per instance to avoid collisions between multiple running instances
-        _tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive", $"{Environment.ProcessId}_{Guid.NewGuid():N}");
+        // Use a unique directory per instance in LocalAppData to avoid collisions between multiple running instances
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        _tempDirectoryPath = Path.Combine(localAppData, "SimpleZipDrive", $"{Environment.ProcessId}_{Guid.NewGuid():N}");
 
         try
         {
-            // Ensure the dedicated temporary directory exists for this session.
+            // Ensure the dedicated working directory exists for this session.
             Directory.CreateDirectory(_tempDirectoryPath);
-
-            // Create a subdirectory specifically for extracted executables
-            _executableTempDirectory = Path.Combine(_tempDirectoryPath, "Executables");
-            Directory.CreateDirectory(_executableTempDirectory);
 
             // Reset stream position to ensure archive parsing starts from the beginning
             if (archiveStream.CanSeek)
@@ -215,124 +201,22 @@ public class ZipFs : IDokanOperations, IDisposable
     }
 
     /// <summary>
-    /// Determines if the specified file is an executable based on its extension.
+    /// Checks if the file extension is an executable type.
+    /// Used to display informational messages when users attempt to run executables from the virtual drive.
     /// </summary>
-    private static bool IsExecutableFile(string filePath)
+    private static bool IsExecutableExtension(string extension)
     {
-        var extension = Path.GetExtension(filePath);
-        return !string.IsNullOrEmpty(extension) && ExecutableExtensions.Contains(extension);
-    }
-
-    /// <summary>
-    /// Checks if file access includes execute intent by examining access flags.
-    /// </summary>
-    private static bool HasExecuteIntent(FileAccess access)
-    {
-        // Check for execute-specific access rights
-        // FileAccess.Execute = 0x20 (32)
-        // FileAccess.ReadData = 0x1 (1) - combined with other flags often indicates execution intent
-        return (access & FileAccess.Execute) == FileAccess.Execute ||
-               access == FileAccess.ReadData ||
-               access == (FileAccess.ReadData | FileAccess.Synchronize) ||
-               access == (FileAccess.ReadData | FileAccess.ReadAttributes) ||
-               access == (FileAccess.ReadData | FileAccess.ReadAttributes | FileAccess.Synchronize);
-    }
-
-    /// <summary>
-    /// Extracts an executable file to the temp directory for execution.
-    /// Returns the path to the extracted file.
-    /// </summary>
-    private string ExtractExecutableForExecution(IArchiveEntry entry, string normalizedPath)
-    {
-        lock (_executableLock)
-        {
-            // Check if already extracted
-            if (_executableCache.TryGetValue(normalizedPath, out var cachedPath) && File.Exists(cachedPath))
-            {
-                Console.WriteLine($"Executable cache hit: '{normalizedPath}' -> '{cachedPath}'");
-                return cachedPath;
-            }
-
-            // Generate a unique filename that preserves the original name for compatibility
-            var originalFileName = Path.GetFileName(entry.Key) ?? "extracted.exe";
-            var safeFileName = $"{Guid.NewGuid():N}_{originalFileName}";
-            var extractPath = Path.Combine(_executableTempDirectory, safeFileName);
-
-            Console.WriteLine($"Extracting executable: '{normalizedPath}' ({entry.Size / 1024.0:F2} KB) -> '{extractPath}'");
-
-            try
-            {
-                // Extract the file
-                using (var entryStream = entry.OpenEntryStream())
-                using (var fileStream = new FileStream(extractPath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None))
-                {
-                    entryStream.CopyTo(fileStream);
-                }
-
-                // Preserve the original timestamps
-                try
-                {
-                    File.SetCreationTime(extractPath, entry.CreatedTime ?? DateTime.Now);
-                    File.SetLastWriteTime(extractPath, entry.LastModifiedTime ?? DateTime.Now);
-                    File.SetLastAccessTime(extractPath, DateTime.Now);
-                }
-                catch
-                {
-                    // Timestamps are not critical for execution
-                }
-
-                // Add to cache
-                _executableCache[normalizedPath] = extractPath;
-                Console.WriteLine($"Executable extraction complete: '{extractPath}'");
-
-                return extractPath;
-            }
-            catch (Exception ex)
-            {
-                _logErrorAction(ex, $"Failed to extract executable '{normalizedPath}' to '{extractPath}'");
-                // Clean up partial file if it exists
-                try
-                {
-                    if (File.Exists(extractPath))
-                    {
-                        File.Delete(extractPath);
-                    }
-                }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
-
-                throw;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Creates a batch file launcher that will launch the specified target executable.
-    /// The batch file changes to the target's directory and executes it, which allows
-    /// Windows to run executables from the virtual drive without security blocks.
-    /// </summary>
-    private string CreateLauncherProxy(string targetExecutablePath)
-    {
-        // Create a unique batch file name
-        var batchFileName = $"Launch_{Guid.NewGuid():N}.bat";
-        var batchPath = Path.Combine(_executableTempDirectory, batchFileName);
-
-        // Get the directory of the target executable
-        var targetDir = Path.GetDirectoryName(targetExecutablePath) ?? "";
-
-        // Create the batch file content
-        // The batch file:
-        // 1. Changes to the target directory (important for executables that depend on relative paths)
-        // 2. Starts the executable
-        var batchContent = $"@echo off\r\nchcp 65001 >nul\r\ncd /d \"{targetDir}\"\r\nstart \"\" \"{targetExecutablePath}\"\r\n";
-
-        // Write the batch file
-        File.WriteAllText(batchPath, batchContent, System.Text.Encoding.UTF8);
-        Console.WriteLine($"Created batch launcher: '{batchPath}' -> '{targetExecutablePath}'");
-
-        return batchPath;
+        return extension.Equals(".exe", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".dll", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".bat", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".msi", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".ps1", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".vbs", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".js", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".jar", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".py", StringComparison.OrdinalIgnoreCase) ||
+               extension.Equals(".com", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizePath(string path)
@@ -453,35 +337,14 @@ public class ZipFs : IDokanOperations, IDisposable
                     var entrySize = entry.Size;
 
                     // --- EXECUTABLE HANDLING ---
-                    // Check if this is an executable file being accessed for execution
-                    if (IsExecutableFile(normalizedPath) && HasExecuteIntent(access))
+                    // Running executables directly from the virtual drive is not supported due to Dokany limitations.
+                    // Executables must be extracted to a physical disk location before they can be run.
+                    var extension = Path.GetExtension(normalizedPath);
+                    if (!string.IsNullOrEmpty(extension) && IsExecutableExtension(extension))
                     {
-                        Console.WriteLine($"Executable access detected: '{normalizedPath}' with access={access}, share={share}");
-
-                        try
-                        {
-                            var extractedPath = ExtractExecutableForExecution(entry, normalizedPath);
-                            var launcherPath = CreateLauncherProxy(extractedPath);
-
-                            Console.WriteLine($"Returning launcher proxy: '{launcherPath}' -> '{extractedPath}'");
-
-                            // Open the launcher proxy file for reading
-                            // Windows will successfully "execute" this launcher
-                            info.Context = new FileStream(
-                                launcherPath,
-                                FileMode.Open,
-                                System.IO.FileAccess.Read,
-                                FileShare.Read | FileShare.Write | FileShare.Delete);
-
-                            return DokanResult.Success;
-                        }
-                        catch (Exception ex)
-                        {
-                            _logErrorAction(ex, $"Failed to extract and create launcher for '{normalizedPath}'");
-                            Console.WriteLine($"ERROR: Failed to create launcher: {ex.Message}");
-                            info.Context = null;
-                            return DokanResult.Error;
-                        }
+                        Console.WriteLine($"[INFO] Cannot execute '{normalizedPath}' directly from the virtual drive.");
+                        Console.WriteLine($"       Due to Dokany implementation limitations, executable files cannot be run from the mounted archive.");
+                        Console.WriteLine($"       Please extract the file to a physical location (e.g., your Desktop or Downloads folder) and run it from there.");
                     }
 
                     // Hybrid caching - memory for small files, temp disk file for large files
@@ -1133,7 +996,7 @@ public class ZipFs : IDokanOperations, IDisposable
     /// Disposes the resources used by this instance.
     /// </summary>
     /// <remarks>
-    /// <para><strong>Note:</strong> This method disposes the internal archive and cleans up temporary files,
+    /// <para><strong>Note:</strong> This method disposes the internal archive and cleans up extracted files,
     /// but does NOT dispose the source archive stream that was passed to the constructor. The caller is
     /// responsible for disposing the source stream after this instance has been disposed.</para>
     /// </remarks>
@@ -1164,29 +1027,7 @@ public class ZipFs : IDokanOperations, IDisposable
             _largeFileCache.Clear();
         }
 
-        // Clean up extracted executables
-        lock (_executableLock)
-        {
-            foreach (var execFile in _executableCache.Values)
-            {
-                try
-                {
-                    if (File.Exists(execFile))
-                    {
-                        File.Delete(execFile);
-                        Console.WriteLine($"Cleaned up extracted executable: '{execFile}'");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logErrorAction(ex, $"Failed to delete extracted executable on dispose: {execFile}");
-                }
-            }
-
-            _executableCache.Clear();
-        }
-
-        // Clean up the unique temporary directory for this instance
+        // Clean up the unique working directory for this instance
         try
         {
             if (Directory.Exists(_tempDirectoryPath))
@@ -1196,7 +1037,7 @@ public class ZipFs : IDokanOperations, IDisposable
         }
         catch (Exception ex)
         {
-            _logErrorAction(ex, $"Failed to delete temp directory on dispose: {_tempDirectoryPath}");
+            _logErrorAction(ex, $"Failed to delete working directory on dispose: {_tempDirectoryPath}");
         }
 
         GC.SuppressFinalize(this);
