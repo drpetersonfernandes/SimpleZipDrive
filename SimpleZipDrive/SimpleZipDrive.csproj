@@ -5,26 +5,17 @@
         <TargetFramework>net10.0-windows</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-	<DebugType>embedded</DebugType>
-	<DebugSymbols>true</DebugSymbols>
-	<ApplicationIcon>icon\zip.ico</ApplicationIcon>
-	<IsPackable>false</IsPackable>
-	<AssemblyVersion>1.7</AssemblyVersion>
-	<FileVersion>1.7</FileVersion>
-	<NeutralLanguage>en</NeutralLanguage>
+        <DebugType>embedded</DebugType>
+        <DebugSymbols>true</DebugSymbols>
+        <ApplicationIcon>icon\zip.ico</ApplicationIcon>
+        <IsPackable>false</IsPackable>
+        <AssemblyVersion>1.7</AssemblyVersion>
+        <FileVersion>1.7</FileVersion>
+        <NeutralLanguage>en</NeutralLanguage>
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="DokanNet" Version="2.3.0.3" />
-      <PackageReference Include="SharpCompress" Version="0.46.2" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <ProjectReference Include="..\LauncherCompanion\LauncherCompanion.csproj">
-        <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
-        <OutputItemType>Content</OutputItemType>
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        <Targets>Build</Targets>
-      </ProjectReference>
+        <PackageReference Include="DokanNet" Version="2.3.0.3" />
+        <PackageReference Include="SharpCompress" Version="0.46.2" />
     </ItemGroup>
 </Project>

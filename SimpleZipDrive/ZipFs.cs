@@ -309,56 +309,30 @@ public class ZipFs : IDokanOperations, IDisposable
     }
 
     /// <summary>
-    /// Creates a launcher proxy executable that will launch the specified target path.
-    /// The target path is encoded into the launcher filename. When Windows executes this
-    /// launcher, it reads the target path from its own filename and launches the real executable.
+    /// Creates a batch file launcher that will launch the specified target executable.
+    /// The batch file changes to the target's directory and executes it, which allows
+    /// Windows to run executables from the virtual drive without security blocks.
     /// </summary>
     private string CreateLauncherProxy(string targetExecutablePath)
     {
-        // Marker format: LauncherProxy_{base64encodedpath}.exe
-        const string markerPrefix = "LauncherProxy_";
+        // Create a unique batch file name
+        var batchFileName = $"Launch_{Guid.NewGuid():N}.bat";
+        var batchPath = Path.Combine(_executableTempDirectory, batchFileName);
 
-        // Encode the target path into the filename
-        var encodedPath = EncodePathForFilename(targetExecutablePath);
-        var launcherFileName = $"{markerPrefix}{encodedPath}.exe";
-        var launcherPath = Path.Combine(_executableTempDirectory, launcherFileName);
+        // Get the directory of the target executable
+        var targetDir = Path.GetDirectoryName(targetExecutablePath) ?? "";
 
-        // Find the LauncherProxy.exe - it should be in the same directory as the main executable
-        var mainAssemblyDir = AppContext.BaseDirectory;
-        var sourceLauncher = Path.Combine(mainAssemblyDir, "LauncherProxy.exe");
+        // Create the batch file content
+        // The batch file:
+        // 1. Changes to the target directory (important for executables that depend on relative paths)
+        // 2. Starts the executable
+        var batchContent = $"@echo off\r\nchcp 65001 >nul\r\ncd /d \"{targetDir}\"\r\nstart \"\" \"{targetExecutablePath}\"\r\n";
 
-        if (!File.Exists(sourceLauncher))
-        {
-            // Try the parent directory (development scenario where projects are side by side)
-            var parentDir = Directory.GetParent(mainAssemblyDir)?.FullName;
-            if (parentDir != null)
-            {
-                sourceLauncher = Path.Combine(parentDir, "LauncherProxy.exe");
-            }
-        }
+        // Write the batch file
+        File.WriteAllText(batchPath, batchContent, System.Text.Encoding.UTF8);
+        Console.WriteLine($"Created batch launcher: '{batchPath}' -> '{targetExecutablePath}'");
 
-        if (!File.Exists(sourceLauncher))
-        {
-            throw new FileNotFoundException("LauncherProxy.exe not found. Make sure SimpleZipDriveLauncher is built and deployed.");
-        }
-
-        // Copy the launcher proxy to the temp location with the encoded path in the filename
-        File.Copy(sourceLauncher, launcherPath, true);
-        Console.WriteLine($"Created launcher proxy: '{launcherPath}'");
-
-        return launcherPath;
-    }
-
-    /// <summary>
-    /// Encodes a path to be safely used in a filename.
-    /// </summary>
-    private static string EncodePathForFilename(string path)
-    {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(path);
-        return Convert.ToBase64String(bytes)
-            .Replace('+', '-')
-            .Replace('/', '_')
-            .Replace("=", "");
+        return batchPath;
     }
 
     private static string NormalizePath(string path)
