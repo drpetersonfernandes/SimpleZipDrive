@@ -308,6 +308,59 @@ public class ZipFs : IDokanOperations, IDisposable
         }
     }
 
+    /// <summary>
+    /// Creates a launcher proxy executable that will launch the specified target path.
+    /// The target path is encoded into the launcher filename. When Windows executes this
+    /// launcher, it reads the target path from its own filename and launches the real executable.
+    /// </summary>
+    private string CreateLauncherProxy(string targetExecutablePath)
+    {
+        // Marker format: LauncherProxy_{base64encodedpath}.exe
+        const string markerPrefix = "LauncherProxy_";
+
+        // Encode the target path into the filename
+        var encodedPath = EncodePathForFilename(targetExecutablePath);
+        var launcherFileName = $"{markerPrefix}{encodedPath}.exe";
+        var launcherPath = Path.Combine(_executableTempDirectory, launcherFileName);
+
+        // Find the LauncherProxy.exe - it should be in the same directory as the main executable
+        var mainAssemblyDir = AppContext.BaseDirectory;
+        var sourceLauncher = Path.Combine(mainAssemblyDir, "LauncherProxy.exe");
+
+        if (!File.Exists(sourceLauncher))
+        {
+            // Try the parent directory (development scenario where projects are side by side)
+            var parentDir = Directory.GetParent(mainAssemblyDir)?.FullName;
+            if (parentDir != null)
+            {
+                sourceLauncher = Path.Combine(parentDir, "LauncherProxy.exe");
+            }
+        }
+
+        if (!File.Exists(sourceLauncher))
+        {
+            throw new FileNotFoundException("LauncherProxy.exe not found. Make sure SimpleZipDriveLauncher is built and deployed.");
+        }
+
+        // Copy the launcher proxy to the temp location with the encoded path in the filename
+        File.Copy(sourceLauncher, launcherPath, true);
+        Console.WriteLine($"Created launcher proxy: '{launcherPath}'");
+
+        return launcherPath;
+    }
+
+    /// <summary>
+    /// Encodes a path to be safely used in a filename.
+    /// </summary>
+    private static string EncodePathForFilename(string path)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(path);
+        return Convert.ToBase64String(bytes)
+            .Replace('+', '-')
+            .Replace('/', '_')
+            .Replace("=", "");
+    }
+
     private static string NormalizePath(string path)
     {
         if (string.IsNullOrEmpty(path)) return "/";
@@ -434,21 +487,24 @@ public class ZipFs : IDokanOperations, IDisposable
                         try
                         {
                             var extractedPath = ExtractExecutableForExecution(entry, normalizedPath);
+                            var launcherPath = CreateLauncherProxy(extractedPath);
 
-                            // Open the extracted file for reading with the requested sharing mode
-                            // Use FileShare.Read | FileShare.Write to allow the loader to memory-map the file
+                            Console.WriteLine($"Returning launcher proxy: '{launcherPath}' -> '{extractedPath}'");
+
+                            // Open the launcher proxy file for reading
+                            // Windows will successfully "execute" this launcher
                             info.Context = new FileStream(
-                                extractedPath,
+                                launcherPath,
                                 FileMode.Open,
                                 System.IO.FileAccess.Read,
                                 FileShare.Read | FileShare.Write | FileShare.Delete);
 
-                            Console.WriteLine($"Executable redirected to temp file: '{extractedPath}'");
                             return DokanResult.Success;
                         }
                         catch (Exception ex)
                         {
-                            _logErrorAction(ex, $"Failed to extract and open executable '{normalizedPath}'");
+                            _logErrorAction(ex, $"Failed to extract and create launcher for '{normalizedPath}'");
+                            Console.WriteLine($"ERROR: Failed to create launcher: {ex.Message}");
                             info.Context = null;
                             return DokanResult.Error;
                         }

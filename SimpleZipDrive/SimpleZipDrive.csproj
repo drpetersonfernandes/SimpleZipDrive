@@ -19,4 +19,12 @@
       <PackageReference Include="SharpCompress" Version="0.46.2" />
     </ItemGroup>
 
+    <ItemGroup>
+      <ProjectReference Include="..\LauncherCompanion\LauncherCompanion.csproj">
+        <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+        <OutputItemType>Content</OutputItemType>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <Targets>Build</Targets>
+      </ProjectReference>
+    </ItemGroup>
 </Project>
