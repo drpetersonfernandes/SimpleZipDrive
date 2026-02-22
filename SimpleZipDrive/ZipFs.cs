@@ -49,6 +49,19 @@ public class ZipFs : IDokanOperations, IDisposable
     private const int MaxPathExtended = 32767;
     private const string ExtendedPathPrefix = @"\\?\";
 
+    // Executable file extensions that require extraction to temp for execution
+    private static readonly HashSet<string> ExecutableExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".exe", ".dll", ".sys", ".drv", ".com", ".bat", ".cmd",
+        ".msi", ".msp", ".mst", ".ps1", ".vbs", ".js", ".wsf",
+        ".jar", ".py", ".rb", ".pl", ".sh"
+    };
+
+    // Cache for extracted executables. Key: normalized path in archive, Value: path to the extracted temp file.
+    private readonly Dictionary<string, string> _executableCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _executableLock = new();
+    private readonly string _executableTempDirectory;
+
     /// <summary>
     /// Initializes a new instance of the <see cref="ZipFs"/> class.
     /// </summary>
@@ -77,6 +90,10 @@ public class ZipFs : IDokanOperations, IDisposable
         {
             // Ensure the dedicated temporary directory exists for this session.
             Directory.CreateDirectory(_tempDirectoryPath);
+
+            // Create a subdirectory specifically for extracted executables
+            _executableTempDirectory = Path.Combine(_tempDirectoryPath, "Executables");
+            Directory.CreateDirectory(_executableTempDirectory);
 
             // Reset stream position to ensure archive parsing starts from the beginning
             if (archiveStream.CanSeek)
@@ -197,6 +214,100 @@ public class ZipFs : IDokanOperations, IDisposable
         return entry.Key != null && (entry.Key.EndsWith('/') || entry.Key.EndsWith('\\'));
     }
 
+    /// <summary>
+    /// Determines if the specified file is an executable based on its extension.
+    /// </summary>
+    private static bool IsExecutableFile(string filePath)
+    {
+        var extension = Path.GetExtension(filePath);
+        return !string.IsNullOrEmpty(extension) && ExecutableExtensions.Contains(extension);
+    }
+
+    /// <summary>
+    /// Checks if file access includes execute intent by examining access flags.
+    /// </summary>
+    private static bool HasExecuteIntent(FileAccess access)
+    {
+        // Check for execute-specific access rights
+        // FileAccess.Execute = 0x20 (32)
+        // FileAccess.ReadData = 0x1 (1) - combined with other flags often indicates execution intent
+        return (access & FileAccess.Execute) == FileAccess.Execute ||
+               access == FileAccess.ReadData ||
+               access == (FileAccess.ReadData | FileAccess.Synchronize) ||
+               access == (FileAccess.ReadData | FileAccess.ReadAttributes) ||
+               access == (FileAccess.ReadData | FileAccess.ReadAttributes | FileAccess.Synchronize);
+    }
+
+    /// <summary>
+    /// Extracts an executable file to the temp directory for execution.
+    /// Returns the path to the extracted file.
+    /// </summary>
+    private string ExtractExecutableForExecution(IArchiveEntry entry, string normalizedPath)
+    {
+        lock (_executableLock)
+        {
+            // Check if already extracted
+            if (_executableCache.TryGetValue(normalizedPath, out var cachedPath) && File.Exists(cachedPath))
+            {
+                Console.WriteLine($"Executable cache hit: '{normalizedPath}' -> '{cachedPath}'");
+                return cachedPath;
+            }
+
+            // Generate a unique filename that preserves the original name for compatibility
+            var originalFileName = Path.GetFileName(entry.Key) ?? "extracted.exe";
+            var safeFileName = $"{Guid.NewGuid():N}_{originalFileName}";
+            var extractPath = Path.Combine(_executableTempDirectory, safeFileName);
+
+            Console.WriteLine($"Extracting executable: '{normalizedPath}' ({entry.Size / 1024.0:F2} KB) -> '{extractPath}'");
+
+            try
+            {
+                // Extract the file
+                using (var entryStream = entry.OpenEntryStream())
+                using (var fileStream = new FileStream(extractPath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None))
+                {
+                    entryStream.CopyTo(fileStream);
+                }
+
+                // Preserve the original timestamps
+                try
+                {
+                    File.SetCreationTime(extractPath, entry.CreatedTime ?? DateTime.Now);
+                    File.SetLastWriteTime(extractPath, entry.LastModifiedTime ?? DateTime.Now);
+                    File.SetLastAccessTime(extractPath, DateTime.Now);
+                }
+                catch
+                {
+                    // Timestamps are not critical for execution
+                }
+
+                // Add to cache
+                _executableCache[normalizedPath] = extractPath;
+                Console.WriteLine($"Executable extraction complete: '{extractPath}'");
+
+                return extractPath;
+            }
+            catch (Exception ex)
+            {
+                _logErrorAction(ex, $"Failed to extract executable '{normalizedPath}' to '{extractPath}'");
+                // Clean up partial file if it exists
+                try
+                {
+                    if (File.Exists(extractPath))
+                    {
+                        File.Delete(extractPath);
+                    }
+                }
+                catch
+                {
+                    // Ignore cleanup errors
+                }
+
+                throw;
+            }
+        }
+    }
+
     private static string NormalizePath(string path)
     {
         if (string.IsNullOrEmpty(path)) return "/";
@@ -313,6 +424,35 @@ public class ZipFs : IDokanOperations, IDisposable
                 try
                 {
                     var entrySize = entry.Size;
+
+                    // --- EXECUTABLE HANDLING ---
+                    // Check if this is an executable file being accessed for execution
+                    if (IsExecutableFile(normalizedPath) && HasExecuteIntent(access))
+                    {
+                        Console.WriteLine($"Executable access detected: '{normalizedPath}' with access={access}, share={share}");
+
+                        try
+                        {
+                            var extractedPath = ExtractExecutableForExecution(entry, normalizedPath);
+
+                            // Open the extracted file for reading with the requested sharing mode
+                            // Use FileShare.Read | FileShare.Write to allow the loader to memory-map the file
+                            info.Context = new FileStream(
+                                extractedPath,
+                                FileMode.Open,
+                                System.IO.FileAccess.Read,
+                                FileShare.Read | FileShare.Write | FileShare.Delete);
+
+                            Console.WriteLine($"Executable redirected to temp file: '{extractedPath}'");
+                            return DokanResult.Success;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logErrorAction(ex, $"Failed to extract and open executable '{normalizedPath}'");
+                            info.Context = null;
+                            return DokanResult.Error;
+                        }
+                    }
 
                     // Hybrid caching - memory for small files, temp disk file for large files
                     if (entrySize is >= MaxMemorySize or < 0)
@@ -992,6 +1132,28 @@ public class ZipFs : IDokanOperations, IDisposable
             }
 
             _largeFileCache.Clear();
+        }
+
+        // Clean up extracted executables
+        lock (_executableLock)
+        {
+            foreach (var execFile in _executableCache.Values)
+            {
+                try
+                {
+                    if (File.Exists(execFile))
+                    {
+                        File.Delete(execFile);
+                        Console.WriteLine($"Cleaned up extracted executable: '{execFile}'");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logErrorAction(ex, $"Failed to delete extracted executable on dispose: {execFile}");
+                }
+            }
+
+            _executableCache.Clear();
         }
 
         // Clean up the unique temporary directory for this instance
