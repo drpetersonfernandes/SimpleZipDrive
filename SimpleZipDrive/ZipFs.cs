@@ -50,7 +50,6 @@ public class ZipFs : IDokanOperations, IDisposable
     private const string ExtendedPathPrefix = @"\\?\";
 
 
-
     /// <summary>
     /// Initializes a new instance of the <see cref="ZipFs"/> class.
     /// </summary>
@@ -343,8 +342,8 @@ public class ZipFs : IDokanOperations, IDisposable
                     if (!string.IsNullOrEmpty(extension) && IsExecutableExtension(extension))
                     {
                         Console.WriteLine($"[INFO] Cannot execute '{normalizedPath}' directly from the virtual drive.");
-                        Console.WriteLine($"       Due to Dokany implementation limitations, executable files cannot be run from the mounted archive.");
-                        Console.WriteLine($"       Please extract the file to a physical location (e.g., your Desktop or Downloads folder) and run it from there.");
+                        Console.WriteLine("       Due to Dokany implementation limitations, executable files cannot be run from the mounted archive.");
+                        Console.WriteLine("       Please extract the file to a physical location (e.g., your Desktop or Downloads folder) and run it from there.");
                     }
 
                     // Hybrid caching - memory for small files, temp disk file for large files

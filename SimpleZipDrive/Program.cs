@@ -10,6 +10,11 @@ file static class Program
 {
     public static async Task Main(string[] args)
     {
+        // Set CRT monitor style: black background with green text
+        Console.BackgroundColor = ConsoleColor.Black;
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.Clear(); // Clear console to apply background color to entire window
+
         Console.WriteLine("Archive Drive using DokanNet (Streaming Access with In-Memory Entry Cache)");
         Console.WriteLine("Supports: ZIP, 7Z, and RAR archives");
 
@@ -349,7 +354,8 @@ file static class Program
                 Console.WriteLine("  - Dokan driver not installed or not running correctly. You can get it from:");
                 Console.WriteLine("    https://github.com/dokan-dev/dokany/releases");
             }
-            else if (ex.Message.Contains("Can't install the Dokan driver", StringComparison.OrdinalIgnoreCase))
+            else if (ex.Message.Contains("Can't install the Dokan driver", StringComparison.OrdinalIgnoreCase) ||
+                     ex.Message.Contains("Impossible d'installer le driver Dokan", StringComparison.OrdinalIgnoreCase))
             {
                 Console.WriteLine("\n--- DOKAN DRIVER INSTALLATION FAILED ---");
                 Console.WriteLine("The application failed to communicate with or install the Dokan kernel driver.");
@@ -374,8 +380,9 @@ file static class Program
             }
 
             var context = $"DokanException trying to mount on '{mountPoint}'. ZIP: '{zipFilePath}'";
-            // Only log to API if it's NOT the common "driver not installed" error
-            if (!ex.Message.Contains("Can't install the Dokan driver", StringComparison.OrdinalIgnoreCase))
+            // Only log to API if it's NOT the common "driver not installed" error (supports English and French)
+            if (!ex.Message.Contains("Can't install the Dokan driver", StringComparison.OrdinalIgnoreCase) &&
+                !ex.Message.Contains("Impossible d'installer le driver Dokan", StringComparison.OrdinalIgnoreCase))
             {
                 await ErrorLogger.LogErrorAsync(ex, context);
             }

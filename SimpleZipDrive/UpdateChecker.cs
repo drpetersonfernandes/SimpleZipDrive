@@ -39,6 +39,12 @@ public static partial class UpdateChecker
     {
         try
         {
+            // Get current version first to always display it
+            var current = Assembly.GetExecutingAssembly().GetName().Version
+                          ?? new Version(0, 0, 0, 0);
+            Console.WriteLine();
+            Console.WriteLine($"{RepoName} version: {current}");
+
             // GitHub rejects requests without a User-Agent header.
             if (!Http.DefaultRequestHeaders.Contains("User-Agent"))
                 Http.DefaultRequestHeaders.Add("User-Agent", $"{RepoName}-UpdateChecker");
@@ -58,12 +64,14 @@ public static partial class UpdateChecker
             if (!m.Success) return;
 
             var latest = Version.Parse(m.Value);
-            var current = Assembly.GetExecutingAssembly().GetName().Version
-                          ?? new Version(0, 0, 0, 0);
 
-            if (latest <= current) return; // up-to-date
+            if (latest <= current)
+            {
+                // up-to-date
+                Console.WriteLine("You are using the most updated version.");
+                return;
+            }
 
-            Console.WriteLine();
             Console.WriteLine($"A newer version of {RepoName} is available:");
             Console.WriteLine($"  Current : {current}");
             Console.WriteLine($"  Latest  : {latest}");
