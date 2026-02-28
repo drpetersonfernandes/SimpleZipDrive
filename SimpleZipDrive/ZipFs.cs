@@ -973,9 +973,12 @@ public class ZipFs : IDokanOperations, IDisposable
         try
         {
             var fs = new FileSecurity();
-            fs.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null), FileSystemRights.ReadAndExecute, AccessControlType.Allow));
-            fs.SetOwner(new SecurityIdentifier(WellKnownSidType.WorldSid, null));
-            fs.SetGroup(new SecurityIdentifier(WellKnownSidType.WorldSid, null));
+            // Use raw SID string "S-1-1-0" (Everyone/World) to avoid IdentityNotMappedException
+            // when the SID translation fails on certain systems
+            var everyoneSid = new SecurityIdentifier("S-1-1-0");
+            fs.AddAccessRule(new FileSystemAccessRule(everyoneSid, FileSystemRights.ReadAndExecute, AccessControlType.Allow));
+            fs.SetOwner(everyoneSid);
+            fs.SetGroup(everyoneSid);
             security = fs;
             return DokanResult.Success;
         }
