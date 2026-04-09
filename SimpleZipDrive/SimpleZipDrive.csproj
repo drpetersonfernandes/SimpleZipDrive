@@ -9,13 +9,13 @@
         <DebugSymbols>true</DebugSymbols>
         <ApplicationIcon>icon\zip.ico</ApplicationIcon>
         <IsPackable>false</IsPackable>
-        <AssemblyVersion>1.9</AssemblyVersion>
-        <FileVersion>1.9</FileVersion>
+        <AssemblyVersion>1.9.0</AssemblyVersion>
+        <FileVersion>1.9.0</FileVersion>
         <NeutralLanguage>en</NeutralLanguage>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="DokanNet" Version="2.3.0.3" />
-        <PackageReference Include="SharpCompress" Version="0.47.0" />
+        <PackageReference Include="SharpCompress" Version="0.47.4" />
     </ItemGroup>
 </Project>
