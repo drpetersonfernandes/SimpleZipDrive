@@ -157,9 +157,6 @@ file static class Program
         }
         catch (Exception ex) when (ex is DokanException || (ex is DllNotFoundException dnfEx && dnfEx.Message?.Contains("dokan", StringComparison.OrdinalIgnoreCase) == true))
         {
-            // const string context = "Dokan library initialization failed. This is a strong indicator that Dokan is not installed.";
-            // _ = ErrorLogger.LogErrorAsync(ex, context);
-
             Console.WriteLine("\n--- DOKAN INITIALIZATION FAILED ---");
             Console.WriteLine("Could not initialize the Dokan file system library.");
             Console.WriteLine("This usually means the Dokan driver is not installed on your system.");
