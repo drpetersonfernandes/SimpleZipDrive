@@ -68,12 +68,6 @@ public class ZipFs : IDokanOperations, IDisposable
     public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType)
     {
         _sourceArchiveStream = archiveStream;
-        if (logErrorAction == null)
-        {
-            var ex = new ArgumentNullException(nameof(logErrorAction));
-            ErrorLogger.LogErrorSync(ex, "ZipFs constructor: logErrorAction cannot be null.");
-            throw ex;
-        }
         _logErrorAction = logErrorAction;
         _passwordProvider = passwordProvider;
         _archiveType = archiveType.ToLowerInvariant();
