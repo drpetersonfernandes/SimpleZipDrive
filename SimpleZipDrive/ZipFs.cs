@@ -68,7 +68,13 @@ public class ZipFs : IDokanOperations, IDisposable
     public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType)
     {
         _sourceArchiveStream = archiveStream;
-        _logErrorAction = logErrorAction ?? throw new ArgumentNullException(nameof(logErrorAction));
+        if (logErrorAction == null)
+        {
+            var ex = new ArgumentNullException(nameof(logErrorAction));
+            ErrorLogger.LogErrorSync(ex, "ZipFs constructor: logErrorAction cannot be null.");
+            throw ex;
+        }
+        _logErrorAction = logErrorAction;
         _passwordProvider = passwordProvider;
         _archiveType = archiveType.ToLowerInvariant();
         // Use a unique directory per instance in LocalAppData to avoid collisions between multiple running instances
@@ -189,7 +195,26 @@ public class ZipFs : IDokanOperations, IDisposable
         }
         catch (Exception ex)
         {
-            _logErrorAction?.Invoke(ex, "Error during ZipFs.InitializeEntries.");
+            // Check for data corruption indicators (LZMA decompression errors, SharpCompress DataErrorException, etc.)
+            var exceptionTypeName = ex.GetType().Name;
+            var message = ex.Message;
+            var stackTrace = ex.StackTrace ?? "";
+            var isDataCorruptionError = exceptionTypeName.Contains("DataError", StringComparison.OrdinalIgnoreCase) ||
+                                        message.Contains("Data Error", StringComparison.OrdinalIgnoreCase) ||
+                                        stackTrace.Contains("SharpCompress.Compressors.LZMA", StringComparison.OrdinalIgnoreCase);
+
+            if (isDataCorruptionError)
+            {
+                var contextMessage = "Archive data corruption detected during initialization. The archive file appears to be damaged, incomplete, or uses an unsupported compression method. " +
+                                     "Archive type: " + _archiveType + ". " +
+                                     "Entries loaded before error: " + _archiveEntries.Count + ". " +
+                                     "Exception: " + exceptionTypeName + ": " + ex.Message;
+                _logErrorAction?.Invoke(ex, contextMessage);
+                throw new InvalidOperationException(contextMessage, ex);
+            }
+
+            _logErrorAction?.Invoke(ex, "Error during ZipFs.InitializeEntries. Archive type: " + _archiveType + ", Entries loaded: " + _archiveEntries.Count + ".");
+            throw;
         }
     }
 
