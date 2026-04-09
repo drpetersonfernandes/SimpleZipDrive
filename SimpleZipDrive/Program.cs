@@ -18,6 +18,8 @@ file static class Program
         Console.WriteLine("Archive Drive using DokanNet (Streaming Access with In-Memory Entry Cache)");
         Console.WriteLine("Supports: ZIP, 7Z, and RAR archives");
 
+        _ = ReportStats.ReportStatsAsync();
+
         await UpdateChecker.CheckForUpdateAsync();
 
         _ = typeof(ErrorLogger); // Ensures static constructor of ErrorLogger runs

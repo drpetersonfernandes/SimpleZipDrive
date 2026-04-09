@@ -222,21 +222,20 @@ public class ZipFs : IDokanOperations, IDisposable
     /// Checks if the file extension is an executable type.
     /// Used to display informational messages when users attempt to run executables from the virtual drive.
     /// </summary>
-    private static bool IsExecutableExtension(string extension)
-    {
-        return extension.Equals(".exe", StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(".dll", StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(".bat", StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(".msi", StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(".ps1", StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(".vbs", StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(".js", StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(".jar", StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(".py", StringComparison.OrdinalIgnoreCase) ||
-               extension.Equals(".com", StringComparison.OrdinalIgnoreCase);
-    }
-
+    // private static bool IsExecutableExtension(string extension)
+    // {
+    //     return extension.Equals(".exe", StringComparison.OrdinalIgnoreCase) ||
+    //            extension.Equals(".dll", StringComparison.OrdinalIgnoreCase) ||
+    //            extension.Equals(".bat", StringComparison.OrdinalIgnoreCase) ||
+    //            extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
+    //            extension.Equals(".msi", StringComparison.OrdinalIgnoreCase) ||
+    //            extension.Equals(".ps1", StringComparison.OrdinalIgnoreCase) ||
+    //            extension.Equals(".vbs", StringComparison.OrdinalIgnoreCase) ||
+    //            extension.Equals(".js", StringComparison.OrdinalIgnoreCase) ||
+    //            extension.Equals(".jar", StringComparison.OrdinalIgnoreCase) ||
+    //            extension.Equals(".py", StringComparison.OrdinalIgnoreCase) ||
+    //            extension.Equals(".com", StringComparison.OrdinalIgnoreCase);
+    // }
     private static string NormalizePath(string path)
     {
         if (string.IsNullOrEmpty(path)) return "/";
@@ -354,16 +353,16 @@ public class ZipFs : IDokanOperations, IDisposable
                 {
                     var entrySize = entry.Size;
 
-                    // --- EXECUTABLE HANDLING ---
-                    // Running executables directly from the virtual drive is not supported due to Dokany limitations.
-                    // Executables must be extracted to a physical disk location before they can be run.
-                    var extension = Path.GetExtension(normalizedPath);
-                    if (!string.IsNullOrEmpty(extension) && IsExecutableExtension(extension))
-                    {
-                        Console.WriteLine($"[INFO] Cannot execute '{normalizedPath}' directly from the virtual drive.");
-                        Console.WriteLine("       Due to Dokany implementation limitations, executable files cannot be run from the mounted archive.");
-                        Console.WriteLine("       Please extract the file to a physical location (e.g., your Desktop or Downloads folder) and run it from there.");
-                    }
+                    // // --- EXECUTABLE HANDLING ---
+                    // // Running executables directly from the virtual drive is not supported due to Dokany limitations.
+                    // // Executables must be extracted to a physical disk location before they can be run.
+                    // var extension = Path.GetExtension(normalizedPath);
+                    // if (!string.IsNullOrEmpty(extension) && IsExecutableExtension(extension))
+                    // {
+                    //     Console.WriteLine($"[INFO] Cannot execute '{normalizedPath}' directly from the virtual drive.");
+                    //     Console.WriteLine("       Due to Dokany implementation limitations, executable files cannot be run from the mounted archive.");
+                    //     Console.WriteLine("       Please extract the file to a physical location (e.g., your Desktop or Downloads folder) and run it from there.");
+                    // }
 
                     // Hybrid caching - memory for small files, temp disk file for large files
                     if (entrySize is >= MaxMemorySize or < 0)
