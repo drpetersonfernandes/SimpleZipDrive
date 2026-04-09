@@ -158,21 +158,28 @@ public static class ErrorLogger
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                var task = SendLogToApiAsync(logContent, cts.Token);
-                task.Wait(cts.Token);
+                var apiTask = SendLogToApiAsync(logContent, cts.Token);
+                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30), cts.Token);
 
-                if (task.Result)
+                var completedTask = Task.WhenAny(apiTask, timeoutTask).GetAwaiter().GetResult();
+
+                if (completedTask == timeoutTask)
                 {
-                    Console.WriteLine("Error details successfully sent to remote logging service (from sync path).");
+                    Console.Error.WriteLine("Timeout: Failed to send error details to remote logging service (from sync path). Error is saved locally.");
                 }
                 else
                 {
-                    Console.Error.WriteLine("Failed to send error details to remote logging service (from sync path). Error is saved locally.");
+                    // Await the API task to get the result and propagate any exceptions
+                    var result = apiTask.GetAwaiter().GetResult();
+                    if (result)
+                    {
+                        Console.WriteLine("Error details successfully sent to remote logging service (from sync path).");
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine("Failed to send error details to remote logging service (from sync path). Error is saved locally.");
+                    }
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                Console.Error.WriteLine("Timeout: Failed to send error details to remote logging service (from sync path). Error is saved locally.");
             }
             catch (Exception apiEx)
             {

@@ -426,7 +426,12 @@ public class ZipFs : IDokanOperations, IDisposable
                                 return DokanResult.Error;
                             }
                         }
-                        // If cachedPath is null/empty here, something went wrong in caching but wasn't caught
+                        else
+                        {
+                            // cachedPath is null/empty - caching failed but wasn't caught by exception
+                            _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: cachedPath is null/empty for large file '{normalizedPath}' after caching attempt."), "ZipFs.CreateFile: Large file caching failed silently.");
+                            return DokanResult.Error;
+                        }
                     }
                     else
                     {
@@ -482,7 +487,8 @@ public class ZipFs : IDokanOperations, IDisposable
                             lock (_archiveLock)
                             {
                                 using var entryStream = entry.OpenEntryStream();
-                                using var tempMs = new MemoryStream(entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096);
+                                var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
+                                using var tempMs = new MemoryStream(capacity);
                                 entryStream.CopyTo(tempMs);
                                 entryBytes = tempMs.ToArray();
                             }
@@ -513,6 +519,7 @@ public class ZipFs : IDokanOperations, IDisposable
                     var contextMessage = $"ZipFs.CreateFile: Password error for '{normalizedPath}'. The provided password may be incorrect or missing.";
                     Console.WriteLine($"\n[!] Password Error: Could not decrypt '{normalizedPath}'.");
                     _logErrorAction(cryptoEx, contextMessage);
+                    (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
                     return DokanResult.Error;
                 }
@@ -522,6 +529,8 @@ public class ZipFs : IDokanOperations, IDisposable
                               $"Please check the connection to drive '{Path.GetPathRoot(_tempDirectoryPath)}'.";
                     Console.WriteLine($"\n[!!!] {msg}");
                     // _logErrorAction(ioEx, "ZipFs.CreateFile: Source device disconnected.");
+                    (info.Context as IDisposable)?.Dispose();
+                    info.Context = null;
                     return DokanResult.NotReady;
                 }
                 catch (IOException ioEx) when ((uint)ioEx.HResult == 0x800703EE || (uint)ioEx.HResult == 0x80070037) // ERROR_FILE_INVALID or ERROR_DEV_NOT_EXIST
@@ -535,6 +544,7 @@ public class ZipFs : IDokanOperations, IDisposable
                     Console.WriteLine("  - The source device is no longer available or has errors");
                     Console.WriteLine("\nPlease verify the drive is connected and the file has not been altered.");
                     _logErrorAction(ioEx, $"ZipFs.CreateFile: Source file inaccessible for entry '{normalizedPath}'");
+                    (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
                     return DokanResult.Error;
                 }
@@ -542,6 +552,7 @@ public class ZipFs : IDokanOperations, IDisposable
                 {
                     // General exception during caching
                     _logErrorAction(ex, $"ZipFs.CreateFile: EXCEPTION caching entry '{normalizedPath}'.");
+                    (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
                     return DokanResult.Error;
                 }
@@ -972,12 +983,20 @@ public class ZipFs : IDokanOperations, IDisposable
         return DokanResult.Success;
     }
 
+    private const int MaxSearchPatternLength = 260; // Reasonable limit for search patterns
+
     private static bool IsMatchSimple(string input, string pattern)
     {
+        // Limit pattern length to prevent regex DoS attacks
+        if (pattern.Length > MaxSearchPatternLength)
+        {
+            return false;
+        }
+
         if (pattern.Equals("*", StringComparison.Ordinal) || pattern.Equals("*.*", StringComparison.Ordinal)) return true;
 
         var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
-        return Regex.IsMatch(input, regexPattern, RegexOptions.IgnoreCase);
+        return Regex.IsMatch(input, regexPattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
     }
 
     public NtStatus GetFileSecurity(string fileName, out FileSystemSecurity? security, AccessControlSections sections, IDokanFileInfo info)

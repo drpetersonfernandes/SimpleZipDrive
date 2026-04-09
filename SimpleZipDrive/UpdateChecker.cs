@@ -60,7 +60,7 @@ public static partial class UpdateChecker
             if (tagName is null || htmlUrl is null) return;
 
             // We expect tags like "release_1.0.2" – pick the 1.0.2 part.
-            var m = MyRegex().Match(tagName);
+            var m = VersionRegex.Match(tagName);
             if (!m.Success) return;
 
             var latest = Version.Parse(m.Value);
@@ -108,6 +108,8 @@ public static partial class UpdateChecker
         }
     }
 
-    [GeneratedRegex(@"\d+\.\d+(?:\.\d+)?")]
+    private static readonly Regex VersionRegex = MyRegex();
+
+    [GeneratedRegex(@"\d+\.\d+(?:\.\d+)?", RegexOptions.Compiled)]
     private static partial Regex MyRegex();
 }

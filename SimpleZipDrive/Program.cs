@@ -121,6 +121,7 @@ file static class Program
             }
             else
             {
+                // Defensive check: mountPointArg should never be null here due to earlier validation
                 if (string.IsNullOrWhiteSpace(mountPointArg))
                 {
                     Console.WriteLine("Error: Mount point argument cannot be empty in standard mode.");
@@ -129,6 +130,7 @@ file static class Program
                     return;
                 }
 
+                // mountPointArg is guaranteed non-null at this point
                 var mountPoint = mountPointArg;
                 if (mountPointArg.Length == 1 && char.IsLetter(mountPointArg[0]))
                 {
@@ -151,7 +153,7 @@ file static class Program
                 }
             }
         }
-        catch (Exception ex) when (ex is DokanException || (ex is DllNotFoundException dnfEx && dnfEx.Message.Contains("dokan", StringComparison.OrdinalIgnoreCase)))
+        catch (Exception ex) when (ex is DokanException || (ex is DllNotFoundException dnfEx && dnfEx.Message?.Contains("dokan", StringComparison.OrdinalIgnoreCase) == true))
         {
             // const string context = "Dokan library initialization failed. This is a strong indicator that Dokan is not installed.";
             // _ = ErrorLogger.LogErrorAsync(ex, context);
@@ -298,10 +300,7 @@ file static class Program
             await using Stream zipFileSourceStream = new FileStream(zipFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             Console.WriteLine($"{archiveType.ToUpperInvariant()} file opened for streaming.");
 
-            // Pass ErrorLogger.LogErrorSync to ZipFs constructor
-            using var zipFs = new ZipFs(zipFileSourceStream, mountPoint, ErrorLogger.LogErrorSync, () => ReadPassword(zipFilePath), archiveType);
-            Console.WriteLine($"Attempting to mount on '{mountPoint}'...");
-
+            // Register Ctrl+C handler BEFORE creating ZipFs (which may prompt for password)
             cancelKeyPressHandler = (_, e) =>
             {
                 e.Cancel = true;
@@ -318,6 +317,10 @@ file static class Program
                 }
             };
             Console.CancelKeyPress += cancelKeyPressHandler;
+
+            // Pass ErrorLogger.LogErrorSync to ZipFs constructor
+            using var zipFs = new ZipFs(zipFileSourceStream, mountPoint, ErrorLogger.LogErrorSync, () => ReadPassword(zipFilePath), archiveType);
+            Console.WriteLine($"Attempting to mount on '{mountPoint}'...");
 
             var dokanInstanceBuilder = new DokanInstanceBuilder(dokan)
                 .ConfigureOptions(options =>
@@ -461,14 +464,16 @@ file static class Program
         var password = new StringBuilder();
         var startTime = DateTime.UtcNow;
         var timeout = TimeSpan.FromMinutes(5); // 5 minute timeout
+        var timedOut = false;
 
         while (true)
         {
             // Check for timeout to prevent indefinite hanging
             if (DateTime.UtcNow - startTime > timeout)
             {
+                timedOut = true;
                 Console.WriteLine("\n\n[!] Password input timed out after 5 minutes.");
-                return null;
+                break;
             }
 
             // Use KeyAvailable to avoid blocking indefinitely
@@ -514,6 +519,7 @@ file static class Program
             }
         }
 
-        return password.ToString();
+        // Return null if timed out, otherwise return the password
+        return timedOut ? null : password.ToString();
     }
 }
