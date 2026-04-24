@@ -214,8 +214,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     private static bool IsDirectory(IArchiveEntry entry)
     {
-        // Check if the entry key ends with a path separator indicating it's a directory
-        return entry.Key != null && (entry.Key.EndsWith('/') || entry.Key.EndsWith('\\'));
+        return entry.IsDirectory || (entry.Key != null && (entry.Key.EndsWith('/') || entry.Key.EndsWith('\\')));
     }
 
     private static string NormalizePath(string path)
@@ -301,8 +300,8 @@ public class ZipFs : IDokanOperations, IDisposable
             {
                 info.IsDirectory = true;
 
-                // Prevent file-like read/write access to a directory handle.
-                if ((access & (FileAccess.ReadData | FileAccess.WriteData | FileAccess.AppendData)) != 0)
+                // Block write access to directory handles. ReadData = FILE_LIST_DIRECTORY for dirs — allow it.
+                if ((access & (FileAccess.WriteData | FileAccess.AppendData)) != 0)
                 {
                     return DokanResult.AccessDenied;
                 }
