@@ -206,11 +206,13 @@ file static class Program
         ManualResetEvent unmountBlocker = new(false);
         ConsoleCancelEventHandler? cancelKeyPressHandler = null;
 
+        var isFolderMountPoint = Path.IsPathFullyQualified(mountPoint) && Path.GetPathRoot(mountPoint) != mountPoint;
+
         try
         {
             // Check if the mount point is a directory (not a drive root) and create it if it doesn't exist.
             // A drive root like "C:\" will have GetPathRoot(path) == path. A folder like "C:\mount" will not.
-            if (Path.IsPathFullyQualified(mountPoint) && Path.GetPathRoot(mountPoint) != mountPoint)
+            if (isFolderMountPoint)
             {
                 var root = Path.GetPathRoot(mountPoint);
 
@@ -337,6 +339,27 @@ file static class Program
             }
 
             Console.WriteLine($"Dokan instance for '{mountPoint}' shut down successfully.");
+
+            // After Dokan unmounts from a folder mount point, the junction/reparse point remains.
+            // Remove it and restore the directory to a normal empty folder.
+            if (isFolderMountPoint)
+            {
+                try
+                {
+                    var dirInfo = new DirectoryInfo(mountPoint);
+                    if (dirInfo.Exists && dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    {
+                        dirInfo.Delete();
+                        dirInfo.Create();
+                        Console.WriteLine($"Restored mount point directory '{mountPoint}'.");
+                    }
+                }
+                catch (Exception cleanupEx)
+                {
+                    Console.WriteLine($"Warning: Could not restore mount point directory '{mountPoint}': {cleanupEx.Message}");
+                }
+            }
+
             return true;
         }
         catch (DokanException ex) // Catches Dokan-specific errors
