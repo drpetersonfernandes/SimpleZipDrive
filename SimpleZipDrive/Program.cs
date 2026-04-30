@@ -207,7 +207,7 @@ file static class Program
         ConsoleCancelEventHandler? cancelKeyPressHandler = null;
 
         var isFolderMountPoint = Path.IsPathFullyQualified(mountPoint) && Path.GetPathRoot(mountPoint) != mountPoint;
-
+        var directoryCreatedByUs = false;
         try
         {
             // Check if the mount point is a directory (not a drive root) and create it if it doesn't exist.
@@ -278,6 +278,7 @@ file static class Program
                     {
                         Console.WriteLine($"Mount point folder '{mountPoint}' does not exist. Attempting to create it...");
                         Directory.CreateDirectory(mountPoint);
+                        directoryCreatedByUs = true;
                         Console.WriteLine($"Successfully created directory '{mountPoint}'.");
                     }
                     catch (Exception ex)
@@ -350,8 +351,11 @@ file static class Program
                     if (dirInfo.Exists && dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
                     {
                         dirInfo.Delete();
-                        dirInfo.Create();
-                        Console.WriteLine($"Restored mount point directory '{mountPoint}'.");
+                        if (!directoryCreatedByUs)
+                        {
+                            dirInfo.Create();
+                            Console.WriteLine($"Restored mount point directory '{mountPoint}'.");
+                        }
                     }
                 }
                 catch (Exception cleanupEx)
