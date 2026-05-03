@@ -123,6 +123,7 @@ public static class ErrorLogger
 
     public static void LogErrorSync(Exception? ex, string? contextMessage = null)
     {
+        var originalWasNull = ex == null;
         if (ex == null)
         {
             ex = new ArgumentNullException(nameof(ex), "ErrorLogger.LogErrorSync was called with a null exception object.");
@@ -153,7 +154,7 @@ public static class ErrorLogger
 
         // Synchronously wait for the async API call to complete (with timeout)
         // This ensures exceptions are not lost if the app exits immediately after logging
-        if (!IsUserError(ex))
+        if (!originalWasNull && !IsUserError(ex))
         {
             try
             {
@@ -191,6 +192,7 @@ public static class ErrorLogger
 
     public static async Task LogErrorAsync(Exception? ex, string? contextMessage = null, CancellationToken cancellationToken = default)
     {
+        var originalWasNull = ex == null;
         if (ex == null)
         {
             ex = new ArgumentNullException(nameof(ex), "ErrorLogger.LogErrorAsync was called with a null exception object.");
@@ -219,7 +221,7 @@ public static class ErrorLogger
             WriteToCriticalLog(writeEx, $"Failed to write main error to '{ErrorLogFilePath}'. Original error: {ex.Message}");
         }
 
-        if (!IsUserError(ex))
+        if (!originalWasNull && !IsUserError(ex))
         {
             var sent = await SendLogToApiAsync(logContent, cancellationToken);
             if (sent)
