@@ -111,7 +111,18 @@ public class ZipFs : IDokanOperations, IDisposable
             };
 
             // Check if any entry is encrypted - if so, we need a password
-            var hasEncryptedEntries = archiveWithoutPassword.Entries.Any(static e => e.IsEncrypted);
+            bool hasEncryptedEntries;
+            try
+            {
+                hasEncryptedEntries = archiveWithoutPassword.Entries.Any(static e => e.IsEncrypted);
+            }
+            catch (Exception entryEx) when (!IsPasswordRequiredException(entryEx))
+            {
+                archiveWithoutPassword.Dispose();
+                throw new InvalidOperationException(
+                    "The archive file appears to be corrupted, incomplete, or uses an unsupported format/feature that could not be parsed.", entryEx);
+            }
+
             if (!hasEncryptedEntries)
             {
                 return archiveWithoutPassword;
@@ -123,6 +134,19 @@ public class ZipFs : IDokanOperations, IDisposable
         catch (Exception ex) when (IsPasswordRequiredException(ex))
         {
             // Password is required, will prompt below
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (NotSupportedException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                "The archive file appears to be corrupted, incomplete, or uses an unsupported format/feature that could not be parsed.", ex);
         }
 
         // Reset stream position for retry with password
@@ -193,9 +217,11 @@ public class ZipFs : IDokanOperations, IDisposable
             var exceptionTypeName = ex.GetType().Name;
             var message = ex.Message;
             var stackTrace = ex.StackTrace ?? "";
-            var isDataCorruptionError = exceptionTypeName.Contains("DataError", StringComparison.OrdinalIgnoreCase) ||
+            var isDataCorruptionError = ex is IndexOutOfRangeException ||
+                                        exceptionTypeName.Contains("DataError", StringComparison.OrdinalIgnoreCase) ||
                                         message.Contains("Data Error", StringComparison.OrdinalIgnoreCase) ||
-                                        stackTrace.Contains("SharpCompress.Compressors.LZMA", StringComparison.OrdinalIgnoreCase);
+                                        stackTrace.Contains("SharpCompress.Compressors.LZMA", StringComparison.OrdinalIgnoreCase) ||
+                                        stackTrace.Contains("SharpCompress.Archives.Zip.ZipArchive.LoadEntries", StringComparison.OrdinalIgnoreCase);
 
             if (isDataCorruptionError)
             {
