@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Reflection;
 
 namespace SimpleZipDrive;
 
@@ -17,7 +18,7 @@ public class ReportStats
             request.Content = JsonContent.Create(new
             {
                 applicationId = "SimpleZipDrive",
-                version = "1.9.1"
+                version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown"
             });
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));

@@ -71,9 +71,8 @@ public class ZipFs : IDokanOperations, IDisposable
         _logErrorAction = logErrorAction;
         _passwordProvider = passwordProvider;
         _archiveType = archiveType.ToLowerInvariant();
-        // Use a unique directory per instance in LocalAppData to avoid collisions between multiple running instances
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        _tempDirectoryPath = Path.Combine(localAppData, "SimpleZipDrive", $"{Environment.ProcessId}_{Guid.NewGuid():N}");
+        // Use a unique directory per instance in the system temp folder to avoid collisions between multiple running instances
+        _tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive", $"{Environment.ProcessId}_{Guid.NewGuid():N}");
 
         try
         {
@@ -115,6 +114,11 @@ public class ZipFs : IDokanOperations, IDisposable
             try
             {
                 hasEncryptedEntries = archiveWithoutPassword.Entries.Any(static e => e.IsEncrypted);
+            }
+            catch (Exception entryEx) when (IsPasswordRequiredException(entryEx))
+            {
+                archiveWithoutPassword.Dispose();
+                throw;
             }
             catch (Exception entryEx) when (!IsPasswordRequiredException(entryEx))
             {
@@ -326,8 +330,8 @@ public class ZipFs : IDokanOperations, IDisposable
             {
                 info.IsDirectory = true;
 
-                // Block write access to directory handles. ReadData = FILE_LIST_DIRECTORY for dirs — allow it.
-                if ((access & (FileAccess.WriteData | FileAccess.AppendData)) != 0)
+                // Block write access to directory handles. Allow only read-related flags.
+                if ((access & ~FileAccess.ReadData & ~FileAccess.ReadAttributes & ~FileAccess.Execute) != 0)
                 {
                     return DokanResult.AccessDenied;
                 }
@@ -367,44 +371,48 @@ public class ZipFs : IDokanOperations, IDisposable
                         string? cachedPath;
                         lock (_archiveLock)
                         {
-                            if (!_largeFileCache.TryGetValue(normalizedPath, out cachedPath))
-                            {
-                                Console.WriteLine($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
-                                var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
+                            _largeFileCache.TryGetValue(normalizedPath, out cachedPath);
+                        }
 
-                                // --- Disk space check ---
-                                // Only check disk space if entry size is known (non-negative)
-                                if (entrySize >= 0)
+                        if (cachedPath != null)
+                        {
+                            Console.WriteLine($"Reusing existing temporary cache for '{normalizedPath}'.");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
+                            var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
+
+                            if (entrySize >= 0)
+                            {
+                                try
                                 {
-                                    try
+                                    var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath) ?? "C:\\";
+                                    var tempDrive = new DriveInfo(tempDrivePathRoot);
+                                    if (tempDrive.AvailableFreeSpace < entrySize)
                                     {
-                                        var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath) ?? "C:\\";
-                                        var tempDrive = new DriveInfo(tempDrivePathRoot);
-                                        if (tempDrive.AvailableFreeSpace < entrySize)
-                                        {
-                                            var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).";
-                                            _logErrorAction(new IOException(errorMessage), "ZipFs.CreateFile: Disk space check failed.");
-                                            return DokanResult.DiskFull;
-                                        }
-                                    }
-                                    catch (Exception driveEx)
-                                    {
-                                        _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'.");
+                                        var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).";
+                                        _logErrorAction(new IOException(errorMessage), "ZipFs.CreateFile: Disk space check failed.");
+                                        return DokanResult.DiskFull;
                                     }
                                 }
-
-                                using var entryStream = entry.OpenEntryStream();
-                                using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
-                                entryStream.CopyTo(tempFileStream);
-
-                                _largeFileCache[normalizedPath] = newTempFilePath;
-                                cachedPath = newTempFilePath;
-                                Console.WriteLine($"Extraction complete for '{normalizedPath}'. Temp file: '{newTempFilePath}'");
+                                catch (Exception driveEx)
+                                {
+                                    _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'.");
+                                }
                             }
-                            else
+
+                            using var entryStream = entry.OpenEntryStream();
+                            using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
+                            entryStream.CopyTo(tempFileStream);
+
+                            lock (_archiveLock)
                             {
-                                Console.WriteLine($"Reusing existing temporary cache for '{normalizedPath}'.");
+                                _largeFileCache[normalizedPath] = newTempFilePath;
                             }
+
+                            cachedPath = newTempFilePath;
+                            Console.WriteLine($"Extraction complete for '{normalizedPath}'. Temp file: '{newTempFilePath}'");
                         }
 
                         // Open the temp file for reading and assign it as the context.
@@ -448,17 +456,23 @@ public class ZipFs : IDokanOperations, IDisposable
                             string? cachedPath;
                             lock (_archiveLock)
                             {
-                                if (!_largeFileCache.TryGetValue(normalizedPath, out cachedPath))
+                                _largeFileCache.TryGetValue(normalizedPath, out cachedPath);
+                            }
+
+                            if (cachedPath == null)
+                            {
+                                var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
+
+                                using var entryStream = entry.OpenEntryStream();
+                                using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
+                                entryStream.CopyTo(tempFileStream);
+
+                                lock (_archiveLock)
                                 {
-                                    var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
-
-                                    using var entryStream = entry.OpenEntryStream();
-                                    using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
-                                    entryStream.CopyTo(tempFileStream);
-
                                     _largeFileCache[normalizedPath] = newTempFilePath;
-                                    cachedPath = newTempFilePath;
                                 }
+
+                                cachedPath = newTempFilePath;
                             }
 
                             if (!string.IsNullOrEmpty(cachedPath))
@@ -478,15 +492,11 @@ public class ZipFs : IDokanOperations, IDisposable
                         else
                         {
                             // --- Small file: Cache in memory ---
-                            byte[] entryBytes;
-                            lock (_archiveLock)
-                            {
-                                using var entryStream = entry.OpenEntryStream();
-                                var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
-                                using var tempMs = new MemoryStream(capacity);
-                                entryStream.CopyTo(tempMs);
-                                entryBytes = tempMs.ToArray();
-                            }
+                            using var entryStream = entry.OpenEntryStream();
+                            var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
+                            using var tempMs = new MemoryStream(capacity);
+                            entryStream.CopyTo(tempMs);
+                            var entryBytes = tempMs.ToArray();
 
                             // Track memory usage
                             lock (_memoryLock)
@@ -563,6 +573,12 @@ public class ZipFs : IDokanOperations, IDisposable
             if (isDirectory)
             {
                 info.IsDirectory = true;
+
+                if ((access & (FileAccess.WriteData | FileAccess.AppendData)) != 0)
+                {
+                    return DokanResult.AccessDenied;
+                }
+
                 return mode switch
                 {
                     FileMode.Open or FileMode.OpenOrCreate or FileMode.Create => DokanResult.Success,
@@ -797,7 +813,7 @@ public class ZipFs : IDokanOperations, IDisposable
                 {
                     fi.Attributes = FileAttributes.Archive | FileAttributes.ReadOnly;
                     fi.Length = entry.Size;
-                    fi.FileName = Path.GetFileName(entry.Key) ?? throw new InvalidOperationException("entry.key is null");
+                    fi.FileName = Path.GetFileName(entry.Key) ?? throw new InvalidOperationException("entry.Key is null");
                 }
 
                 if (!string.IsNullOrEmpty(fi.FileName)) files.Add(fi);
@@ -871,7 +887,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public NtStatus GetDiskFreeSpace(out long freeBytesAvailable, out long totalNumberOfBytes, out long totalNumberOfFreeBytes, IDokanFileInfo info)
     {
-        totalNumberOfBytes = _sourceArchiveStream.CanSeek ? _sourceArchiveStream.Length : 0;
+        totalNumberOfBytes = _sourceArchiveStream.CanSeek ? _sourceArchiveStream.Length : long.MaxValue;
         freeBytesAvailable = 0;
         totalNumberOfFreeBytes = 0;
         return DokanResult.Success;

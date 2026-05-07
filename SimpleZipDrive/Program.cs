@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
@@ -31,7 +32,7 @@ file static class Program
 
         await UpdateChecker.CheckForUpdateAsync();
 
-        _ = typeof(ErrorLogger); // Ensures static constructor of ErrorLogger runs
+        RuntimeHelpers.RunClassConstructor(typeof(ErrorLogger).TypeHandle);
 
         string? zipFilePath;
         string? mountPointArg = null;
@@ -46,15 +47,14 @@ file static class Program
                 !string.IsNullOrWhiteSpace(args[0]) &&
                 File.Exists(args[0]) &&
                 supportedExtensions.Any(ext => Path.GetExtension(args[0]).Equals(ext, StringComparison.OrdinalIgnoreCase)):
-                zipFilePath = args[0];
+                zipFilePath = args[0].Trim().Trim('"');
                 archiveType = GetArchiveType(zipFilePath);
                 isDragAndDrop = true;
                 Console.WriteLine($"Drag-and-drop mode: Detected {archiveType.ToUpperInvariant()} file '{zipFilePath}'.");
                 break;
             case >= 2:
-                zipFilePath = args[0];
+                zipFilePath = args[0].Trim().Trim('"');
                 archiveType = GetArchiveType(zipFilePath);
-                // Sanitize mount point argument to remove potential quotes from user input
                 mountPointArg = args[1].Trim().Trim('"');
                 Console.WriteLine($"Standard mode: {archiveType.ToUpperInvariant()} file '{zipFilePath}', Mount point arg '{mountPointArg}'.");
                 break;
@@ -197,9 +197,7 @@ file static class Program
 
         Console.WriteLine("Application fully exited.");
 
-        // Force process exit to guarantee termination even if background tasks (e.g. ReportStats) linger,
-        // or if the console close event handler's grace period expired before cleanup finished.
-        Environment.Exit(0);
+        SetConsoleCtrlHandler(null, false);
     }
 
     private static void PrintUsage()
@@ -514,8 +512,7 @@ file static class Program
             return null;
         }
 
-        var extension = Path.GetExtension(archivePath).ToLowerInvariant();
-        var archiveType = extension.TrimStart('.');
+        var archiveType = GetArchiveType(archivePath);
         Console.WriteLine($"\n{AppTheme.Warning} The {archiveType.ToUpperInvariant()} file '{Path.GetFileName(archivePath)}' is password protected.");
         Console.WriteLine("    Press Enter to submit, Escape or Ctrl+C to cancel.");
         Console.Write("Please enter the password: ");

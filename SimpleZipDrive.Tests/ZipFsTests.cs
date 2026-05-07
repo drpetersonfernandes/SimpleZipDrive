@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Reflection;
 using System.Security.AccessControl;
 using System.Text;
 using DokanNet;
@@ -710,6 +711,205 @@ public class ZipFsTests : IDisposable
 
         zipFs.Dispose();
         stream.Dispose();
+    }
+
+    [Fact]
+    public void CloseFileDisposesStreamAndNullsContext()
+    {
+        var info = new FakeDokanFileInfo();
+        _zipFs.CreateFile(
+            "\\readme.txt",
+            FileAccess.ReadData,
+            FileShare.Read,
+            FileMode.Open,
+            FileOptions.None,
+            FileAttributes.Normal,
+            info);
+
+        var contextStream = info.Context as Stream;
+        Assert.NotNull(contextStream);
+
+        _zipFs.CloseFile("\\readme.txt", info);
+
+        Assert.Null(info.Context);
+        Assert.Throws<ObjectDisposedException>(() => contextStream.ReadByte());
+    }
+
+    [Fact]
+    public void GetFileInformationImplicitDirectoryNonRoot()
+    {
+        var info = new FakeDokanFileInfo();
+        var result = _zipFs.GetFileInformation("\\data", out var fileInfo, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal(FileAttributes.Directory, fileInfo.Attributes);
+        Assert.Equal("data", fileInfo.FileName);
+        Assert.True(info.IsDirectory);
+    }
+
+    [Fact]
+    public void FindFilesMixedExplicitAndImplicitDirectories()
+    {
+        using var stream = CreateMixedDirectoryZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.FindFiles("\\", out var files, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        var names = files.Select(static f => f.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Assert.Contains("explicit-dir", names);
+        Assert.Contains("implicit-dir", names);
+        Assert.Contains("readme.txt", names);
+    }
+
+    [Fact]
+    public void FindFilesMixedExplicitDoesNotDuplicateImplicit()
+    {
+        using var stream = CreateMixedDirectoryZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.FindFiles("\\explicit-dir", out var files, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Contains(files, static f => f.FileName == "nested.txt");
+    }
+
+    [Fact]
+    public void FindFilesImplicitDirectoryListsChildren()
+    {
+        using var stream = CreateMixedDirectoryZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.FindFiles("\\implicit-dir", out var files, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Contains(files, static f => f.FileName == "hidden.txt");
+    }
+
+    [Fact]
+    public void GetFileInformationImplicitDirectoryDeeplyNested()
+    {
+        using var stream = CreateMixedDirectoryZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.GetFileInformation("\\implicit-dir", out var fileInfo, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal(FileAttributes.Directory, fileInfo.Attributes);
+        Assert.Equal("implicit-dir", fileInfo.FileName);
+        Assert.True(info.IsDirectory);
+    }
+
+    [Fact]
+    public void MemoryThrottlingFallsBackToDiskCache()
+    {
+        var memoryUsageField = typeof(ZipFs).GetField("_currentMemoryUsage", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(memoryUsageField);
+
+        const long maxTotalMemoryCache = 1073741824;
+        memoryUsageField.SetValue(_zipFs, maxTotalMemoryCache - 5);
+
+        var info = new FakeDokanFileInfo();
+        var result = _zipFs.CreateFile(
+            "\\readme.txt",
+            FileAccess.ReadData,
+            FileShare.Read,
+            FileMode.Open,
+            FileOptions.None,
+            FileAttributes.Normal,
+            info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.NotNull(info.Context);
+        Assert.IsType<FileStream>(info.Context);
+
+        ((IDisposable)info.Context).Dispose();
+        info.Context = null;
+
+        memoryUsageField.SetValue(_zipFs, 0L);
+    }
+
+    [Fact]
+    public void TrackedMemoryStreamDisposalDecrementsMemoryUsage()
+    {
+        var memoryUsageField = typeof(ZipFs).GetField("_currentMemoryUsage", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(memoryUsageField);
+
+        memoryUsageField.SetValue(_zipFs, 0L);
+        var before = (long)(memoryUsageField.GetValue(_zipFs) ?? throw new InvalidOperationException());
+        Assert.Equal(0, before);
+
+        var info = new FakeDokanFileInfo();
+        _zipFs.CreateFile(
+            "\\readme.txt",
+            FileAccess.ReadData,
+            FileShare.Read,
+            FileMode.Open,
+            FileOptions.None,
+            FileAttributes.Normal,
+            info);
+
+        var afterOpen = (long)(memoryUsageField.GetValue(_zipFs) ?? throw new InvalidOperationException());
+        Assert.True(afterOpen > 0);
+
+        _zipFs.CloseFile("\\readme.txt", info);
+
+        var afterClose = (long)(memoryUsageField.GetValue(_zipFs) ?? throw new InvalidOperationException());
+        Assert.Equal(0, afterClose);
+    }
+
+    [Fact]
+    public void MemoryUsageClampedToZeroOnNegative()
+    {
+        var memoryUsageField = typeof(ZipFs).GetField("_currentMemoryUsage", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(memoryUsageField);
+
+        memoryUsageField.SetValue(_zipFs, 100L);
+
+        var info = new FakeDokanFileInfo();
+        _zipFs.CreateFile(
+            "\\readme.txt",
+            FileAccess.ReadData,
+            FileShare.Read,
+            FileMode.Open,
+            FileOptions.None,
+            FileAttributes.Normal,
+            info);
+
+        memoryUsageField.SetValue(_zipFs, -50L);
+
+        _zipFs.CloseFile("\\readme.txt", info);
+
+        var afterClose = (long)(memoryUsageField.GetValue(_zipFs) ?? throw new InvalidOperationException());
+        Assert.Equal(0, afterClose);
+    }
+
+    private static MemoryStream CreateMixedDirectoryZipStream()
+    {
+        var ms = new MemoryStream();
+        using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, true))
+        {
+            zip.CreateEntry("readme.txt");
+            zip.CreateEntry("explicit-dir/");
+            var entry = zip.CreateEntry("explicit-dir/nested.txt");
+            using (var writer = new StreamWriter(entry.Open(), new UTF8Encoding(false)))
+            {
+                writer.Write("explicit nested");
+            }
+
+            var implicitEntry = zip.CreateEntry("implicit-dir/hidden.txt");
+            using (var writer = new StreamWriter(implicitEntry.Open(), new UTF8Encoding(false)))
+            {
+                writer.Write("implicit hidden");
+            }
+        }
+
+        ms.Position = 0;
+        return ms;
     }
 
     public void Dispose()

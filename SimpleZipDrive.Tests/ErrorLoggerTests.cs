@@ -1,9 +1,12 @@
+using System.Reflection;
+
 namespace SimpleZipDrive.Tests;
 
 [Collection("ErrorLogger")]
 public class ErrorLoggerTests : IDisposable
 {
     private readonly string _logFilePath;
+    private static readonly MethodInfo? IsUserErrorMethod = typeof(ErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
 
     public ErrorLoggerTests()
     {
@@ -95,6 +98,92 @@ public class ErrorLoggerTests : IDisposable
         var content = await File.ReadAllTextAsync(_logFilePath);
         Assert.Contains("null exception object", content);
         Assert.Contains("async null test", content);
+    }
+
+    [Fact]
+    public void IsUserErrorNullReturnsFalse()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [null]) ?? throw new InvalidOperationException());
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsUserErrorFileNotFoundExceptionReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new FileNotFoundException()]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorDirectoryNotFoundExceptionReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new DirectoryNotFoundException()]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorUnauthorizedAccessExceptionReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new UnauthorizedAccessException()]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorIoExceptionReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new IOException()]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+#pragma warning disable CA2201 // Do not raise reserved exception types
+    public void IsUserErrorGenericExceptionReturnsFalse()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new Exception("generic error")]) ?? throw new InvalidOperationException());
+        Assert.False(result);
+    }
+#pragma warning restore CA2201
+
+    [Fact]
+    public void IsUserErrorMessageContainsPasswordReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("file requires a Password")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsEncryptedReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("archive is Encrypted")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsRarAndHeaderReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("Rar format: invalid header found")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsInvalidArchiveReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("this is an Invalid Archive file")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsCorruptReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("archive is Corrupt")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsDriveLetterPatternReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("can't assign a drive letter to this device")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
     }
 
     public void Dispose()
