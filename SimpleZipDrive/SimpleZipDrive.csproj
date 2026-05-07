@@ -12,6 +12,7 @@
         <AssemblyVersion>1.10.0</AssemblyVersion>
         <FileVersion>1.10.0</FileVersion>
         <NeutralLanguage>en</NeutralLanguage>
+        <Company>PureLogicCode.com</Company>
     </PropertyGroup>
 
     <ItemGroup>
