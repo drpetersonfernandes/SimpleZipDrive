@@ -6,6 +6,7 @@
 
 # IDE
 .idea/
+*.sln.DotSettings.user
 
 # Ignore build output directories (all target frameworks)
 **/bin/
