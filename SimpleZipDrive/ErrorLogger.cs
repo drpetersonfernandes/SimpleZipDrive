@@ -42,18 +42,76 @@ public static class ErrorLogger
         fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Framework: {frameworkDescription}");
         fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Exception Type: {ex.GetType().Name}");
         fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Exception Message: {ex.Message}");
-        fullErrorMessage.AppendLine("\n--- Stack Trace ---");
+        fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"\n{AppTheme.Section("Stack Trace")}");
         fullErrorMessage.AppendLine(ex.StackTrace);
         if (ex.InnerException != null)
         {
-            fullErrorMessage.AppendLine("\n--- Inner Exception ---");
+            fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"\n{AppTheme.Section("Inner Exception")}");
             fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Type: {ex.InnerException.GetType().Name}");
             fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Message: {ex.InnerException.Message}");
             fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Stack Trace:\n{ex.InnerException.StackTrace}");
         }
 
-        fullErrorMessage.AppendLine("--------------------------------------------------\n");
+        fullErrorMessage.AppendLine(AppTheme.LogEntrySeparator);
         return fullErrorMessage.ToString();
+    }
+
+    private static string GetEnvironmentDetails()
+    {
+        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
+        var osDescription = RuntimeInformation.OSDescription;
+        var osArchitecture = RuntimeInformation.OSArchitecture.ToString();
+        var processorCount = Environment.ProcessorCount;
+        var tempPath = Path.GetTempPath();
+
+        // Determine Windows version details
+        var windowsVersion = Environment.OSVersion.VersionString;
+        var bitness = Environment.Is64BitOperatingSystem ? "64-bit" : "32-bit";
+
+        var envDetails = new StringBuilder();
+        envDetails.AppendLine("=== Environment Details ===");
+        envDetails.AppendLine(CultureInfo.InvariantCulture, $"Date: {DateTime.Now:yyyy-MM-dd HH:mm:ss zzz}");
+        envDetails.AppendLine(CultureInfo.InvariantCulture, $"Application Name: {ApplicationName}");
+        envDetails.AppendLine(CultureInfo.InvariantCulture, $"Application Version: {version}");
+        envDetails.AppendLine(CultureInfo.InvariantCulture, $"OS Version: {osDescription}");
+        envDetails.AppendLine(CultureInfo.InvariantCulture, $"Architecture: {osArchitecture}");
+        envDetails.AppendLine(CultureInfo.InvariantCulture, $"Bitness: {bitness}");
+        envDetails.AppendLine(CultureInfo.InvariantCulture, $"Windows Version: {windowsVersion}");
+        envDetails.AppendLine(CultureInfo.InvariantCulture, $"Processor Count: {processorCount}");
+        envDetails.AppendLine(CultureInfo.InvariantCulture, $"Base Directory: {BaseDirectory}");
+        envDetails.AppendLine(CultureInfo.InvariantCulture, $"Temp Path: {tempPath}");
+
+        return envDetails.ToString();
+    }
+
+    private static string GetErrorDetails(Exception ex, string contextMessage)
+    {
+        var errorDetails = new StringBuilder();
+        errorDetails.AppendLine("=== Error Details ===");
+        errorDetails.AppendLine(CultureInfo.InvariantCulture, $"Error message: {contextMessage} - {ex.Message}");
+
+        return errorDetails.ToString();
+    }
+
+    private static string GetExceptionDetails(Exception ex)
+    {
+        var exceptionDetails = new StringBuilder();
+        exceptionDetails.AppendLine("=== Exception Details ===");
+        exceptionDetails.AppendLine(CultureInfo.InvariantCulture, $"Type: {ex.GetType().Name}");
+        exceptionDetails.AppendLine(CultureInfo.InvariantCulture, $"Message: {ex.Message}");
+        exceptionDetails.AppendLine(CultureInfo.InvariantCulture, $"Source: {ex.Source ?? "Unknown"}");
+        exceptionDetails.AppendLine(CultureInfo.InvariantCulture, $"StackTrace: {ex.StackTrace ?? "No stack trace available"}");
+
+        if (ex.InnerException != null)
+        {
+            exceptionDetails.AppendLine(CultureInfo.InvariantCulture, $"\n{AppTheme.Section("Inner Exception")}");
+            exceptionDetails.AppendLine(CultureInfo.InvariantCulture, $"Type: {ex.InnerException.GetType().Name}");
+            exceptionDetails.AppendLine(CultureInfo.InvariantCulture, $"Message: {ex.InnerException.Message}");
+            exceptionDetails.AppendLine(CultureInfo.InvariantCulture, $"Source: {ex.InnerException.Source ?? "Unknown"}");
+            exceptionDetails.AppendLine(CultureInfo.InvariantCulture, $"StackTrace: {ex.InnerException.StackTrace ?? "No stack trace available"}");
+        }
+
+        return exceptionDetails.ToString();
     }
 
     private static bool IsUserError(Exception? ex)
@@ -132,13 +190,13 @@ public static class ErrorLogger
         contextMessage ??= "No additional context provided.";
 
         // Log to console immediately (synchronously)
-        Console.Error.WriteLine("\n--- ERROR (SYNC) ---");
+        Console.Error.WriteLine($"\n{AppTheme.Section("ERROR (SYNC)")}");
         Console.Error.WriteLine($"Timestamp: {DateTime.Now}");
         Console.Error.WriteLine($"Context: {contextMessage}");
         Console.Error.WriteLine($"Exception Type: {ex.GetType().Name}");
         Console.Error.WriteLine($"Exception Message: {ex.Message}");
         Console.Error.WriteLine($"Stack Trace:\n{ex.StackTrace}");
-        Console.Error.WriteLine("--- END ERROR (SYNC) ---\n");
+        Console.Error.WriteLine($"{AppTheme.Section("END ERROR (SYNC)")}\n");
 
         var logContent = FormatErrorMessage(ex, contextMessage);
 
@@ -159,7 +217,7 @@ public static class ErrorLogger
             try
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                var apiTask = SendLogToApiAsync(logContent, cts.Token);
+                var apiTask = SendLogToApiAsync(ex, contextMessage, cts.Token);
                 var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30), cts.Token);
 
                 var completedTask = Task.WhenAny(apiTask, timeoutTask).GetAwaiter().GetResult();
@@ -201,13 +259,13 @@ public static class ErrorLogger
         contextMessage ??= "No additional context provided.";
 
         // Log to console immediately
-        await Console.Error.WriteLineAsync("\n--- ERROR (ASYNC) ---");
+        await Console.Error.WriteLineAsync($"\n{AppTheme.Section("ERROR (ASYNC)")}");
         await Console.Error.WriteLineAsync($"Timestamp: {DateTime.Now}");
         await Console.Error.WriteLineAsync($"Context: {contextMessage}");
         await Console.Error.WriteLineAsync($"Exception Type: {ex.GetType().Name}");
         await Console.Error.WriteLineAsync($"Exception Message: {ex.Message}");
         await Console.Error.WriteLineAsync($"Stack Trace:\n{ex.StackTrace}");
-        await Console.Error.WriteLineAsync("--- END ERROR (ASYNC) ---\n");
+        await Console.Error.WriteLineAsync($"{AppTheme.Section("END ERROR (ASYNC)")}\n");
 
         var logContent = FormatErrorMessage(ex, contextMessage);
 
@@ -223,7 +281,7 @@ public static class ErrorLogger
 
         if (!originalWasNull && !IsUserError(ex))
         {
-            var sent = await SendLogToApiAsync(logContent, cancellationToken);
+            var sent = await SendLogToApiAsync(ex, contextMessage, cancellationToken);
             if (sent)
             {
                 Console.WriteLine("Error details successfully sent to remote logging service (async path).");
@@ -235,14 +293,29 @@ public static class ErrorLogger
         }
     }
 
-    private static async Task<bool> SendLogToApiAsync(string logContent, CancellationToken cancellationToken = default)
+    private static async Task<bool> SendLogToApiAsync(Exception ex, string contextMessage, CancellationToken cancellationToken = default)
     {
         try
         {
+            var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
+            var environmentDetails = GetEnvironmentDetails();
+            var errorDetails = GetErrorDetails(ex, contextMessage);
+            var exceptionDetails = GetExceptionDetails(ex);
+
+            // Combine all details into the message field
+            var fullMessage = new StringBuilder();
+            fullMessage.AppendLine(environmentDetails);
+            fullMessage.AppendLine(errorDetails);
+            fullMessage.AppendLine(exceptionDetails);
+
             var payload = new
             {
-                message = logContent,
-                applicationName = ApplicationName
+                message = fullMessage.ToString(),
+                applicationName = ApplicationName,
+                version,
+                userInfo = contextMessage,
+                environment = environmentDetails,
+                stackTrace = ex.StackTrace ?? "No stack trace available"
             };
             var jsonPayload = JsonSerializer.Serialize(payload);
             var httpContent = new StringContent(jsonPayload, Encoding.UTF8, "application/json");

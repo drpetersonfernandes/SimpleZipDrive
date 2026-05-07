@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
 using DokanNet;
@@ -8,12 +9,20 @@ namespace SimpleZipDrive;
 
 file static class Program
 {
+    // P/Invoke for handling console close, logoff, and shutdown events
+    // that are NOT caught by Console.CancelKeyPress
+    private delegate bool ConsoleCtrlHandler(int ctrlType);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetConsoleCtrlHandler(ConsoleCtrlHandler? handler, bool add);
+
+    // Static event signaled on console close/logoff/shutdown so AttemptMountLifecycleAsync can unmount cleanly
+    private static readonly ManualResetEvent ConsoleCloseEvent = new(false);
+    private static ConsoleCtrlHandler? _consoleCtrlHandler;
+
     public static async Task Main(string[] args)
     {
-        // Set CRT monitor style: black background with green text
-        Console.BackgroundColor = ConsoleColor.Black;
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.Clear(); // Clear console to apply background color to entire window
+        AppTheme.Apply();
 
         Console.WriteLine("Archive Drive using DokanNet (Streaming Access with In-Memory Entry Cache)");
         Console.WriteLine("Supports: ZIP, 7Z, and RAR archives");
@@ -65,7 +74,7 @@ file static class Program
 
         if (!supportedExtensions.Any(ext => Path.GetExtension(zipFilePath).Equals(ext, StringComparison.OrdinalIgnoreCase)))
         {
-            Console.WriteLine("\n--- INVALID FILE TYPE ---");
+            Console.WriteLine($"\n{AppTheme.Section("INVALID FILE TYPE")}");
             Console.WriteLine($"Error: The file '{Path.GetFileName(zipFilePath)}' is not a supported archive.");
             Console.WriteLine($"Detected extension: '{Path.GetExtension(zipFilePath)}' (expected: .zip, .7z, or .rar)");
             Console.WriteLine("Simple Zip Drive can only mount ZIP, 7Z, and RAR archives.");
@@ -81,8 +90,25 @@ file static class Program
             Console.WriteLine("If mounting fails, please try running SimpleZipDrive.exe as Administrator.");
         }
 
-        ILogger logger = new ConsoleLogger("[DokanNet] ");
+        ILogger logger = new ConsoleLogger(AppTheme.DokanLogPrefix);
         var mountLifecycleCompleted = false;
+
+        // Register handler for console close (X button), logoff, and shutdown events.
+        // Console.CancelKeyPress only handles Ctrl+C/Ctrl+Break, NOT the window close button.
+        _consoleCtrlHandler = static ctrlType =>
+        {
+            // 2 = CTRL_CLOSE_EVENT, 5 = CTRL_LOGOFF_EVENT, 6 = CTRL_SHUTDOWN_EVENT
+            if (ctrlType is 2 or 5 or 6)
+            {
+                Console.WriteLine($"Console control event ({ctrlType}) detected. Signaling unmount...");
+                ConsoleCloseEvent.Set();
+                // Return true to indicate we handled it; OS will wait briefly then terminate.
+                return true;
+            }
+
+            return false;
+        };
+        SetConsoleCtrlHandler(_consoleCtrlHandler, true);
 
         try
         {
@@ -108,7 +134,7 @@ file static class Program
                     Console.WriteLine($"Dokan Driver Version: {dokan.DriverVersion}");
 
                     Console.WriteLine($"Drag-and-drop: Attempting to mount on '{currentMountPoint}'...");
-                    if (!await AttemptMountLifecycle(zipFilePath, currentMountPoint, dokan, archiveType)) continue;
+                    if (!await AttemptMountLifecycleAsync(zipFilePath, currentMountPoint, dokan, archiveType)) continue;
 
                     mountLifecycleCompleted = true;
                     break;
@@ -144,7 +170,7 @@ file static class Program
                 Console.WriteLine($"Dokan Library Version: {dokan.Version}");
                 Console.WriteLine($"Dokan Driver Version: {dokan.DriverVersion}");
 
-                if (await AttemptMountLifecycle(zipFilePath, mountPoint, dokan, archiveType))
+                if (await AttemptMountLifecycleAsync(zipFilePath, mountPoint, dokan, archiveType))
                 {
                     mountLifecycleCompleted = true;
                 }
@@ -157,7 +183,7 @@ file static class Program
         }
         catch (Exception ex) when (ex is DokanException || (ex is DllNotFoundException dnfEx && dnfEx.Message?.Contains("dokan", StringComparison.OrdinalIgnoreCase) == true))
         {
-            Console.WriteLine("\n--- DOKAN INITIALIZATION FAILED ---");
+            Console.WriteLine($"\n{AppTheme.Section("DOKAN INITIALIZATION FAILED")}");
             Console.WriteLine("Could not initialize the Dokan file system library.");
             Console.WriteLine("This usually means the Dokan driver is not installed on your system.");
             Console.WriteLine("\nPlease download and install the latest Dokan driver from:");
@@ -170,6 +196,10 @@ file static class Program
         else Console.WriteLine("No mount operation was successfully initiated or an early error prevented it.");
 
         Console.WriteLine("Application fully exited.");
+
+        // Force process exit to guarantee termination even if background tasks (e.g. ReportStats) linger,
+        // or if the console close event handler's grace period expired before cleanup finished.
+        Environment.Exit(0);
     }
 
     private static void PrintUsage()
@@ -191,7 +221,7 @@ file static class Program
 
     private static void KeepConsoleOpenOnError()
     {
-        Console.WriteLine("\n--- Operation failed or concluded with errors ---");
+        Console.WriteLine($"\n{AppTheme.Section("Operation failed or concluded with errors")}");
         Console.WriteLine("Press any key to exit.");
         if (!Console.IsInputRedirected) Console.ReadKey();
     }
@@ -201,7 +231,7 @@ file static class Program
         if (args.Length == 0 && !Console.IsInputRedirected) KeepConsoleOpenOnError();
     }
 
-    private static async Task<bool> AttemptMountLifecycle(string zipFilePath, string mountPoint, Dokan dokan, string archiveType)
+    private static async Task<bool> AttemptMountLifecycleAsync(string zipFilePath, string mountPoint, Dokan dokan, string archiveType)
     {
         ManualResetEvent unmountBlocker = new(false);
         ConsoleCancelEventHandler? cancelKeyPressHandler = null;
@@ -335,7 +365,10 @@ file static class Program
             {
                 Console.WriteLine($"Successfully mounted on '{mountPoint}'. Virtual drive should be available.");
                 Console.WriteLine("Press Ctrl+C in this window to unmount this instance and exit if it's the active mount.");
-                unmountBlocker.WaitOne();
+                // Wait for EITHER Ctrl+C (unmountBlocker) OR console close/logoff/shutdown (ConsoleCloseEvent).
+                // Timeout as safety net to prevent indefinite hanging if neither signal arrives.
+                var waitHandles = new WaitHandle[] { unmountBlocker, ConsoleCloseEvent };
+                WaitHandle.WaitAny(waitHandles, TimeSpan.FromMinutes(60));
                 Console.WriteLine($"Unmount signal received for '{mountPoint}'. Proceeding to shutdown this instance.");
             }
 
@@ -377,21 +410,21 @@ file static class Program
             if (isCommonMountError)
             {
                 Console.WriteLine("This Dokan error might be due to:");
-                Console.WriteLine($"  - The mount point '{mountPoint}' already being in use.");
-                Console.WriteLine("  - Insufficient privileges (try running as Administrator).");
-                Console.WriteLine("  - If mounting to a folder, the application will attempt to create it if it doesn't exist. This can fail due to insufficient permissions or an invalid path.");
-                Console.WriteLine("  - Dokan driver not installed or not running correctly. You can get it from:");
+                Console.WriteLine($"{AppTheme.Bullet}The mount point '{mountPoint}' already being in use.");
+                Console.WriteLine($"{AppTheme.Bullet}Insufficient privileges (try running as Administrator).");
+                Console.WriteLine($"{AppTheme.Bullet}If mounting to a folder, the application will attempt to create it if it doesn't exist. This can fail due to insufficient permissions or an invalid path.");
+                Console.WriteLine($"{AppTheme.Bullet}Dokan driver not installed or not running correctly. You can get it from:");
                 Console.WriteLine("    https://github.com/dokan-dev/dokany/releases");
             }
             else if (ex.Message.Contains("Can't install the Dokan driver", StringComparison.OrdinalIgnoreCase) ||
                      ex.Message.Contains("Impossible d'installer le driver Dokan", StringComparison.OrdinalIgnoreCase))
             {
-                Console.WriteLine("\n--- DOKAN DRIVER INSTALLATION FAILED ---");
+                Console.WriteLine($"\n{AppTheme.Section("DOKAN DRIVER INSTALLATION FAILED")}");
                 Console.WriteLine("The application failed to communicate with or install the Dokan kernel driver.");
                 Console.WriteLine("This can be caused by:");
-                Console.WriteLine("  - Insufficient privileges (the most common cause).");
-                Console.WriteLine("  - A problem with the Dokan installation on your system.");
-                Console.WriteLine("  - Antivirus software interfering with the driver installation.");
+                Console.WriteLine($"{AppTheme.Bullet}Insufficient privileges (the most common cause).");
+                Console.WriteLine($"{AppTheme.Bullet}A problem with the Dokan installation on your system.");
+                Console.WriteLine($"{AppTheme.Bullet}Antivirus software interfering with the driver installation.");
                 Console.WriteLine("\nPlease try running this application as an Administrator.");
                 Console.WriteLine("If the problem persists, reinstalling Dokan is recommended:");
                 Console.WriteLine("  https://github.com/dokan-dev/dokany/releases");
@@ -399,8 +432,8 @@ file static class Program
             else if (ex.Message.Contains("Something's wrong with the Dokan driver", StringComparison.OrdinalIgnoreCase))
             {
                 Console.WriteLine("A Dokan driver error occurred. This can sometimes be resolved by:");
-                Console.WriteLine("  - Restarting your computer.");
-                Console.WriteLine("  - Reinstalling the Dokan driver. You can get the latest version from:");
+                Console.WriteLine($"{AppTheme.Bullet}Restarting your computer.");
+                Console.WriteLine($"{AppTheme.Bullet}Reinstalling the Dokan driver. You can get the latest version from:");
                 Console.WriteLine("    https://github.com/dokan-dev/dokany/releases");
             }
             else
@@ -432,7 +465,7 @@ file static class Program
                 ex.Message.Contains("Invalid archive", StringComparison.OrdinalIgnoreCase) ||
                 ex.Message.Contains("Archive is invalid", StringComparison.OrdinalIgnoreCase))
             {
-                Console.WriteLine($"\n--- {archiveType.ToUpperInvariant()} FILE ERROR ---");
+                Console.WriteLine($"\n{AppTheme.Section($"{archiveType.ToUpperInvariant()} FILE ERROR")}");
                 Console.WriteLine($"Error: The {archiveType.ToUpperInvariant()} file '{zipFilePath}' appears to be corrupted or invalid.");
                 Console.WriteLine("Reason: The application could not read the archive structure.");
                 Console.WriteLine($"Please ensure the file is a valid {archiveType.ToUpperInvariant()} archive and is not corrupted.");
@@ -476,14 +509,14 @@ file static class Program
         // Check if input is redirected - cannot read keys in this case
         if (Console.IsInputRedirected)
         {
-            Console.WriteLine("\n[!] Error: Cannot read password when input is redirected.");
+            Console.WriteLine($"\n{AppTheme.Warning} Error: Cannot read password when input is redirected.");
             Console.WriteLine("    Please provide the password through a different method.");
             return null;
         }
 
         var extension = Path.GetExtension(archivePath).ToLowerInvariant();
         var archiveType = extension.TrimStart('.');
-        Console.WriteLine($"\n[!] The {archiveType.ToUpperInvariant()} file '{Path.GetFileName(archivePath)}' is password protected.");
+        Console.WriteLine($"\n{AppTheme.Warning} The {archiveType.ToUpperInvariant()} file '{Path.GetFileName(archivePath)}' is password protected.");
         Console.WriteLine("    Press Enter to submit, Escape or Ctrl+C to cancel.");
         Console.Write("Please enter the password: ");
 
@@ -498,13 +531,20 @@ file static class Program
             if (DateTime.UtcNow - startTime > timeout)
             {
                 timedOut = true;
-                Console.WriteLine("\n\n[!] Password input timed out after 5 minutes.");
+                Console.WriteLine($"\n\n{AppTheme.Warning} Password input timed out after 5 minutes.");
                 break;
             }
 
             // Use KeyAvailable to avoid blocking indefinitely
             if (!Console.KeyAvailable)
             {
+                // Check if console is closing while we wait for password input
+                if (ConsoleCloseEvent.WaitOne(0))
+                {
+                    Console.WriteLine($"\n\n{AppTheme.Warning} Console is closing. Cancelling password input.");
+                    return null;
+                }
+
                 Thread.Sleep(50); // Small delay to prevent CPU spinning
                 continue;
             }
@@ -522,12 +562,12 @@ file static class Program
             {
                 // Handle Escape - cancel password input
                 case ConsoleKey.Escape:
-                    Console.WriteLine("\n[!] Password input cancelled by user.");
+                    Console.WriteLine($"\n{AppTheme.Warning} Password input cancelled by user.");
                     return null;
                 // Handle Ctrl+C - cancel password input
                 // Note: Console.ReadKey intercepts Ctrl+C, so we check for it explicitly
                 case ConsoleKey.C when (key.Modifiers & ConsoleModifiers.Control) != 0:
-                    Console.WriteLine("\n[!] Password input cancelled by user (Ctrl+C).");
+                    Console.WriteLine($"\n{AppTheme.Warning} Password input cancelled by user (Ctrl+C).");
                     return null;
                 // Handle Backspace
                 case ConsoleKey.Backspace when password.Length > 0:

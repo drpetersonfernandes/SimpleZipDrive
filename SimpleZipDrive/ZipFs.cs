@@ -512,7 +512,7 @@ public class ZipFs : IDokanOperations, IDisposable
                 catch (CryptographicException cryptoEx)
                 {
                     var contextMessage = $"ZipFs.CreateFile: Password error for '{normalizedPath}'. The provided password may be incorrect or missing.";
-                    Console.WriteLine($"\n[!] Password Error: Could not decrypt '{normalizedPath}'.");
+                    Console.WriteLine($"\n{AppTheme.Warning} Password Error: Could not decrypt '{normalizedPath}'.");
                     _logErrorAction(cryptoEx, contextMessage);
                     (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
@@ -522,21 +522,20 @@ public class ZipFs : IDokanOperations, IDisposable
                 {
                     var msg = $"CRITICAL ERROR: The source drive containing the archive file is no longer ready. " +
                               $"Please check the connection to drive '{Path.GetPathRoot(_tempDirectoryPath)}'.";
-                    Console.WriteLine($"\n[!!!] {msg}");
-                    // _logErrorAction(ioEx, "ZipFs.CreateFile: Source device disconnected.");
+                    Console.WriteLine($"\n{AppTheme.Critical} {msg}");
                     (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
                     return DokanResult.NotReady;
                 }
                 catch (IOException ioEx) when ((uint)ioEx.HResult == 0x800703EE || (uint)ioEx.HResult == 0x80070037) // ERROR_FILE_INVALID or ERROR_DEV_NOT_EXIST
                 {
-                    Console.WriteLine("\n--- SOURCE FILE ACCESS ERROR ---");
+                    Console.WriteLine($"\n{AppTheme.Section("SOURCE FILE ACCESS ERROR")}");
                     Console.WriteLine("Error: The source archive file is no longer accessible.");
                     Console.WriteLine($"Details: {ioEx.Message}");
                     Console.WriteLine("\nThis usually means:");
-                    Console.WriteLine("  - The external drive/USB device was disconnected");
-                    Console.WriteLine("  - The archive file was modified or deleted after mounting started");
-                    Console.WriteLine("  - The source device is no longer available or has errors");
+                    Console.WriteLine($"{AppTheme.Bullet}The external drive/USB device was disconnected");
+                    Console.WriteLine($"{AppTheme.Bullet}The archive file was modified or deleted after mounting started");
+                    Console.WriteLine($"{AppTheme.Bullet}The source device is no longer available or has errors");
                     Console.WriteLine("\nPlease verify the drive is connected and the file has not been altered.");
                     _logErrorAction(ioEx, $"ZipFs.CreateFile: Source file inaccessible for entry '{normalizedPath}'");
                     (info.Context as IDisposable)?.Dispose();

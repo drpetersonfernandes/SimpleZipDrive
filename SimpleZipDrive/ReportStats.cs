@@ -17,7 +17,7 @@ public class ReportStats
             request.Content = JsonContent.Create(new
             {
                 applicationId = "SimpleZipDrive",
-                version = "1.9.0"
+                version = "1.9.1"
             });
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));

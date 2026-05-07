@@ -16,6 +16,22 @@
 
     <ItemGroup>
         <PackageReference Include="DokanNet" Version="2.3.0.3" />
-        <PackageReference Include="SharpCompress" Version="0.47.4" />
+        <PackageReference Include="SharpCompress" Version="0.48.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Remove="References\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Remove="References\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Page Remove="References\**" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Reference\" />
     </ItemGroup>
 </Project>

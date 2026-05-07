@@ -49,6 +49,54 @@ public class ErrorLoggerTests : IDisposable
         Assert.Contains("DirectoryNotFoundException", content);
     }
 
+    [Fact]
+    public void LogErrorSyncNullContextWritesDefault()
+    {
+        var ex = new FileNotFoundException("test");
+        ErrorLogger.LogErrorSync(ex);
+
+        Assert.True(File.Exists(_logFilePath));
+        var content = File.ReadAllText(_logFilePath);
+        Assert.Contains("No additional context provided.", content);
+    }
+
+    [Fact]
+    public async Task LogErrorAsyncNullContextWritesDefault()
+    {
+        var ex = new FileNotFoundException("test");
+        await ErrorLogger.LogErrorAsync(ex);
+
+        Assert.True(File.Exists(_logFilePath));
+        var content = await File.ReadAllTextAsync(_logFilePath);
+        Assert.Contains("No additional context provided.", content);
+    }
+
+    [Fact]
+    public void LogErrorSyncWithInnerExceptionIncludesInnerDetails()
+    {
+        var inner = new InvalidOperationException("inner cause");
+        var outer = new IOException("outer error", inner);
+        ErrorLogger.LogErrorSync(outer, "inner test");
+
+        Assert.True(File.Exists(_logFilePath));
+        var content = File.ReadAllText(_logFilePath);
+        Assert.Contains("outer error", content);
+        Assert.Contains("inner cause", content);
+        Assert.Contains("Inner Exception", content);
+        Assert.Contains("InvalidOperationException", content);
+    }
+
+    [Fact]
+    public async Task LogErrorAsyncNullExceptionCreatesPlaceholder()
+    {
+        await ErrorLogger.LogErrorAsync(null, "async null test");
+
+        Assert.True(File.Exists(_logFilePath));
+        var content = await File.ReadAllTextAsync(_logFilePath);
+        Assert.Contains("null exception object", content);
+        Assert.Contains("async null test", content);
+    }
+
     public void Dispose()
     {
         if (File.Exists(_logFilePath))
