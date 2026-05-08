@@ -7,6 +7,7 @@ using SharpCompress.Archives.Rar;
 using SharpCompress.Archives.SevenZip;
 using SharpCompress.Archives.Zip;
 using SharpCompress.Common;
+using SharpCompress.Compressors.Deflate;
 using SharpCompress.Readers;
 using FileAccess = DokanNet.FileAccess;
 
@@ -402,9 +403,20 @@ public class ZipFs : IDokanOperations, IDisposable
                                 }
                             }
 
-                            using var entryStream = entry.OpenEntryStream();
-                            using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
-                            entryStream.CopyTo(tempFileStream);
+                            for (var attempt = 0;; attempt++)
+                            {
+                                try
+                                {
+                                    using var entryStream = entry.OpenEntryStream();
+                                    using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
+                                    entryStream.CopyTo(tempFileStream);
+                                    break;
+                                }
+                                catch (ZlibException) when (attempt < 1)
+                                {
+                                    Console.WriteLine($"Deflate error extracting '{normalizedPath}', retrying...");
+                                }
+                            }
 
                             lock (_archiveLock)
                             {
@@ -463,9 +475,20 @@ public class ZipFs : IDokanOperations, IDisposable
                             {
                                 var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
 
-                                using var entryStream = entry.OpenEntryStream();
-                                using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
-                                entryStream.CopyTo(tempFileStream);
+                                for (var attempt = 0;; attempt++)
+                                {
+                                    try
+                                    {
+                                        using var entryStream = entry.OpenEntryStream();
+                                        using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
+                                        entryStream.CopyTo(tempFileStream);
+                                        break;
+                                    }
+                                    catch (ZlibException) when (attempt < 1)
+                                    {
+                                        Console.WriteLine($"Deflate error extracting '{normalizedPath}', retrying...");
+                                    }
+                                }
 
                                 lock (_archiveLock)
                                 {
@@ -492,11 +515,23 @@ public class ZipFs : IDokanOperations, IDisposable
                         else
                         {
                             // --- Small file: Cache in memory ---
-                            using var entryStream = entry.OpenEntryStream();
-                            var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
-                            using var tempMs = new MemoryStream(capacity);
-                            entryStream.CopyTo(tempMs);
-                            var entryBytes = tempMs.ToArray();
+                            byte[] entryBytes;
+                            for (var attempt = 0;; attempt++)
+                            {
+                                try
+                                {
+                                    using var entryStream = entry.OpenEntryStream();
+                                    var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
+                                    using var tempMs = new MemoryStream(capacity);
+                                    entryStream.CopyTo(tempMs);
+                                    entryBytes = tempMs.ToArray();
+                                    break;
+                                }
+                                catch (ZlibException) when (attempt < 1)
+                                {
+                                    Console.WriteLine($"Deflate error extracting '{normalizedPath}', retrying...");
+                                }
+                            }
 
                             // Track memory usage
                             lock (_memoryLock)
@@ -548,6 +583,15 @@ public class ZipFs : IDokanOperations, IDisposable
                     Console.WriteLine($"{AppTheme.Bullet}The source device is no longer available or has errors");
                     Console.WriteLine("\nPlease verify the drive is connected and the file has not been altered.");
                     _logErrorAction(ioEx, $"ZipFs.CreateFile: Source file inaccessible for entry '{normalizedPath}'");
+                    (info.Context as IDisposable)?.Dispose();
+                    info.Context = null;
+                    return DokanResult.Error;
+                }
+                catch (ZlibException zlibEx)
+                {
+                    var contextMessage = $"ZipFs.CreateFile: Deflate decompression error for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB). The zip entry may be corrupted or the source stream returned invalid data.";
+                    Console.WriteLine($"\n{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data appears to be corrupted.");
+                    _logErrorAction(zlibEx, contextMessage);
                     (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
                     return DokanResult.Error;
