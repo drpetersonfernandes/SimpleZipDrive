@@ -33,6 +33,9 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly Dictionary<string, string?> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
     private const int MaxMemorySize = 536870912; // 512 MB (512x1024x1024)
 
+    // Cache for entries that failed to decompress (e.g., SharpCompress RAR unpacker bugs). Prevents repeated costly attempts.
+    private readonly HashSet<string> _failedEntries = new(StringComparer.OrdinalIgnoreCase);
+
     // Memory throttling for small files to prevent unbounded resource consumption
     private const long MaxTotalMemoryCache = 1073741824; // 1 GB total limit for all small files (1x1024x1024x1024)
     private long _currentMemoryUsage;
@@ -348,6 +351,15 @@ public class ZipFs : IDokanOperations, IDisposable
             {
                 info.IsDirectory = false;
 
+                // Fast-fail for entries that previously failed decompression
+                lock (_archiveLock)
+                {
+                    if (_failedEntries.Contains(normalizedPath))
+                    {
+                        return DokanResult.Error;
+                    }
+                }
+
                 // Check file mode before proceeding.
                 switch (mode)
                 {
@@ -558,6 +570,11 @@ public class ZipFs : IDokanOperations, IDisposable
                     var contextMessage = $"ZipFs.CreateFile: Deflate decompression error for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB). The zip entry may be corrupted or the source stream returned invalid data.";
                     Console.WriteLine($"\n{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data appears to be corrupted.");
                     _logErrorAction(zlibEx, contextMessage);
+                    lock (_archiveLock)
+                    {
+                        _failedEntries.Add(normalizedPath);
+                    }
+
                     (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
                     return DokanResult.Error;
@@ -567,6 +584,26 @@ public class ZipFs : IDokanOperations, IDisposable
                     var contextMessage = $"ZipFs.CreateFile: Invalid data offset for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB). The zip archive appears to be corrupted or truncated — the entry header points to an invalid file position.";
                     Console.WriteLine($"\n{AppTheme.Warning} Corruption Error: Cannot read '{normalizedPath}'. The archive file may be damaged or incomplete.");
                     _logErrorAction(argEx, contextMessage);
+                    lock (_archiveLock)
+                    {
+                        _failedEntries.Add(normalizedPath);
+                    }
+
+                    (info.Context as IDisposable)?.Dispose();
+                    info.Context = null;
+                    return DokanResult.Error;
+                }
+                catch (NullReferenceException nre)
+                {
+                    // SharpCompress RAR unpacker bug: NullReferenceException in UnpackV1.Unpack.Unpack29
+                    // Cache the failed entry to avoid repeated expensive decompression attempts
+                    lock (_archiveLock)
+                    {
+                        _failedEntries.Add(normalizedPath);
+                    }
+
+                    _logErrorAction(nre, $"ZipFs.CreateFile: NullReferenceException during decompression of '{normalizedPath}' (likely SharpCompress RAR V1 unpacker bug). Entry marked as failed to prevent retries.");
+                    Console.WriteLine($"\n{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The entry may use an unsupported or buggy compression method.");
                     (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
                     return DokanResult.Error;
