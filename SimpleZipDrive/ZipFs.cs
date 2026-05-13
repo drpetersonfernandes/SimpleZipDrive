@@ -977,9 +977,6 @@ public class ZipFs : IDokanOperations, IDisposable
                 var remainder = dirPathKey.Substring(searchPrefix.Length);
                 if (remainder.Contains('/') || string.IsNullOrEmpty(remainder)) continue;
 
-                // Skip if already added from entries
-                if (seenFileNames.Contains(dirPathKey)) continue;
-
                 var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
                 if (!string.IsNullOrEmpty(name) && seenFileNames.Add(name))
                 {
