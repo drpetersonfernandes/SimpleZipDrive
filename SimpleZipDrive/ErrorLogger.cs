@@ -248,14 +248,15 @@ public class ErrorLogger : IErrorLogger, IDisposable
         // Using Task.Run to avoid sync-over-async deadlock issues in contexts with a synchronization context
         if (!originalWasNull && !IsUserError(ex))
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            CancellationTokenSource? cts = null;
             try
             {
-                var token = cts.Token;
+                cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
                 // Offload to thread pool to avoid blocking the current synchronization context
-                var apiTask = Task.Run(async () => await SendLogToApiAsync(ex, contextMessage, token), token);
-                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30), token);
+                // ReSharper disable once AccessToDisposedClosure
+                var apiTask = Task.Run(async () => await SendLogToApiAsync(ex, contextMessage, cts.Token), cts.Token);
+                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30), cts.Token);
 
                 var completedTask = Task.WhenAny(apiTask, timeoutTask).GetAwaiter().GetResult();
 
@@ -280,6 +281,10 @@ public class ErrorLogger : IErrorLogger, IDisposable
             catch (Exception apiEx)
             {
                 WriteToCriticalLog(apiEx, "Exception in SendLogToApiAsync from LogErrorSync.");
+            }
+            finally
+            {
+                cts?.Dispose();
             }
         }
     }
