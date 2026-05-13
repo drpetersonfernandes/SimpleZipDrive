@@ -2,10 +2,6 @@ namespace SimpleZipDrive;
 
 public static class AppTheme
 {
-    // Console colors
-    private const ConsoleColor BackgroundColor = ConsoleColor.Black;
-    private const ConsoleColor ForegroundColor = ConsoleColor.Green;
-
     // Section separator pattern: "--- TITLE ---"
     private const string SectionPrefix = "--- ";
     private const string SectionSuffix = " ---";
@@ -22,13 +18,6 @@ public static class AppTheme
 
     // DokanNet log prefix
     public const string DokanLogPrefix = "[DokanNet] ";
-
-    public static void Apply()
-    {
-        Console.BackgroundColor = BackgroundColor;
-        Console.ForegroundColor = ForegroundColor;
-        Console.Clear();
-    }
 
     public static string Section(string title)
     {

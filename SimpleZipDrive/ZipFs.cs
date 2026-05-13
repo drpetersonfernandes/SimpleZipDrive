@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.RegularExpressions;
@@ -9,12 +10,16 @@ using SharpCompress.Archives.Zip;
 using SharpCompress.Common;
 using SharpCompress.Compressors.Deflate;
 using SharpCompress.Readers;
-using FileAccess = DokanNet.FileAccess;
+using DokanFileAccess = DokanNet.FileAccess;
 
 namespace SimpleZipDrive;
 
 public class ZipFs : IDokanOperations, IDisposable
 {
+    // Cache for compiled regex patterns to avoid recompilation overhead
+    private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
+    private const int MaxRegexCacheSize = 100; // Limit cache size to prevent unbounded growth
+
     /// <summary>
     /// The source archive stream. This stream is owned by the caller and is NOT disposed by this instance.
     /// </summary>
@@ -31,13 +36,14 @@ public class ZipFs : IDokanOperations, IDisposable
 
     // Cache for large files extracted to disk. Key: normalized path in archive, Value: path to the temp file.
     private readonly Dictionary<string, string?> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
-    private const int MaxMemorySize = 536870912; // 512 MB (512x1024x1024)
+    private readonly int _maxMemorySize;
 
     // Cache for entries that failed to decompress (e.g., SharpCompress RAR unpacker bugs). Prevents repeated costly attempts.
     private readonly HashSet<string> _failedEntries = new(StringComparer.OrdinalIgnoreCase);
 
     // Memory throttling for small files to prevent unbounded resource consumption
-    private const long MaxTotalMemoryCache = 1073741824; // 1 GB total limit for all small files (1x1024x1024x1024)
+    private const long BytesPerMegabyte = 1024 * 1024;
+    private const long MaxTotalMemoryCache = 1024L * BytesPerMegabyte; // 1 GB total limit for all small files
     private long _currentMemoryUsage;
     private readonly object _memoryLock = new();
 
@@ -46,6 +52,7 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly string _archiveType;
 
     private const string VolumeLabel = "SimpleZipDrive";
+    private const int DefaultMaxMemorySize = 512 * 1024 * 1024; // 512 MB default for file caching
     private static readonly char[] Separator = ['/'];
 
     // Windows path length limits
@@ -53,6 +60,64 @@ public class ZipFs : IDokanOperations, IDisposable
     private const int MaxPathExtended = 32767;
     private const string ExtendedPathPrefix = @"\\?\";
 
+    // Static flag to ensure cleanup runs only once
+    private static int _cleanupPerformed;
+
+    /// <summary>
+    /// Cleans up orphaned temp directories from previous crashed sessions.
+    /// Directories associated with non-running processes are deleted.
+    /// </summary>
+    private static void CleanupOrphanedTempDirectories()
+    {
+        try
+        {
+            var baseTempPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive");
+            if (!Directory.Exists(baseTempPath))
+                return;
+
+            var tempDirs = Directory.GetDirectories(baseTempPath);
+            foreach (var dir in tempDirs)
+            {
+                try
+                {
+                    // Extract PID from directory name (format: {PID}_{Guid})
+                    var dirName = Path.GetFileName(dir);
+                    var underscoreIndex = dirName.IndexOf('_');
+                    if (underscoreIndex <= 0)
+                        continue;
+
+                    if (!int.TryParse(dirName.AsSpan(0, underscoreIndex), out var pid))
+                        continue;
+
+                    // Check if process is still running
+                    bool processExists;
+                    try
+                    {
+                        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+                        processExists = System.Diagnostics.Process.GetProcessById(pid) != null;
+                    }
+                    catch (ArgumentException)
+                    {
+                        // Process doesn't exist
+                        processExists = false;
+                    }
+
+                    if (!processExists)
+                    {
+                        Directory.Delete(dir, true);
+                    }
+                }
+                catch
+                {
+                    // Ignore errors for individual directories
+                }
+            }
+        }
+        catch
+        {
+            // Ignore cleanup errors - this is best-effort
+        }
+    }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ZipFs"/> class.
@@ -62,6 +127,7 @@ public class ZipFs : IDokanOperations, IDisposable
     /// <param name="logErrorAction">Action to invoke when logging errors.</param>
     /// <param name="passwordProvider">Function that provides the password for encrypted archives.</param>
     /// <param name="archiveType">The type of archive ("zip", "7z", or "rar").</param>
+    /// <param name="maxMemorySize">Maximum memory size in bytes for caching a file in RAM before falling back to disk cache. Defaults to 512 MB.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="logErrorAction"/> is null.</exception>
     /// <exception cref="NotSupportedException">Thrown when the archive type is not supported.</exception>
     /// <remarks>
@@ -69,12 +135,19 @@ public class ZipFs : IDokanOperations, IDisposable
     /// The caller must ensure the stream remains open during the entire lifetime of this instance and dispose it after
     /// this <see cref="ZipFs"/> instance has been disposed.</para>
     /// </remarks>
-    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType)
+    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, int maxMemorySize = DefaultMaxMemorySize)
     {
+        // Perform cleanup of orphaned temp directories from previous crashes (only once per app session)
+        if (Interlocked.Exchange(ref _cleanupPerformed, 1) == 0)
+        {
+            CleanupOrphanedTempDirectories();
+        }
+
         _sourceArchiveStream = archiveStream;
         _logErrorAction = logErrorAction;
         _passwordProvider = passwordProvider;
         _archiveType = archiveType.ToLowerInvariant();
+        _maxMemorySize = maxMemorySize;
         // Use a unique directory per instance in the system temp folder to avoid collisions between multiple running instances
         _tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive", $"{Environment.ProcessId}_{Guid.NewGuid():N}");
 
@@ -183,6 +256,15 @@ public class ZipFs : IDokanOperations, IDisposable
                (message.Contains("rar") && message.Contains("header"));
     }
 
+    private static bool IsDataErrorException(Exception ex)
+    {
+        // DataErrorException is an internal SharpCompress exception type
+        // Check by type name and message content to avoid dependency on internal types
+        var exceptionTypeName = ex.GetType().Name;
+        return exceptionTypeName.Contains("DataError", StringComparison.OrdinalIgnoreCase) ||
+               ex.Message.Contains("Data Error", StringComparison.OrdinalIgnoreCase);
+    }
+
     private void InitializeEntries()
     {
         try
@@ -248,6 +330,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     private static bool IsDirectory(IArchiveEntry entry)
     {
+        // ReSharper disable once ConditionIsAlwaysTrueAccordingToNullableAPIContract
         return entry.IsDirectory || (entry.Key != null && (entry.Key.EndsWith('/') || entry.Key.EndsWith('\\')));
     }
 
@@ -308,7 +391,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public NtStatus CreateFile(
         string fileName,
-        FileAccess access,
+        DokanFileAccess access,
         FileShare share,
         FileMode mode,
         FileOptions options,
@@ -335,7 +418,7 @@ public class ZipFs : IDokanOperations, IDisposable
                 info.IsDirectory = true;
 
                 // Block write access to directory handles. Allow only read-related flags.
-                if ((access & ~FileAccess.ReadData & ~FileAccess.ReadAttributes & ~FileAccess.Execute) != 0)
+                if ((access & ~DokanFileAccess.ReadData & ~DokanFileAccess.ReadAttributes & ~DokanFileAccess.Execute) != 0)
                 {
                     return DokanResult.AccessDenied;
                 }
@@ -378,7 +461,7 @@ public class ZipFs : IDokanOperations, IDisposable
                     var entrySize = entry.Size;
 
                     // Hybrid caching - memory for small files, temp disk file for large files
-                    if (entrySize is >= MaxMemorySize or < 0)
+                    if (entrySize >= _maxMemorySize || entrySize < 0)
                     {
                         // --- Large file: Cache to disk ---
                         string? cachedPath;
@@ -394,7 +477,7 @@ public class ZipFs : IDokanOperations, IDisposable
                         else
                         {
                             Console.WriteLine($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
-                            var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
+                            var newTempFilePath = CreateSecureTempFile();
 
                             if (entrySize >= 0)
                             {
@@ -404,6 +487,16 @@ public class ZipFs : IDokanOperations, IDisposable
                                     var tempDrive = new DriveInfo(tempDrivePathRoot);
                                     if (tempDrive.AvailableFreeSpace < entrySize)
                                     {
+                                        // Clean up the temp file we created before returning error
+                                        try
+                                        {
+                                            File.Delete(newTempFilePath);
+                                        }
+                                        catch
+                                        {
+                                            /* Best effort cleanup */
+                                        }
+
                                         var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).";
                                         _logErrorAction(new IOException(errorMessage), "ZipFs.CreateFile: Disk space check failed.");
                                         return DokanResult.DiskFull;
@@ -416,7 +509,7 @@ public class ZipFs : IDokanOperations, IDisposable
                             }
 
                             using var entryStream = entry.OpenEntryStream();
-                            using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
+                            using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
                             entryStream.CopyTo(tempFileStream);
 
                             lock (_archiveLock)
@@ -474,10 +567,10 @@ public class ZipFs : IDokanOperations, IDisposable
 
                             if (cachedPath == null)
                             {
-                                var newTempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
+                                var newTempFilePath = CreateSecureTempFile();
 
                                 using var entryStream = entry.OpenEntryStream();
-                                using var tempFileStream = new FileStream(newTempFilePath, FileMode.Create, System.IO.FileAccess.Write, FileShare.None);
+                                using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
                                 entryStream.CopyTo(tempFileStream);
 
                                 lock (_archiveLock)
@@ -608,6 +701,22 @@ public class ZipFs : IDokanOperations, IDisposable
                     info.Context = null;
                     return DokanResult.Error;
                 }
+                catch (Exception ex) when (IsDataErrorException(ex))
+                {
+                    // SharpCompress LZMA/7z DataErrorException: Corrupted or unsupported compressed data
+                    // Cache the failed entry to avoid repeated expensive decompression attempts
+                    lock (_archiveLock)
+                    {
+                        _failedEntries.Add(normalizedPath);
+                    }
+
+                    var contextMessage = $"ZipFs.CreateFile: Data error (corrupted or unsupported compression) for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB). The archive entry may be damaged or uses an unsupported compression method.";
+                    _logErrorAction(ex, contextMessage);
+                    Console.WriteLine($"\n{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data appears to be corrupted or uses an unsupported compression method.");
+                    (info.Context as IDisposable)?.Dispose();
+                    info.Context = null;
+                    return DokanResult.Error;
+                }
                 catch (Exception ex)
                 {
                     // General exception during caching
@@ -630,7 +739,7 @@ public class ZipFs : IDokanOperations, IDisposable
             {
                 info.IsDirectory = true;
 
-                if ((access & (FileAccess.WriteData | FileAccess.AppendData)) != 0)
+                if ((access & (DokanFileAccess.WriteData | DokanFileAccess.AppendData)) != 0)
                 {
                     return DokanResult.AccessDenied;
                 }
@@ -741,6 +850,7 @@ public class ZipFs : IDokanOperations, IDisposable
             if (IsDirectory(entry))
             {
                 fileInfo.Attributes = FileAttributes.Directory;
+                // ReSharper disable once ConditionIsAlwaysTrueAccordingToNullableAPIContract
                 if (entry.Key != null)
                 {
                     fileInfo.FileName = Path.GetFileName(entry.Key.TrimEnd('/', '\\'));
@@ -780,25 +890,29 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public NtStatus FindFiles(string fileName, out IList<FileInformation> files, IDokanFileInfo info)
     {
-        files = new List<FileInformation>();
-
         // Validate path length before processing
         var pathValidationResult = ValidatePathLength(fileName, nameof(FindFiles));
         if (pathValidationResult != DokanResult.Success)
+        {
+            files = Array.Empty<FileInformation>();
             return pathValidationResult;
+        }
 
         var normalizedPath = NormalizePath(fileName);
-
-        List<IArchiveEntry> childEntries;
-        List<string> implicitChildDirs;
-        Dictionary<string, (DateTime CreationTime, DateTime LastWriteTime, DateTime LastAccessTime)> dirTimeSnapshot;
+        var resultFiles = new List<FileInformation>();
+        // Use HashSet for O(1) duplicate checking instead of GroupBy
+        var seenFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         lock (_archiveLock)
         {
             var isExplicitDirEntry = _archiveEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectory(dirEntry);
             var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
 
-            if (!isExplicitDirEntry && !isImplicitDir) return DokanResult.PathNotFound;
+            if (!isExplicitDirEntry && !isImplicitDir)
+            {
+                files = Array.Empty<FileInformation>();
+                return DokanResult.PathNotFound;
+            }
 
             var searchPrefix = normalizedPath.TrimEnd('/') + (normalizedPath == "/" ? "" : "/");
             if (normalizedPath == "/")
@@ -806,82 +920,74 @@ public class ZipFs : IDokanOperations, IDisposable
                 searchPrefix = "/";
             }
 
-            childEntries = _archiveEntries
-                .Where(kvp =>
-                {
-                    var path = kvp.Key;
-                    if (path.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
-                    if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
+            // Process entries directly without creating intermediate collections
+            foreach (var kvp in _archiveEntries)
+            {
+                var path = kvp.Key;
+                if (path.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
 
-                    var remainder = path.Substring(searchPrefix.Length);
-                    // Include direct children (no slashes) or direct child directories (single component ending with /)
-                    var slashIndex = remainder.IndexOf('/');
-                    if (slashIndex == -1) return true; // No slash - direct child file or directory
+                var remainder = path.Substring(searchPrefix.Length);
+                // Include direct children (no slashes) or direct child directories (single component ending with /)
+                var slashIndex = remainder.IndexOf('/');
+                if (slashIndex != -1)
+                {
                     // Has slash - only include if it's a directory entry AND the slash is at the end (direct child dir)
-                    return remainder.EndsWith('/') && slashIndex == remainder.Length - 1;
-                })
-                .Select(static kvp => kvp.Value)
-                .ToList();
+                    if (!(remainder.EndsWith('/') && slashIndex == remainder.Length - 1))
+                        continue;
+                }
 
-            implicitChildDirs = _directoryCreationTimes.Keys
-                .Where(k =>
-                {
-                    if (k.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
-                    if (!k.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) return false;
+                var entry = kvp.Value;
+                string? fileNameOnly = null;
 
-                    var remainder = k.Substring(searchPrefix.Length);
-                    return !remainder.Contains('/') && !string.IsNullOrEmpty(remainder);
-                })
-                .Where(k => childEntries.All(e => e.Key != null && NormalizePath(e.Key).TrimEnd('/', '\\') != k))
-                .ToList();
-
-            // Snapshot directory times while holding the lock
-            dirTimeSnapshot = new Dictionary<string, (DateTime, DateTime, DateTime)>(StringComparer.OrdinalIgnoreCase);
-            foreach (var dirPathKey in implicitChildDirs)
-            {
-                _directoryCreationTimes.TryGetValue(dirPathKey, out var ct);
-                _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
-                _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
-                dirTimeSnapshot[dirPathKey] = (ct, lwt, lat);
-            }
-        }
-
-        try
-        {
-            foreach (var entry in childEntries)
-            {
-                var fi = new FileInformation
-                {
-                    LastWriteTime = entry.LastModifiedTime ?? DateTime.Now,
-                    CreationTime = entry.CreatedTime ?? DateTime.Now,
-                    LastAccessTime = DateTime.Now
-                };
                 if (IsDirectory(entry))
                 {
-                    fi.Attributes = FileAttributes.Directory;
+                    // ReSharper disable once ConditionIsAlwaysTrueAccordingToNullableAPIContract
                     if (entry.Key != null)
                     {
                         var tempFullName = entry.Key.TrimEnd('/', '\\');
-                        fi.FileName = Path.GetFileName(tempFullName);
+                        fileNameOnly = Path.GetFileName(tempFullName);
                     }
                 }
                 else
                 {
-                    fi.Attributes = FileAttributes.Archive | FileAttributes.ReadOnly;
-                    fi.Length = entry.Size;
-                    fi.FileName = Path.GetFileName(entry.Key) ?? throw new InvalidOperationException("entry.Key is null");
+                    fileNameOnly = Path.GetFileName(entry.Key);
                 }
 
-                if (!string.IsNullOrEmpty(fi.FileName)) files.Add(fi);
+                if (!string.IsNullOrEmpty(fileNameOnly) && seenFileNames.Add(fileNameOnly))
+                {
+                    resultFiles.Add(new FileInformation
+                    {
+                        FileName = fileNameOnly,
+                        Attributes = IsDirectory(entry) ? FileAttributes.Directory : (FileAttributes.Archive | FileAttributes.ReadOnly),
+                        Length = entry.Size,
+                        LastWriteTime = entry.LastModifiedTime ?? DateTime.Now,
+                        CreationTime = entry.CreatedTime ?? DateTime.Now,
+                        LastAccessTime = DateTime.Now
+                    });
+                }
             }
 
-            foreach (var dirPathKey in implicitChildDirs)
+            // Process implicit directories directly
+            foreach (var dirPathKey in _directoryCreationTimes.Keys)
             {
+                if (dirPathKey.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!dirPathKey.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+
+                var remainder = dirPathKey.Substring(searchPrefix.Length);
+                if (remainder.Contains('/') || string.IsNullOrEmpty(remainder)) continue;
+
+                // Skip if already added from entries
+                if (seenFileNames.Contains(dirPathKey)) continue;
+
                 var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
-                if (!string.IsNullOrEmpty(name))
+                if (!string.IsNullOrEmpty(name) && seenFileNames.Add(name))
                 {
-                    var (ct, lwt, lat) = dirTimeSnapshot[dirPathKey];
-                    files.Add(new FileInformation
+                    _directoryCreationTimes.TryGetValue(dirPathKey, out var ct);
+                    _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
+                    _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
+
+                    resultFiles.Add(new FileInformation
                     {
                         FileName = name,
                         Attributes = FileAttributes.Directory,
@@ -891,15 +997,9 @@ public class ZipFs : IDokanOperations, IDisposable
                     });
                 }
             }
-
-            files = files.Where(static f => !string.IsNullOrEmpty(f.FileName)).GroupBy(static f => f.FileName, StringComparer.OrdinalIgnoreCase).Select(static g => g.First()).ToList();
-        }
-        catch (Exception ex)
-        {
-            _logErrorAction(ex, $"Error in FindFiles for path '{fileName}'.");
-            return DokanResult.Error;
         }
 
+        files = resultFiles;
         return DokanResult.Success;
     }
 
@@ -1051,6 +1151,50 @@ public class ZipFs : IDokanOperations, IDisposable
 
     private const int MaxSearchPatternLength = 260; // Reasonable limit for search patterns
 
+    /// <summary>
+    /// Creates a temporary file with restricted permissions accessible only to the current user.
+    /// Returns the path to the created file.
+    /// </summary>
+    private string CreateSecureTempFile()
+    {
+        var tempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
+
+        // Create an empty file first
+        File.Create(tempFilePath).Dispose();
+
+        // Use FileInfo to get and set access control
+        var fileInfo = new FileInfo(tempFilePath);
+
+        // Get the current file security settings
+        var fileSecurity = fileInfo.GetAccessControl();
+
+        // Remove any inherited access rules to ensure clean slate
+        fileSecurity.SetAccessRuleProtection(true, false);
+
+        // Clear all existing access rules
+        var existingRules = fileSecurity.GetAccessRules(true, true, typeof(SecurityIdentifier));
+        foreach (FileSystemAccessRule rule in existingRules)
+        {
+            fileSecurity.RemoveAccessRule(rule);
+        }
+
+        // Get the current user's identity
+        var currentUser = WindowsIdentity.GetCurrent();
+        var currentUserSid = currentUser.User ?? throw new InvalidOperationException("Unable to get current user SID");
+
+        // Grant full control to the current user only
+        var accessRule = new FileSystemAccessRule(
+            currentUserSid,
+            FileSystemRights.FullControl,
+            AccessControlType.Allow);
+        fileSecurity.AddAccessRule(accessRule);
+
+        // Apply the security settings to the file
+        fileInfo.SetAccessControl(fileSecurity);
+
+        return tempFilePath;
+    }
+
     private static bool IsMatchSimple(string input, string pattern)
     {
         // Limit pattern length to prevent regex DoS attacks
@@ -1062,7 +1206,24 @@ public class ZipFs : IDokanOperations, IDisposable
         if (pattern.Equals("*", StringComparison.Ordinal) || pattern.Equals("*.*", StringComparison.Ordinal)) return true;
 
         var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
-        return Regex.IsMatch(input, regexPattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+
+        // Use cached compiled regex or create and cache new one
+        var regex = RegexCache.GetOrAdd(regexPattern, static p =>
+        {
+            // Limit cache size - remove oldest entry if at capacity
+            if (RegexCache.Count >= MaxRegexCacheSize)
+            {
+                var oldestKey = RegexCache.Keys.FirstOrDefault();
+                if (oldestKey != null)
+                {
+                    RegexCache.TryRemove(oldestKey, out _);
+                }
+            }
+
+            return new Regex(p, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+        });
+
+        return regex.IsMatch(input);
     }
 
     public NtStatus GetFileSecurity(string fileName, out FileSystemSecurity? security, AccessControlSections sections, IDokanFileInfo info)
@@ -1144,6 +1305,12 @@ public class ZipFs : IDokanOperations, IDisposable
         catch (Exception ex)
         {
             _logErrorAction(ex, $"Failed to delete working directory on dispose: {_tempDirectoryPath}");
+        }
+
+        // Reset memory tracking counters to prevent stale values
+        lock (_memoryLock)
+        {
+            _currentMemoryUsage = 0;
         }
 
         GC.SuppressFinalize(this);

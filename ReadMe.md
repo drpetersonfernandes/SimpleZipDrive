@@ -24,7 +24,7 @@ Unlike traditional archive utilities that extract the entire archive to a tempor
 *   **Streaming Architecture:** The source archive is accessed via a direct file stream, supporting archives of virtually any size.
 *   **Zero-Configuration UI:** Supports drag-and-drop functionality for automatic mounting to the first available drive letter (M-Q).
 *   **Encrypted Archive Support:** Prompts for passwords when accessing protected archives.
-*   **Automated Maintenance:** Integrated update checker and automatic cleanup of temporary cache files upon unmounting.
+*   **Automated Maintenance:** Integrated update checker and automatic cleanup of temporary cache files upon unmounting. Also cleans up orphaned temp directories from previous sessions on startup.
 *   **Enterprise Logging:** Comprehensive error tracking with local log rotation and remote diagnostic reporting.
 
 ---
@@ -81,7 +81,7 @@ To safely unmount the drive and clean up temporary resources:
 *   **Read-Only Integrity:** The filesystem is strictly read-only. No modifications are made to the source archive.
 *   **Memory Efficiency:** The application does not load the entire archive into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested.
 *   **Permissions:** Mounting to drive letters or system-protected directories may require **Administrator Privileges**. If you encounter "Access Denied" errors, right-click the executable and select "Run as Administrator."
-*   **Temporary Storage:** Disk-based caching for large files occurs in `%TEMP%\SimpleZipDrive`. These files are purged automatically during a graceful shutdown.
+*   **Temporary Storage:** Disk-based caching for large files occurs in `%TEMP%\SimpleZipDrive`. These files are purged automatically during graceful shutdown, and orphaned directories from crashed sessions are cleaned up on application startup.
 
 ---
 

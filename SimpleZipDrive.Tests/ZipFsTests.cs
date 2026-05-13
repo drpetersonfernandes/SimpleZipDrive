@@ -912,6 +912,51 @@ public class ZipFsTests : IDisposable
         return ms;
     }
 
+    [Theory]
+    [InlineData("Data Error", true)] // Message contains "Data Error" - should be detected
+    [InlineData("Data error occurred", true)] // Message contains "Data error" - case insensitive match
+    [InlineData("some data ERROR here", true)] // Message contains "data ERROR" - case insensitive match
+    [InlineData("Some random error", false)] // Message does not contain "Data Error"
+    [InlineData("Archive data corrupted", false)] // Message does not contain "Data Error"
+    public void IsDataErrorExceptionDetectsByMessageContent(string message, bool expectedResult)
+    {
+        // Create an exception with the specified message
+        var exception = new InvalidDataException(message);
+
+        // Invoke the private IsDataErrorException method using reflection
+        var method = typeof(ZipFs).GetMethod("IsDataErrorException", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [exception]);
+        Assert.NotNull(result);
+        Assert.Equal(expectedResult, result);
+    }
+
+    [Fact]
+    public void IsDataErrorExceptionDetectsByTypeName()
+    {
+        // Create a custom exception type with "DataError" in the name
+        var exception = new TestDataErrorException("some message");
+
+        // Invoke the private IsDataErrorException method using reflection
+        var method = typeof(ZipFs).GetMethod("IsDataErrorException", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [exception]);
+        Assert.NotNull(result);
+        Assert.True((bool)result);
+    }
+
+    /// <summary>
+    /// Test exception type with "DataError" in the name to simulate SharpCompress.DataErrorException.
+    /// </summary>
+    private class TestDataErrorException : Exception
+    {
+        public TestDataErrorException(string message) : base(message)
+        {
+        }
+    }
+
     public void Dispose()
     {
         _zipFs.Dispose();

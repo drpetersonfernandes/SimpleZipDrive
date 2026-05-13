@@ -1,0 +1,93 @@
+<Window x:Class="SimpleZipDrive.Views.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="About Simple Zip Drive" Height="420" Width="500"
+        ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
+         Style="{StaticResource ModernWindowStyle}">
+
+    <Grid Margin="25">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <TextBlock Grid.Row="0" 
+                   Text="Simple Zip Drive" 
+                   FontSize="24" 
+                   FontWeight="Bold" 
+                   Margin="0,0,0,5"
+                   Foreground="{StaticResource TextPrimaryBrush}"
+                   ToolTip="Application name" />
+
+        <!-- Version -->
+        <TextBlock Grid.Row="1" 
+                   x:Name="VersionTextBlock" 
+                   FontSize="13"
+                   Foreground="{StaticResource AccentSecondaryBrush}" 
+                   Margin="0,0,0,20"
+                   FontWeight="SemiBold"
+                   ToolTip="Current application version" />
+
+        <!-- Description Card -->
+        <Border Grid.Row="2"
+                Background="{StaticResource BgSecondaryBrush}"
+                BorderBrush="{StaticResource BorderPrimaryBrush}"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="15"
+                Margin="0,0,0,15"
+                ToolTip="Application description">
+            <TextBlock TextWrapping="Wrap" 
+                       FontSize="13"
+                       LineHeight="20"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       ToolTip="A high-performance, user-mode filesystem utility">
+                A high-performance, user-mode filesystem utility that allows you
+                to mount ZIP, 7Z, and RAR archives as virtual drives or NTFS
+                directory mount points.
+            </TextBlock>
+        </Border>
+
+        <!-- Info Section -->
+        <StackPanel Grid.Row="3" Margin="0,0,0,15">
+            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">
+                <Run Text="Built on " Foreground="{StaticResource TextMutedBrush}" />
+                <Hyperlink x:Name="DokanLink" Click="DokanLink_Click" ToolTip="Open DokanNet website (user-mode file system library)">DokanNet</Hyperlink>
+                <Run Text=" and " Foreground="{StaticResource TextMutedBrush}" />
+                <Hyperlink x:Name="SharpCompressLink" Click="SharpCompressLink_Click" ToolTip="Open SharpCompress website (archive compression library)">SharpCompress</Hyperlink>
+                <Run Text="." Foreground="{StaticResource TextMutedBrush}" />
+            </TextBlock>
+            
+            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">
+                <Run Text="Licensed under " Foreground="{StaticResource TextMutedBrush}" />
+                <Run Text="GPLv3" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" ToolTip="GNU General Public License version 3" />
+                <Run Text="." Foreground="{StaticResource TextMutedBrush}" />
+            </TextBlock>
+            
+            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">
+                <Hyperlink x:Name="GitHubLink" Click="GitHubLink_Click" ToolTip="Open project GitHub repository">
+                    https://github.com/drpetersonfernandes/SimpleZipDrive
+                </Hyperlink>
+            </TextBlock>
+            
+            <TextBlock TextWrapping="Wrap"
+                       Foreground="{StaticResource TextMutedBrush}"
+                       FontStyle="Italic"
+                       ToolTip="Developer website">
+                www.purelogiccode.com
+            </TextBlock>
+        </StackPanel>
+
+        <!-- Close Button -->
+        <Button Grid.Row="4" 
+                Content="_Close" 
+                Click="Close_Click" 
+                Width="85"
+                HorizontalAlignment="Right"
+                ToolTip="Close this window" />
+    </Grid>
+</Window>

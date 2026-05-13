@@ -5,24 +5,43 @@ namespace SimpleZipDrive.Tests;
 [Collection("ErrorLogger")]
 public class ErrorLoggerTests : IDisposable
 {
-    private readonly string _logFilePath;
+    private readonly ErrorLogger _errorLogger;
+    private readonly string _tempLogFilePath;
     private static readonly MethodInfo? IsUserErrorMethod = typeof(ErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
 
     public ErrorLoggerTests()
     {
-        _logFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "error.log");
-        if (File.Exists(_logFilePath))
-            File.Delete(_logFilePath);
+        // Use a temporary file for testing to avoid file system conflicts and ensure cleanup
+        _tempLogFilePath = Path.Combine(Path.GetTempPath(), $"ErrorLoggerTests_{Guid.NewGuid()}.log");
+
+        // Create ErrorLogger with temporary file path
+        _errorLogger = new ErrorLogger(_tempLogFilePath);
+
+        // Ensure clean state
+        CleanupLogFile();
+    }
+
+    private void CleanupLogFile()
+    {
+        try
+        {
+            if (File.Exists(_tempLogFilePath))
+                File.Delete(_tempLogFilePath);
+        }
+        catch
+        {
+            // Best effort cleanup - ignore failures
+        }
     }
 
     [Fact]
     public void LogErrorSyncUserErrorWritesToLogFile()
     {
         var ex = new FileNotFoundException("test file missing");
-        ErrorLogger.LogErrorSync(ex, "test context");
+        _errorLogger.LogErrorSync(ex, "test context");
 
-        Assert.True(File.Exists(_logFilePath));
-        var content = File.ReadAllText(_logFilePath);
+        Assert.True(File.Exists(_tempLogFilePath));
+        var content = File.ReadAllText(_tempLogFilePath);
         Assert.Contains("test file missing", content);
         Assert.Contains("test context", content);
         Assert.Contains("FileNotFoundException", content);
@@ -31,10 +50,10 @@ public class ErrorLoggerTests : IDisposable
     [Fact]
     public void LogErrorSyncNullExceptionCreatesPlaceholder()
     {
-        ErrorLogger.LogErrorSync(null, "null test");
+        _errorLogger.LogErrorSync(null, "null test");
 
-        Assert.True(File.Exists(_logFilePath));
-        var content = File.ReadAllText(_logFilePath);
+        Assert.True(File.Exists(_tempLogFilePath));
+        var content = File.ReadAllText(_tempLogFilePath);
         Assert.Contains("null exception object", content);
         Assert.Contains("null test", content);
     }
@@ -43,10 +62,10 @@ public class ErrorLoggerTests : IDisposable
     public async Task LogErrorAsyncUserErrorWritesToLogFile()
     {
         var ex = new DirectoryNotFoundException("test dir missing");
-        await ErrorLogger.LogErrorAsync(ex, "async test");
+        await _errorLogger.LogErrorAsync(ex, "async test");
 
-        Assert.True(File.Exists(_logFilePath));
-        var content = await File.ReadAllTextAsync(_logFilePath);
+        Assert.True(File.Exists(_tempLogFilePath));
+        var content = await File.ReadAllTextAsync(_tempLogFilePath);
         Assert.Contains("test dir missing", content);
         Assert.Contains("async test", content);
         Assert.Contains("DirectoryNotFoundException", content);
@@ -56,10 +75,10 @@ public class ErrorLoggerTests : IDisposable
     public void LogErrorSyncNullContextWritesDefault()
     {
         var ex = new FileNotFoundException("test");
-        ErrorLogger.LogErrorSync(ex);
+        _errorLogger.LogErrorSync(ex);
 
-        Assert.True(File.Exists(_logFilePath));
-        var content = File.ReadAllText(_logFilePath);
+        Assert.True(File.Exists(_tempLogFilePath));
+        var content = File.ReadAllText(_tempLogFilePath);
         Assert.Contains("No additional context provided.", content);
     }
 
@@ -67,10 +86,10 @@ public class ErrorLoggerTests : IDisposable
     public async Task LogErrorAsyncNullContextWritesDefault()
     {
         var ex = new FileNotFoundException("test");
-        await ErrorLogger.LogErrorAsync(ex);
+        await _errorLogger.LogErrorAsync(ex);
 
-        Assert.True(File.Exists(_logFilePath));
-        var content = await File.ReadAllTextAsync(_logFilePath);
+        Assert.True(File.Exists(_tempLogFilePath));
+        var content = await File.ReadAllTextAsync(_tempLogFilePath);
         Assert.Contains("No additional context provided.", content);
     }
 
@@ -79,10 +98,10 @@ public class ErrorLoggerTests : IDisposable
     {
         var inner = new InvalidOperationException("inner cause");
         var outer = new IOException("outer error", inner);
-        ErrorLogger.LogErrorSync(outer, "inner test");
+        _errorLogger.LogErrorSync(outer, "inner test");
 
-        Assert.True(File.Exists(_logFilePath));
-        var content = File.ReadAllText(_logFilePath);
+        Assert.True(File.Exists(_tempLogFilePath));
+        var content = File.ReadAllText(_tempLogFilePath);
         Assert.Contains("outer error", content);
         Assert.Contains("inner cause", content);
         Assert.Contains("Inner Exception", content);
@@ -92,10 +111,10 @@ public class ErrorLoggerTests : IDisposable
     [Fact]
     public async Task LogErrorAsyncNullExceptionCreatesPlaceholder()
     {
-        await ErrorLogger.LogErrorAsync(null, "async null test");
+        await _errorLogger.LogErrorAsync(null, "async null test");
 
-        Assert.True(File.Exists(_logFilePath));
-        var content = await File.ReadAllTextAsync(_logFilePath);
+        Assert.True(File.Exists(_tempLogFilePath));
+        var content = await File.ReadAllTextAsync(_tempLogFilePath);
         Assert.Contains("null exception object", content);
         Assert.Contains("async null test", content);
     }
@@ -188,8 +207,8 @@ public class ErrorLoggerTests : IDisposable
 
     public void Dispose()
     {
-        if (File.Exists(_logFilePath))
-            File.Delete(_logFilePath);
+        _errorLogger.Dispose();
+        CleanupLogFile();
         GC.SuppressFinalize(this);
     }
 }

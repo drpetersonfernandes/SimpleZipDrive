@@ -1,8 +1,12 @@
 #nullable disable
+using System.Security.Principal;
 using DokanNet;
 
 namespace SimpleZipDrive.Tests.Fakes;
 
+/// <summary>
+/// A fake implementation of <see cref="IDokanFileInfo"/> for testing purposes.
+/// </summary>
 public class FakeDokanFileInfo : IDokanFileInfo
 {
     public bool IsDirectory { get; set; }
@@ -15,14 +19,26 @@ public class FakeDokanFileInfo : IDokanFileInfo
     public int ProcessId { get; set; }
     public object Context { get; set; }
 
+    /// <summary>
+    /// Gets or sets the WindowsIdentity to return from <see cref="GetRequestor"/>.
+    /// If null, GetRequestor will return null.
+    /// </summary>
+    public WindowsIdentity MockIdentity { get; set; }
+
     public bool TryResetTimeout(int milliseconds)
     {
         return true;
     }
 
-    public System.Security.Principal.WindowsIdentity GetRequestor()
+    /// <summary>
+    /// Gets the Windows identity of the caller.
+    /// </summary>
+    /// <returns>
+    /// The <see cref="MockIdentity"/> if set; otherwise, null.
+    /// Null is acceptable in test scenarios where identity verification is not required.
+    /// </returns>
+    public WindowsIdentity GetRequestor()
     {
-        // ReSharper disable once NullableWarningSuppressionIsUsed
-        return null!;
+        return MockIdentity;
     }
 }
