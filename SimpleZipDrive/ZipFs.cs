@@ -1269,14 +1269,42 @@ public class ZipFs : IDokanOperations, IDisposable
 
         try
         {
-            var fs = new FileSecurity();
+            // Determine if the path is a directory
+            var normalizedPath = NormalizePath(fileName);
+            bool isDirectory;
+            lock (_archiveLock)
+            {
+                isDirectory = normalizedPath == "/" ||
+                              _directoryCreationTimes.ContainsKey(normalizedPath) ||
+                              (_archiveEntries.TryGetValue(normalizedPath, out var entry) && IsDirectory(entry));
+            }
+
             // Use raw SID string "S-1-1-0" (Everyone/World) to avoid IdentityNotMappedException
             // when the SID translation fails on certain systems
             var everyoneSid = new SecurityIdentifier("S-1-1-0");
-            fs.AddAccessRule(new FileSystemAccessRule(everyoneSid, FileSystemRights.ReadAndExecute, AccessControlType.Allow));
-            fs.SetOwner(everyoneSid);
-            fs.SetGroup(everyoneSid);
-            security = fs;
+
+            if (isDirectory)
+            {
+                // Return DirectorySecurity for directories with ListDirectory permission
+                var ds = new DirectorySecurity();
+                ds.AddAccessRule(new FileSystemAccessRule(everyoneSid,
+                    FileSystemRights.ListDirectory | FileSystemRights.Read | FileSystemRights.ExecuteFile,
+                    AccessControlType.Allow));
+                ds.SetOwner(everyoneSid);
+                ds.SetGroup(everyoneSid);
+                security = ds;
+            }
+            else
+            {
+                // Return FileSecurity for files
+                var fs = new FileSecurity();
+                fs.AddAccessRule(new FileSystemAccessRule(everyoneSid, FileSystemRights.ReadAndExecute,
+                    AccessControlType.Allow));
+                fs.SetOwner(everyoneSid);
+                fs.SetGroup(everyoneSid);
+                security = fs;
+            }
+
             return DokanResult.Success;
         }
         catch (Exception ex)
