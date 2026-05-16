@@ -425,19 +425,25 @@ public class ZipFs : IDokanOperations, IDisposable
         var normalizedPath = NormalizePath(fileName);
 
         IArchiveEntry? entry;
+        bool isImplicitDir;
         lock (_archiveLock)
         {
             _archiveEntries.TryGetValue(normalizedPath, out entry);
+            isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath);
         }
 
         if (entry != null)
         {
-            if (IsDirectory(entry))
+            // For RAR/7Z files, entries might not be explicitly marked as directories.
+            // Also check our implicit directory tracking.
+            var isDirEntry = IsDirectory(entry);
+
+            if (isDirEntry || isImplicitDir)
             {
                 info.IsDirectory = true;
 
-                // Block write access to directory handles. Allow only read-related flags.
-                if ((access & ~DokanFileAccess.ReadData & ~DokanFileAccess.ReadAttributes & ~DokanFileAccess.Execute) != 0)
+                // Only deny write access to directories. Allow all read-related flags.
+                if ((access & (DokanFileAccess.WriteData | DokanFileAccess.AppendData)) != 0)
                 {
                     return DokanResult.AccessDenied;
                 }
@@ -1274,9 +1280,30 @@ public class ZipFs : IDokanOperations, IDisposable
             bool isDirectory;
             lock (_archiveLock)
             {
-                isDirectory = normalizedPath == "/" ||
-                              _directoryCreationTimes.ContainsKey(normalizedPath) ||
-                              (_archiveEntries.TryGetValue(normalizedPath, out var entry) && IsDirectory(entry));
+                // Check if it's the root
+                if (normalizedPath == "/")
+                {
+                    isDirectory = true;
+                }
+                // Check if we already know it's a directory from previous operations
+                else if (info.IsDirectory)
+                {
+                    isDirectory = true;
+                }
+                // Check if it's an implicit directory (created from file paths)
+                else if (_directoryCreationTimes.ContainsKey(normalizedPath))
+                {
+                    isDirectory = true;
+                }
+                // Check if it's an explicit directory entry in the archive
+                else if (_archiveEntries.TryGetValue(normalizedPath, out var entry) && IsDirectory(entry))
+                {
+                    isDirectory = true;
+                }
+                else
+                {
+                    isDirectory = false;
+                }
             }
 
             // Use raw SID string "S-1-1-0" (Everyone/World) to avoid IdentityNotMappedException
@@ -1285,10 +1312,9 @@ public class ZipFs : IDokanOperations, IDisposable
 
             if (isDirectory)
             {
-                // Return DirectorySecurity for directories with ListDirectory permission
+                // Return DirectorySecurity for directories with Read permission (includes ListDirectory)
                 var ds = new DirectorySecurity();
-                ds.AddAccessRule(new FileSystemAccessRule(everyoneSid,
-                    FileSystemRights.ListDirectory | FileSystemRights.Read | FileSystemRights.ExecuteFile,
+                ds.AddAccessRule(new FileSystemAccessRule(everyoneSid, FileSystemRights.Read,
                     AccessControlType.Allow));
                 ds.SetOwner(everyoneSid);
                 ds.SetGroup(everyoneSid);
