@@ -88,7 +88,7 @@
                          Padding="8"
                          VerticalScrollBarVisibility="Auto"
                          HorizontalScrollBarVisibility="Auto"
-                         TextWrapping="NoWrap"
+                         TextWrapping="Wrap"
                          ContextMenu="{StaticResource LogContextMenu}"
                          ToolTip="Application log output. Right-click for options." />
             </Border>
