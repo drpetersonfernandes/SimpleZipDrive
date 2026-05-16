@@ -49,7 +49,7 @@ public partial class AboutWindow
         {
             var context = $"AboutWindow.OpenUrl: Could not open URL '{url}'";
             ErrorLoggerStatic.ReportSilentException(ex, context, true);
-            Console.WriteLine($"Could not open URL: {ex.Message}");
+            ServiceProvider.TryGet<ILoggingService>()?.LogError($"Could not open URL: {ex.Message}");
         }
     }
 }

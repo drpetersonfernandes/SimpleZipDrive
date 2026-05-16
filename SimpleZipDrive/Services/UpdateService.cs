@@ -65,8 +65,6 @@ public partial class UpdateService : IUpdateService, IDisposable
             var current = Assembly.GetExecutingAssembly().GetName().Version
                           ?? new Version(0, 0, 0, 0);
 
-            _loggingService.Log($"{RepoName} version: {current}");
-
             if (!Http.DefaultRequestHeaders.Contains("User-Agent"))
                 Http.DefaultRequestHeaders.Add("User-Agent", $"{RepoName}-UpdateChecker");
 

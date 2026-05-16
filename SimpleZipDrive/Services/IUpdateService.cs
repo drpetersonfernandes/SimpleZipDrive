@@ -9,6 +9,6 @@ public interface IUpdateService
     /// Checks for updates asynchronously.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task representing the asynchronous operation.</returns>
+    /// <returns>A task representing the asynchronous operation with the update status.</returns>
     Task CheckForUpdateAsync(CancellationToken cancellationToken = default);
 }

@@ -131,12 +131,12 @@ public partial class MainWindow : IDisposable
                 File.Exists(args[0]) &&
                 supportedExtensions.Any(ext => Path.GetExtension(args[0]).Equals(ext, StringComparison.OrdinalIgnoreCase)):
                 zipFilePath = args[0].Trim().Trim('"');
-                Console.WriteLine($"Drag-and-drop mode: Detected archive file '{zipFilePath}'.");
+                _loggingService.Log($"Drag-and-drop mode: Detected archive file '{zipFilePath}'.");
                 break;
             case >= 2:
                 zipFilePath = args[0].Trim().Trim('"');
                 mountPointArg = args[1].Trim().Trim('"');
-                Console.WriteLine($"Standard mode: Archive file '{zipFilePath}', Mount point arg '{mountPointArg}'.");
+                _loggingService.Log($"Standard mode: Archive file '{zipFilePath}', Mount point arg '{mountPointArg}'.");
                 break;
             default:
                 return;
@@ -144,16 +144,16 @@ public partial class MainWindow : IDisposable
 
         if (!File.Exists(zipFilePath))
         {
-            Console.WriteLine($"Error: Archive file not found at '{zipFilePath}'.");
+            _loggingService.LogError($"Error: Archive file not found at '{zipFilePath}'.");
             return;
         }
 
         if (!supportedExtensions.Any(ext => Path.GetExtension(zipFilePath).Equals(ext, StringComparison.OrdinalIgnoreCase)))
         {
-            Console.WriteLine($"\n{AppTheme.Section("INVALID FILE TYPE")}");
-            Console.WriteLine($"Error: The file '{Path.GetFileName(zipFilePath)}' is not a supported archive.");
-            Console.WriteLine($"Detected extension: '{Path.GetExtension(zipFilePath)}' (expected: .zip, .7z, or .rar)");
-            Console.WriteLine("Simple Zip Drive can only mount ZIP, 7Z, and RAR archives.");
+            _loggingService.LogError($"{AppTheme.Section("INVALID FILE TYPE")}");
+            _loggingService.LogError($"Error: The file '{Path.GetFileName(zipFilePath)}' is not a supported archive.");
+            _loggingService.LogError($"Detected extension: '{Path.GetExtension(zipFilePath)}' (expected: .zip, .7z, or .rar)");
+            _loggingService.LogError("Simple Zip Drive can only mount ZIP, 7Z, and RAR archives.");
             return;
         }
 
@@ -165,7 +165,7 @@ public partial class MainWindow : IDisposable
         {
             const string context = "Error mounting archive from command line";
             await ErrorLoggerStatic.LogErrorAsync(ex, context);
-            Console.WriteLine($"Error: Failed to mount '{zipFilePath}'. {ex.Message}");
+            _loggingService.LogError($"Error: Failed to mount '{zipFilePath}'. {ex.Message}");
         }
     }
 
@@ -234,7 +234,7 @@ public partial class MainWindow : IDisposable
                 StatusText.Text = "Unmounting drive...";
                 await _mountService.UnmountAsync();
                 StatusText.Text = "Drive unmounted";
-                Console.WriteLine("Drive unmounted successfully.");
+                _loggingService.Log("Drive unmounted successfully.");
             }
             catch (OperationCanceledException)
             {

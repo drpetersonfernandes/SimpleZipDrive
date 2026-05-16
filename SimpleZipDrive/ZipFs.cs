@@ -164,7 +164,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
             _archive = OpenArchive(archiveStream);
             InitializeEntries();
-            Console.WriteLine($"ZipFs Constructor: Using SharpCompress. Archive type: {_archiveType}, _sourceArchiveStream.CanSeek = {_sourceArchiveStream.CanSeek}, _sourceArchiveStream type = {_sourceArchiveStream.GetType().FullName}");
+            LogMessage($"ZipFs Constructor: Using SharpCompress. Archive type: {_archiveType}, _sourceArchiveStream.CanSeek = {_sourceArchiveStream.CanSeek}, _sourceArchiveStream type = {_sourceArchiveStream.GetType().FullName}");
         }
         catch (Exception ex)
         {
@@ -348,6 +348,22 @@ public class ZipFs : IDokanOperations, IDisposable
     }
 
     /// <summary>
+    /// Logs a message to the logging service if available.
+    /// </summary>
+    private static void LogMessage(string message)
+    {
+        try
+        {
+            var loggingService = ServiceProvider.TryGet<ILoggingService>();
+            loggingService?.Log(message);
+        }
+        catch
+        {
+            // Ignore logging errors to prevent cascading failures
+        }
+    }
+
+    /// <summary>
     /// Validates that the path length is within acceptable limits.
     /// Returns true if the path is valid, false if it exceeds the maximum allowed length.
     /// </summary>
@@ -472,11 +488,11 @@ public class ZipFs : IDokanOperations, IDisposable
 
                         if (cachedPath != null)
                         {
-                            Console.WriteLine($"Reusing existing temporary cache for '{normalizedPath}'.");
+                            LogMessage($"Reusing existing temporary cache for '{normalizedPath}'.");
                         }
                         else
                         {
-                            Console.WriteLine($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
+                            LogMessage($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
                             var newTempFilePath = CreateSecureTempFile();
 
                             if (entrySize >= 0)
@@ -518,7 +534,7 @@ public class ZipFs : IDokanOperations, IDisposable
                             }
 
                             cachedPath = newTempFilePath;
-                            Console.WriteLine($"Extraction complete for '{normalizedPath}'. Temp file: '{newTempFilePath}'");
+                            LogMessage($"Extraction complete for '{normalizedPath}'. Temp file: '{newTempFilePath}'");
                         }
 
                         // Open the temp file for reading and assign it as the context.
@@ -557,7 +573,7 @@ public class ZipFs : IDokanOperations, IDisposable
                         if (useDiskCache)
                         {
                             // --- Memory limit exceeded: Fall back to disk caching ---
-                            Console.WriteLine($"Memory limit approaching. Using disk cache for small file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).");
+                            LogMessage($"Memory limit approaching. Using disk cache for small file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).");
 
                             string? cachedPath;
                             lock (_archiveLock)
@@ -628,7 +644,7 @@ public class ZipFs : IDokanOperations, IDisposable
                 catch (CryptographicException cryptoEx)
                 {
                     var contextMessage = $"ZipFs.CreateFile: Password error for '{normalizedPath}'. The provided password may be incorrect or missing.";
-                    Console.WriteLine($"\n{AppTheme.Warning} Password Error: Could not decrypt '{normalizedPath}'.");
+                    LogMessage($"{AppTheme.Warning} Password Error: Could not decrypt '{normalizedPath}'.");
                     _logErrorAction(cryptoEx, contextMessage);
                     (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
@@ -638,21 +654,21 @@ public class ZipFs : IDokanOperations, IDisposable
                 {
                     var msg = $"CRITICAL ERROR: The source drive containing the archive file is no longer ready. " +
                               $"Please check the connection to drive '{Path.GetPathRoot(_tempDirectoryPath)}'.";
-                    Console.WriteLine($"\n{AppTheme.Critical} {msg}");
+                    LogMessage($"{AppTheme.Critical} {msg}");
                     (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
                     return DokanResult.NotReady;
                 }
                 catch (IOException ioEx) when ((uint)ioEx.HResult == 0x800703EE || (uint)ioEx.HResult == 0x80070037) // ERROR_FILE_INVALID or ERROR_DEV_NOT_EXIST
                 {
-                    Console.WriteLine($"\n{AppTheme.Section("SOURCE FILE ACCESS ERROR")}");
-                    Console.WriteLine("Error: The source archive file is no longer accessible.");
-                    Console.WriteLine($"Details: {ioEx.Message}");
-                    Console.WriteLine("\nThis usually means:");
-                    Console.WriteLine($"{AppTheme.Bullet}The external drive/USB device was disconnected");
-                    Console.WriteLine($"{AppTheme.Bullet}The archive file was modified or deleted after mounting started");
-                    Console.WriteLine($"{AppTheme.Bullet}The source device is no longer available or has errors");
-                    Console.WriteLine("\nPlease verify the drive is connected and the file has not been altered.");
+                    LogMessage($"{AppTheme.Section("SOURCE FILE ACCESS ERROR")}");
+                    LogMessage("Error: The source archive file is no longer accessible.");
+                    LogMessage($"Details: {ioEx.Message}");
+                    LogMessage("This usually means:");
+                    LogMessage($"{AppTheme.Bullet}The external drive/USB device was disconnected");
+                    LogMessage($"{AppTheme.Bullet}The archive file was modified or deleted after mounting started");
+                    LogMessage($"{AppTheme.Bullet}The source device is no longer available or has errors");
+                    LogMessage("Please verify the drive is connected and the file has not been altered.");
                     _logErrorAction(ioEx, $"ZipFs.CreateFile: Source file inaccessible for entry '{normalizedPath}'");
                     (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
@@ -661,10 +677,10 @@ public class ZipFs : IDokanOperations, IDisposable
                 catch (ZlibException zlibEx)
                 {
                     var contextMessage = $"ZipFs.CreateFile: Deflate decompression error for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB). The zip entry uses a compression method that may not be fully supported by the SharpCompress library.";
-                    Console.WriteLine($"\n{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
-                    Console.WriteLine("This file uses a compression method that is not fully compatible with SimpleZipDrive's decompression library.");
-                    Console.WriteLine("The archive file itself is likely fine - this is a library limitation, not file corruption.");
-                    Console.WriteLine($"{AppTheme.Bullet}Try extracting this file directly with WinRAR or 7-Zip instead.");
+                    LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
+                    LogMessage("This file uses a compression method that is not fully compatible with SimpleZipDrive's decompression library.");
+                    LogMessage("The archive file itself is likely fine - this is a library limitation, not file corruption.");
+                    LogMessage($"{AppTheme.Bullet}Try extracting this file directly with WinRAR or 7-Zip instead.");
                     _logErrorAction(zlibEx, contextMessage);
                     lock (_archiveLock)
                     {
@@ -678,7 +694,7 @@ public class ZipFs : IDokanOperations, IDisposable
                 catch (ArgumentOutOfRangeException argEx)
                 {
                     var contextMessage = $"ZipFs.CreateFile: Invalid data offset for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB). The zip archive appears to be corrupted or truncated — the entry header points to an invalid file position.";
-                    Console.WriteLine($"\n{AppTheme.Warning} Corruption Error: Cannot read '{normalizedPath}'. The archive file may be damaged or incomplete.");
+                    LogMessage($"{AppTheme.Warning} Corruption Error: Cannot read '{normalizedPath}'. The archive file may be damaged or incomplete.");
                     _logErrorAction(argEx, contextMessage);
                     lock (_archiveLock)
                     {
@@ -699,7 +715,7 @@ public class ZipFs : IDokanOperations, IDisposable
                     }
 
                     _logErrorAction(nre, $"ZipFs.CreateFile: NullReferenceException during decompression of '{normalizedPath}' (likely SharpCompress RAR V1 unpacker bug). Entry marked as failed to prevent retries.");
-                    Console.WriteLine($"\n{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The entry may use an unsupported or buggy compression method.");
+                    LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The entry may use an unsupported or buggy compression method.");
                     (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
                     return DokanResult.Error;
@@ -715,7 +731,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
                     var contextMessage = $"ZipFs.CreateFile: Data error (corrupted or unsupported compression) for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB). The archive entry may be damaged or uses an unsupported compression method.";
                     _logErrorAction(ex, contextMessage);
-                    Console.WriteLine($"\n{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data appears to be corrupted or uses an unsupported compression method.");
+                    LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data appears to be corrupted or uses an unsupported compression method.");
                     (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
                     return DokanResult.Error;

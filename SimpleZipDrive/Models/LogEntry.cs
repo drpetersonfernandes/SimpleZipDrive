@@ -9,6 +9,6 @@ public class LogEntry
     public override string ToString()
     {
         var prefix = IsError ? "[ERROR] " : string.Empty;
-        return $"{Timestamp:HH:mm:ss} {prefix}{Message}";
+        return $"{prefix}{Message}";
     }
 }

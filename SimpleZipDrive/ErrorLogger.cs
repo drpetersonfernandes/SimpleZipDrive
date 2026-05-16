@@ -134,10 +134,6 @@ public class ErrorLogger : IErrorLogger, IDisposable
             LogErrorSync(args.Exception, context);
             args.SetObserved(); // Prevent application crash
         };
-
-        Console.WriteLine($"{AppTheme.Section("BUG REPORTING")}");
-        Console.WriteLine("Global exception handlers initialized.");
-        Console.WriteLine("All bugs will be automatically reported to the development team.");
     }
 
     /// <summary>
@@ -270,7 +266,7 @@ public class ErrorLogger : IErrorLogger, IDisposable
                     var result = apiTask.GetAwaiter().GetResult();
                     if (result)
                     {
-                        Console.WriteLine("Error details successfully sent to remote logging service (from sync path).");
+                        LogToService("Error details successfully sent to remote logging service (from sync path).");
                     }
                     else
                     {
@@ -332,12 +328,28 @@ public class ErrorLogger : IErrorLogger, IDisposable
             var sent = await SendLogToApiAsync(ex, contextMessage, cancellationToken);
             if (sent)
             {
-                Console.WriteLine("Error details successfully sent to remote logging service (async path).");
+                LogToService("Error details successfully sent to remote logging service (async path).");
             }
             else
             {
                 await Console.Error.WriteLineAsync("Failed to send error details to remote logging service (async path). Error is saved locally.");
             }
+        }
+    }
+
+    /// <summary>
+    /// Logs a message to the logging service if available, otherwise falls back to console.
+    /// </summary>
+    private static void LogToService(string message)
+    {
+        try
+        {
+            var loggingService = ServiceProvider.TryGet<ILoggingService>();
+            loggingService?.Log(message);
+        }
+        catch
+        {
+            // Ignore logging failures
         }
     }
 

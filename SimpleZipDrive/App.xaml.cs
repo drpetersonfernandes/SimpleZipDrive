@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Channels;
@@ -41,14 +42,41 @@ public partial class App
             Console.SetOut(redirectWriter);
             Console.SetError(redirectWriter);
 
-            // Write startup banner (same as old console version)
-            Console.WriteLine("Archive Drive using DokanNet (Streaming Access with In-Memory Entry Cache)");
-            Console.WriteLine("Supports: ZIP, 7Z, and RAR archives");
+            // Get logging service
+            var loggingService = ServiceProvider.Get<ILoggingService>();
 
-            // Initialize global exception handlers - MUST be done after console redirection
+            loggingService.Log("Archive Drive using DokanNet (Streaming Access with In-Memory Entry Cache)");
+            loggingService.Log("Supports: ZIP, 7Z, and RAR archives");
+            loggingService.Log("");
+            loggingService.Log("Usage 1 (Explicit Mount): SimpleZipDrive.exe <PathToArchiveFile> <MountPoint>");
+            loggingService.Log("Example: SimpleZipDrive.exe \"C:\\path\\to\\archive.zip\" M");
+            loggingService.Log("Example: SimpleZipDrive.exe \"C:\\path\\to\\archive.7z\" N");
+            loggingService.Log("Example: SimpleZipDrive.exe \"C:\\path\\to\\archive.rar\" O");
+            loggingService.Log(@"MountPoint can be a drive letter (e.g., M) or a path to an existing empty folder (e.g., C:\mount\zip)");
+            loggingService.Log("");
+            loggingService.Log("Usage 2 (Drag-and-Drop): Drag a .zip, .7z, or .rar file onto the SimpleZipDrive.exe icon.");
+            loggingService.Log(@"It will attempt to mount on M:\, then N:\, O:\, P:\, Q:\ automatically.");
+
+            loggingService.Log("");
+            var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
+            var updateService = ServiceProvider.TryGet<IUpdateService>();
+            if (updateService != null)
+            {
+                try
+                {
+                    updateService.CheckForUpdateAsync(ShutdownCts.Token);
+                }
+                catch
+                {
+                    // Ignore update check errors during startup
+                }
+            }
+
+            loggingService.Log("");
+
             ErrorLoggerStatic.InitializeGlobalExceptionHandlers();
 
-            // Run background tasks
+            // Run background tasks (stats)
             _ = RunBackgroundTasksAsync();
         }
         catch (Exception ex)
@@ -118,24 +146,7 @@ public partial class App
                 }, ShutdownCts.Token);
             }
 
-            // Check for updates (with cancellation support)
-            var updateService = ServiceProvider.TryGet<IUpdateService>();
-            if (updateService != null)
-            {
-                try
-                {
-                    await updateService.CheckForUpdateAsync(ShutdownCts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Expected during shutdown - no need to log
-                }
-                catch (Exception ex)
-                {
-                    // Update check failure - report silently
-                    ErrorLoggerStatic.ReportSilentException(ex, "UpdateService.CheckForUpdateAsync failed", true);
-                }
-            }
+            // Update check already done during startup
         }
         catch (OperationCanceledException)
         {
@@ -200,7 +211,14 @@ public partial class App
     // Legacy method for backward compatibility
     internal static void Log(string message)
     {
-        Console.WriteLine(message);
+        try
+        {
+            ServiceProvider.TryGet<ILoggingService>()?.Log(message);
+        }
+        catch
+        {
+            // Ignore logging failures
+        }
     }
 }
 

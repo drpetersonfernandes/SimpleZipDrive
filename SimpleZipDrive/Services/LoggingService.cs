@@ -18,8 +18,6 @@ public class LoggingService : ILoggingService
     /// <inheritdoc />
     public void Log(string message)
     {
-        if (string.IsNullOrWhiteSpace(message)) return;
-
         var entry = new LogEntry
         {
             Timestamp = DateTime.Now,
@@ -33,8 +31,6 @@ public class LoggingService : ILoggingService
     /// <inheritdoc />
     public void LogError(string message)
     {
-        if (string.IsNullOrWhiteSpace(message)) return;
-
         var entry = new LogEntry
         {
             Timestamp = DateTime.Now,
@@ -68,21 +64,21 @@ public class LoggingService : ILoggingService
                 return;
         }
 
-        // Use dispatcher if not on UI thread to avoid deadlock during shutdown
+        // Add entry directly or via dispatcher depending on thread
         if (Application.Current?.Dispatcher != null && !Application.Current.Dispatcher.CheckAccess())
         {
-            Application.Current.Dispatcher.InvokeAsync(() =>
+            // Not on UI thread - use dispatcher synchronously to preserve order
+            Application.Current.Dispatcher.Invoke(() =>
             {
                 LogEntries.Add(entry);
-
                 while (LogEntries.Count > MaxLogEntries)
                     LogEntries.RemoveAt(0);
-            }, DispatcherPriority.Background);
+            }, DispatcherPriority.Normal);
         }
         else
         {
+            // Already on UI thread - add directly
             LogEntries.Add(entry);
-
             while (LogEntries.Count > MaxLogEntries)
                 LogEntries.RemoveAt(0);
         }

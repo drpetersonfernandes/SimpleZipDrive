@@ -22,8 +22,9 @@ public partial class SettingsWindow
             {
                 _settingsService.Settings.MaxMemoryPerFileMb = value;
                 _settingsService.SaveSettings();
-                Console.WriteLine($"{AppTheme.Section("SETTINGS")}");
-                Console.WriteLine($"RAM limit per file updated to {value} MB. New mounts will use this value.");
+                var loggingService = ServiceProvider.TryGet<ILoggingService>();
+                loggingService?.Log($"{AppTheme.Section("SETTINGS")}");
+                loggingService?.Log($"RAM limit per file updated to {value} MB. New mounts will use this value.");
                 DialogResult = true;
                 Close();
             }
