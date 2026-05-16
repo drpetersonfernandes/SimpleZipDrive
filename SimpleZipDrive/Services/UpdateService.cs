@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Security.Authentication;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Windows;
 
 namespace SimpleZipDrive.Services;
 
@@ -85,28 +86,40 @@ public partial class UpdateService : IUpdateService, IDisposable
 
             if (latest <= current)
             {
-                _loggingService.Log("You are using the most updated version.");
+                // _loggingService.Log("You are using the most updated version.");
                 return;
             }
 
-            _loggingService.Log($"A newer version of {RepoName} is available:");
-            _loggingService.Log($"  Current : {current}");
-            _loggingService.Log($"  Latest  : {latest}");
+            // Show message box to user about the available update
+            var message = $"A newer version of {RepoName} is available.\n\n" +
+                          $"Current version: {current}\n" +
+                          $"Latest version: {latest}\n\n" +
+                          $"Would you like to open the download page in your browser?";
 
-            try
+            var result = MessageBox.Show(message, "Update Available", MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+            if (result == MessageBoxResult.Yes)
             {
-                ProcessStartInfo psi = new()
+                try
                 {
-                    FileName = htmlUrl,
-                    UseShellExecute = true
-                };
-                Process.Start(psi);
-                _loggingService.Log("Browser opened to latest release page.");
+                    ProcessStartInfo psi = new()
+                    {
+                        FileName = htmlUrl,
+                        UseShellExecute = true
+                    };
+                    Process.Start(psi);
+                    _loggingService.Log("Browser opened to latest release page.");
+                }
+                catch (Exception ex)
+                {
+                    _loggingService.Log($"Could not launch browser: {ex.Message}");
+                    MessageBox.Show($"Could not open browser automatically.\n\nPlease visit:\n{htmlUrl}",
+                        "Browser Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
             }
-            catch (Exception ex)
+            else
             {
-                _loggingService.Log($"Could not launch browser: {ex.Message}");
-                _loggingService.Log($"Visit: {htmlUrl}");
+                _loggingService.Log($"Update available but user declined to open download page. Visit: {htmlUrl}");
             }
         }
         catch (Exception ex)

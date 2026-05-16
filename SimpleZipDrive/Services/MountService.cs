@@ -1,4 +1,3 @@
-using System.Security.Principal;
 using System.Windows;
 using DokanNet;
 using DokanNet.Logging;
@@ -64,10 +63,12 @@ public class MountService : IDisposable, IMountService
             return Task.CompletedTask;
         }
 
-        if (!IsAdministrator())
+        if (!CheckForAdministratorRole.IsAdministrator())
         {
-            _loggingService.Log("\nWarning: Running without Administrator privileges.");
+            _loggingService.Log("");
+            _loggingService.Log("Warning: Running without Administrator privileges.");
             _loggingService.Log("Mounting to drive letters or certain paths may require elevated permissions.");
+            _loggingService.Log("");
         }
 
         ILogger logger = new ConsoleLogger(AppTheme.DokanLogPrefix);
@@ -158,6 +159,7 @@ public class MountService : IDisposable, IMountService
             using var dokan = new Dokan(logger);
             _loggingService.Log($"Dokan Library Version: {dokan.Version}");
             _loggingService.Log($"Dokan Driver Version: {dokan.DriverVersion}");
+            _loggingService.Log("");
             _loggingService.Log($"Attempting to mount on '{currentMountPoint}'...");
 
             if (await AttemptMountLifecycleAsync(archivePath, currentMountPoint, dokan, archiveType))
@@ -180,6 +182,7 @@ public class MountService : IDisposable, IMountService
         using var dokan = new Dokan(logger);
         _loggingService.Log($"Dokan Library Version: {dokan.Version}");
         _loggingService.Log($"Dokan Driver Version: {dokan.DriverVersion}");
+        _loggingService.Log("");
 
         if (!await AttemptMountLifecycleAsync(archivePath, mountPoint, dokan, archiveType))
         {
@@ -196,6 +199,10 @@ public class MountService : IDisposable, IMountService
         {
             var fileInfo = new FileInfo(archivePath);
             _loggingService.Log($"Processing {archiveType.ToUpperInvariant()} file: '{archivePath}', Size: {fileInfo.Length / 1024.0 / 1024.0:F2} MB");
+            _loggingService.Log("");
+
+            // Validate and clamp memory setting to prevent out-of-memory errors
+            var effectiveMaxMemoryBytes = GetValidatedMaxMemoryBytes();
 
             await using Stream fileStream = new FileStream(archivePath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
 
@@ -205,7 +212,7 @@ public class MountService : IDisposable, IMountService
                 ErrorLoggerStatic.LogErrorSync,
                 () => PromptForPassword(archivePath, archiveType), // Password callback using WPF dialog
                 archiveType,
-                _settingsService.Settings.MaxMemoryPerFileBytes);
+                effectiveMaxMemoryBytes);
 
             var builder = new DokanInstanceBuilder(dokan)
                 .ConfigureOptions(options =>
@@ -217,7 +224,9 @@ public class MountService : IDisposable, IMountService
             using (builder.Build(_currentZipFs))
             {
                 _loggingService.Log($"Successfully mounted on '{mountPoint}'.");
+                _loggingService.Log("");
                 _loggingService.Log("Use the Unmount button or close the window to unmount.");
+                _loggingService.Log("");
 
                 // Fire the status changed event immediately after successful mount
                 IsMounted = true;
@@ -276,6 +285,38 @@ public class MountService : IDisposable, IMountService
     }
 
     /// <summary>
+    /// Validates the configured max memory per file setting and clamps it to 90% of available system memory
+    /// if the configured value exceeds available memory. This prevents out-of-memory errors.
+    /// </summary>
+    /// <returns>The validated max memory bytes to use.</returns>
+    private long GetValidatedMaxMemoryBytes()
+    {
+        var configuredBytes = _settingsService.Settings.MaxMemoryPerFileBytes;
+
+        // Get available physical memory
+        var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+
+        // Calculate 90% of available memory as the maximum safe limit
+        var safeMaxMemory = (long)(availableMemory * 0.9);
+
+        if (configuredBytes > safeMaxMemory)
+        {
+            var configuredMb = configuredBytes / 1024.0 / 1024.0;
+            var availableMb = availableMemory / 1024.0 / 1024.0;
+            var safeMaxMb = safeMaxMemory / 1024.0 / 1024.0;
+
+            _loggingService.Log($"WARNING: Configured RAM cache ({configuredMb:F0} MB) exceeds available system memory.");
+            _loggingService.Log($"         Available memory: {availableMb:F0} MB");
+            _loggingService.Log($"         Using safe limit (90%): {safeMaxMb:F0} MB");
+            _loggingService.Log("");
+
+            return safeMaxMemory;
+        }
+
+        return configuredBytes;
+    }
+
+    /// <summary>
     /// Prompts the user for a password using a WPF dialog.
     /// This method is thread-safe and will marshal to the UI thread if necessary.
     /// </summary>
@@ -296,12 +337,5 @@ public class MountService : IDisposable, IMountService
             var result = passwordWindow.ShowDialog();
             return result == true ? passwordWindow.Password : null;
         });
-    }
-
-    private static bool IsAdministrator()
-    {
-        using var identity = WindowsIdentity.GetCurrent();
-        var principal = new WindowsPrincipal(identity);
-        return principal.IsInRole(WindowsBuiltInRole.Administrator);
     }
 }

@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Channels;
@@ -56,9 +55,8 @@ public partial class App
             loggingService.Log("");
             loggingService.Log("Usage 2 (Drag-and-Drop): Drag a .zip, .7z, or .rar file onto the SimpleZipDrive.exe icon.");
             loggingService.Log(@"It will attempt to mount on M:\, then N:\, O:\, P:\, Q:\ automatically.");
-
             loggingService.Log("");
-            var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
+
             var updateService = ServiceProvider.TryGet<IUpdateService>();
             if (updateService != null)
             {

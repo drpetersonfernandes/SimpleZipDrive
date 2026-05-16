@@ -12,9 +12,9 @@ public class AppSettings
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public int MaxMemoryPerFileMb { get; set; } = 512;
+    public long MaxMemoryPerFileMb { get; set; } = 512;
 
-    public int MaxMemoryPerFileBytes => MaxMemoryPerFileMb * 1024 * 1024;
+    public long MaxMemoryPerFileBytes => MaxMemoryPerFileMb * 1024 * 1024;
 
     public static AppSettings Load()
     {

@@ -36,14 +36,13 @@ public class ZipFs : IDokanOperations, IDisposable
 
     // Cache for large files extracted to disk. Key: normalized path in archive, Value: path to the temp file.
     private readonly Dictionary<string, string?> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly int _maxMemorySize;
+    private readonly long _maxMemorySize;
 
     // Cache for entries that failed to decompress (e.g., SharpCompress RAR unpacker bugs). Prevents repeated costly attempts.
     private readonly HashSet<string> _failedEntries = new(StringComparer.OrdinalIgnoreCase);
 
     // Memory throttling for small files to prevent unbounded resource consumption
-    private const long BytesPerMegabyte = 1024 * 1024;
-    private const long MaxTotalMemoryCache = 1024L * BytesPerMegabyte; // 1 GB total limit for all small files
+    private readonly long _maxTotalMemoryCache; // Dynamic total limit based on per-file setting
     private long _currentMemoryUsage;
     private readonly object _memoryLock = new();
 
@@ -52,7 +51,7 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly string _archiveType;
 
     private const string VolumeLabel = "SimpleZipDrive";
-    private const int DefaultMaxMemorySize = 512 * 1024 * 1024; // 512 MB default for file caching
+    private const long DefaultMaxMemorySize = 512L * 1024 * 1024; // 512 MB default for file caching
     private static readonly char[] Separator = ['/'];
 
     // Windows path length limits
@@ -127,7 +126,7 @@ public class ZipFs : IDokanOperations, IDisposable
     /// <param name="logErrorAction">Action to invoke when logging errors.</param>
     /// <param name="passwordProvider">Function that provides the password for encrypted archives.</param>
     /// <param name="archiveType">The type of archive ("zip", "7z", or "rar").</param>
-    /// <param name="maxMemorySize">Maximum memory size in bytes for caching a file in RAM before falling back to disk cache. Defaults to 512 MB.</param>
+    /// <param name="maxMemorySize">Maximum memory size in bytes for caching a file in RAM before falling back to disk cache. Defaults to 512 MB. Use 'long' type to support values larger than 2 GB.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="logErrorAction"/> is null.</exception>
     /// <exception cref="NotSupportedException">Thrown when the archive type is not supported.</exception>
     /// <remarks>
@@ -135,7 +134,7 @@ public class ZipFs : IDokanOperations, IDisposable
     /// The caller must ensure the stream remains open during the entire lifetime of this instance and dispose it after
     /// this <see cref="ZipFs"/> instance has been disposed.</para>
     /// </remarks>
-    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, int maxMemorySize = DefaultMaxMemorySize)
+    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = DefaultMaxMemorySize)
     {
         // Perform cleanup of orphaned temp directories from previous crashes (only once per app session)
         if (Interlocked.Exchange(ref _cleanupPerformed, 1) == 0)
@@ -148,6 +147,9 @@ public class ZipFs : IDokanOperations, IDisposable
         _passwordProvider = passwordProvider;
         _archiveType = archiveType.ToLowerInvariant();
         _maxMemorySize = maxMemorySize;
+        // Set total memory cache limit to 95% of available system memory to prevent OOM errors
+        var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+        _maxTotalMemoryCache = (long)(availableMemory * 0.95);
         // Use a unique directory per instance in the system temp folder to avoid collisions between multiple running instances
         _tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive", $"{Environment.ProcessId}_{Guid.NewGuid():N}");
 
@@ -165,6 +167,7 @@ public class ZipFs : IDokanOperations, IDisposable
             _archive = OpenArchive(archiveStream);
             InitializeEntries();
             LogMessage($"ZipFs Constructor: Using SharpCompress. Archive type: {_archiveType}, _sourceArchiveStream.CanSeek = {_sourceArchiveStream.CanSeek}, _sourceArchiveStream type = {_sourceArchiveStream.GetType().FullName}");
+            LogMessage("");
         }
         catch (Exception ex)
         {
@@ -493,6 +496,7 @@ public class ZipFs : IDokanOperations, IDisposable
                         else
                         {
                             LogMessage($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
+                            LogMessage("");
                             var newTempFilePath = CreateSecureTempFile();
 
                             if (entrySize >= 0)
@@ -524,12 +528,15 @@ public class ZipFs : IDokanOperations, IDisposable
                                 }
                             }
 
-                            using var entryStream = entry.OpenEntryStream();
-                            using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
-                            entryStream.CopyTo(tempFileStream);
-
+                            // CRITICAL: Lock during extraction to prevent concurrent stream access.
+                            // SharpCompress shares the underlying archive stream, and concurrent reads
+                            // from different entries cause stream position corruption, leading to
+                            // deflate decompression errors (invalid distance code, invalid block type, etc.)
                             lock (_archiveLock)
                             {
+                                using var entryStream = entry.OpenEntryStream();
+                                using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
+                                entryStream.CopyTo(tempFileStream);
                                 _largeFileCache[normalizedPath] = newTempFilePath;
                             }
 
@@ -567,7 +574,7 @@ public class ZipFs : IDokanOperations, IDisposable
                         lock (_memoryLock)
                         {
                             var projectedMemoryUsage = _currentMemoryUsage + entrySize;
-                            useDiskCache = projectedMemoryUsage > MaxTotalMemoryCache;
+                            useDiskCache = projectedMemoryUsage > _maxTotalMemoryCache;
                         }
 
                         if (useDiskCache)
@@ -585,12 +592,14 @@ public class ZipFs : IDokanOperations, IDisposable
                             {
                                 var newTempFilePath = CreateSecureTempFile();
 
-                                using var entryStream = entry.OpenEntryStream();
-                                using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
-                                entryStream.CopyTo(tempFileStream);
-
+                                // CRITICAL: Lock during extraction to prevent concurrent stream access.
+                                // SharpCompress shares the underlying archive stream, and concurrent reads
+                                // from different entries cause stream position corruption.
                                 lock (_archiveLock)
                                 {
+                                    using var entryStream = entry.OpenEntryStream();
+                                    using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
+                                    entryStream.CopyTo(tempFileStream);
                                     _largeFileCache[normalizedPath] = newTempFilePath;
                                 }
 
@@ -614,11 +623,18 @@ public class ZipFs : IDokanOperations, IDisposable
                         else
                         {
                             // --- Small file: Cache in memory ---
-                            using var entryStream = entry.OpenEntryStream();
-                            var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
-                            using var tempMs = new MemoryStream(capacity);
-                            entryStream.CopyTo(tempMs);
-                            var entryBytes = tempMs.ToArray();
+                            // CRITICAL: Lock during extraction to prevent concurrent stream access.
+                            // SharpCompress shares the underlying archive stream, and concurrent reads
+                            // from different entries cause stream position corruption.
+                            byte[] entryBytes;
+                            lock (_archiveLock)
+                            {
+                                using var entryStream = entry.OpenEntryStream();
+                                var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
+                                using var tempMs = new MemoryStream(capacity);
+                                entryStream.CopyTo(tempMs);
+                                entryBytes = tempMs.ToArray();
+                            }
 
                             // Track memory usage
                             lock (_memoryLock)

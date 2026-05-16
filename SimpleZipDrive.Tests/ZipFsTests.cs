@@ -808,9 +808,11 @@ public class ZipFsTests : IDisposable
     public void MemoryThrottlingFallsBackToDiskCache()
     {
         var memoryUsageField = typeof(ZipFs).GetField("_currentMemoryUsage", BindingFlags.NonPublic | BindingFlags.Instance);
+        var maxTotalCacheField = typeof(ZipFs).GetField("_maxTotalMemoryCache", BindingFlags.NonPublic | BindingFlags.Instance);
         Assert.NotNull(memoryUsageField);
+        Assert.NotNull(maxTotalCacheField);
 
-        const long maxTotalMemoryCache = 1073741824;
+        var maxTotalMemoryCache = (long)(maxTotalCacheField.GetValue(_zipFs) ?? 1073741824L);
         memoryUsageField.SetValue(_zipFs, maxTotalMemoryCache - 5);
 
         var info = new FakeDokanFileInfo();
