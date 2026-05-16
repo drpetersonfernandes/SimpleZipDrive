@@ -12,20 +12,41 @@ public class AppSettings
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    public long MaxMemoryPerFileMb { get; set; } = 512;
+    private long _maxMemoryPerFileMb = 512;
+
+    public long MaxMemoryPerFileMb
+    {
+        get => _maxMemoryPerFileMb;
+        set
+        {
+            // Get available system memory and calculate 90% limit
+            var availableMemoryBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+            var availableMemoryMb = availableMemoryBytes / 1024 / 1024;
+            var maxAllowedMb = (long)(availableMemoryMb * 0.9);
+
+            // Clamp to 90% of available memory if value is too high
+            if (value > maxAllowedMb)
+            {
+                _maxMemoryPerFileMb = maxAllowedMb;
+            }
+            else
+            {
+                _maxMemoryPerFileMb = value;
+            }
+        }
+    }
 
     public long MaxMemoryPerFileBytes => MaxMemoryPerFileMb * 1024 * 1024;
 
     public static AppSettings Load()
     {
+        AppSettings? settings = null;
         try
         {
             if (File.Exists(SettingsFilePath))
             {
                 var json = File.ReadAllText(SettingsFilePath);
-                var settings = JsonSerializer.Deserialize<AppSettings>(json);
-                if (settings != null)
-                    return settings;
+                settings = JsonSerializer.Deserialize<AppSettings>(json);
             }
         }
         catch (FileNotFoundException)
@@ -52,7 +73,20 @@ public class AppSettings
             ErrorLoggerStatic.ReportSilentException(ex, "AppSettings.Load: Unexpected error loading settings", true);
         }
 
-        return new AppSettings();
+        // Return validated settings or defaults
+        settings ??= new AppSettings();
+
+        // Re-apply validation in case the loaded value exceeds current system limits
+        var availableMemoryBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+        var availableMemoryMb = availableMemoryBytes / 1024 / 1024;
+        var maxAllowedMb = (long)(availableMemoryMb * 0.9);
+
+        if (settings.MaxMemoryPerFileMb > maxAllowedMb)
+        {
+            settings.MaxMemoryPerFileMb = maxAllowedMb;
+        }
+
+        return settings;
     }
 
     public void Save()

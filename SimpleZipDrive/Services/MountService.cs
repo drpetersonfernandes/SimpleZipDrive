@@ -201,8 +201,12 @@ public class MountService : IDisposable, IMountService
             _loggingService.Log($"Processing {archiveType.ToUpperInvariant()} file: '{archivePath}', Size: {fileInfo.Length / 1024.0 / 1024.0:F2} MB");
             _loggingService.Log("");
 
-            // Validate and clamp memory setting to prevent out-of-memory errors
-            var effectiveMaxMemoryBytes = GetValidatedMaxMemoryBytes();
+            // Log the effective RAM cache setting (validation happens in AppSettings)
+            var effectiveMaxMemoryBytes = _settingsService.Settings.MaxMemoryPerFileBytes;
+            var effectiveMaxMemoryMb = effectiveMaxMemoryBytes / 1024.0 / 1024.0;
+            var availableMemoryMb = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 1024.0 / 1024.0;
+            _loggingService.Log($"RAM cache limit: {effectiveMaxMemoryMb:F0} MB (Available system memory: {availableMemoryMb:F0} MB)");
+            _loggingService.Log("");
 
             await using Stream fileStream = new FileStream(archivePath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
 
@@ -282,38 +286,6 @@ public class MountService : IDisposable, IMountService
             MountPoint = CurrentMountPoint,
             ArchivePath = CurrentArchivePath
         });
-    }
-
-    /// <summary>
-    /// Validates the configured max memory per file setting and clamps it to 90% of available system memory
-    /// if the configured value exceeds available memory. This prevents out-of-memory errors.
-    /// </summary>
-    /// <returns>The validated max memory bytes to use.</returns>
-    private long GetValidatedMaxMemoryBytes()
-    {
-        var configuredBytes = _settingsService.Settings.MaxMemoryPerFileBytes;
-
-        // Get available physical memory
-        var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
-
-        // Calculate 90% of available memory as the maximum safe limit
-        var safeMaxMemory = (long)(availableMemory * 0.9);
-
-        if (configuredBytes > safeMaxMemory)
-        {
-            var configuredMb = configuredBytes / 1024.0 / 1024.0;
-            var availableMb = availableMemory / 1024.0 / 1024.0;
-            var safeMaxMb = safeMaxMemory / 1024.0 / 1024.0;
-
-            _loggingService.Log($"WARNING: Configured RAM cache ({configuredMb:F0} MB) exceeds available system memory.");
-            _loggingService.Log($"         Available memory: {availableMb:F0} MB");
-            _loggingService.Log($"         Using safe limit (90%): {safeMaxMb:F0} MB");
-            _loggingService.Log("");
-
-            return safeMaxMemory;
-        }
-
-        return configuredBytes;
     }
 
     /// <summary>

@@ -22,9 +22,24 @@ public partial class SettingsWindow
             {
                 _settingsService.Settings.MaxMemoryPerFileMb = value;
                 _settingsService.SaveSettings();
+
+                // Read back the actual stored value (may be capped due to system memory limits)
+                var actualValue = _settingsService.Settings.MaxMemoryPerFileMb;
                 var loggingService = ServiceProvider.TryGet<ILoggingService>();
                 loggingService?.Log($"{AppTheme.Section("SETTINGS")}");
-                loggingService?.Log($"RAM limit per file updated to {value} MB. New mounts will use this value.");
+
+                if (actualValue < value)
+                {
+                    // Value was capped due to system memory limits
+                    var availableMemoryMb = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 1024 / 1024;
+                    loggingService?.Log($"RAM limit per file capped to {actualValue} MB (90% of available {availableMemoryMb} MB system memory).");
+                    loggingService?.Log($"Entered value {value} MB exceeded safe limits and was adjusted.");
+                }
+                else
+                {
+                    loggingService?.Log($"RAM limit per file updated to {actualValue} MB. New mounts will use this value.");
+                }
+
                 DialogResult = true;
                 Close();
             }
