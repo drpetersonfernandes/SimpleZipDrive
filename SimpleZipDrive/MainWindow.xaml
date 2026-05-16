@@ -90,7 +90,6 @@
                          HorizontalScrollBarVisibility="Auto"
                          TextWrapping="NoWrap"
                          ContextMenu="{StaticResource LogContextMenu}"
-                         ScrollViewer.CanContentScroll="False"
                          ToolTip="Application log output. Right-click for options." />
             </Border>
         </Grid>

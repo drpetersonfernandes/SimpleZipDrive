@@ -59,12 +59,12 @@ public class LoggingService : ILoggingService
 
     private void AddEntry(LogEntry entry)
     {
-        // Prevent exact duplicate messages within short timeframe
+        // Prevent exact duplicate messages within short timeframe (100ms to account for async processing)
         if (LogEntries.Count > 0)
         {
             var lastEntry = LogEntries[^1];
             if (lastEntry.Message == entry.Message &&
-                (entry.Timestamp - lastEntry.Timestamp).TotalMilliseconds < 50)
+                (entry.Timestamp - lastEntry.Timestamp).TotalMilliseconds < 100)
                 return;
         }
 

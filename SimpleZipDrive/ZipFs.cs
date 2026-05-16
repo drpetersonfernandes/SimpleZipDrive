@@ -660,8 +660,11 @@ public class ZipFs : IDokanOperations, IDisposable
                 }
                 catch (ZlibException zlibEx)
                 {
-                    var contextMessage = $"ZipFs.CreateFile: Deflate decompression error for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB). The zip entry may be corrupted or the source stream returned invalid data.";
-                    Console.WriteLine($"\n{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data appears to be corrupted.");
+                    var contextMessage = $"ZipFs.CreateFile: Deflate decompression error for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB). The zip entry uses a compression method that may not be fully supported by the SharpCompress library.";
+                    Console.WriteLine($"\n{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
+                    Console.WriteLine("This file uses a compression method that is not fully compatible with SimpleZipDrive's decompression library.");
+                    Console.WriteLine("The archive file itself is likely fine - this is a library limitation, not file corruption.");
+                    Console.WriteLine($"{AppTheme.Bullet}Try extracting this file directly with WinRAR or 7-Zip instead.");
                     _logErrorAction(zlibEx, contextMessage);
                     lock (_archiveLock)
                     {

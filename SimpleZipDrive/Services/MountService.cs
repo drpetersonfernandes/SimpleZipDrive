@@ -1,6 +1,8 @@
 using System.Security.Principal;
+using System.Windows;
 using DokanNet;
 using DokanNet.Logging;
+using SimpleZipDrive.Views;
 
 namespace SimpleZipDrive.Services;
 
@@ -200,7 +202,8 @@ public class MountService : IDisposable, IMountService
             _currentZipFs = new ZipFs(
                 fileStream,
                 mountPoint,
-                ErrorLoggerStatic.LogErrorSync, static () => null, // Password callback - would need UI interaction
+                ErrorLoggerStatic.LogErrorSync,
+                () => PromptForPassword(archivePath, archiveType), // Password callback using WPF dialog
                 archiveType,
                 _settingsService.Settings.MaxMemoryPerFileBytes);
 
@@ -269,6 +272,29 @@ public class MountService : IDisposable, IMountService
             IsMounted = IsMounted,
             MountPoint = CurrentMountPoint,
             ArchivePath = CurrentArchivePath
+        });
+    }
+
+    /// <summary>
+    /// Prompts the user for a password using a WPF dialog.
+    /// This method is thread-safe and will marshal to the UI thread if necessary.
+    /// </summary>
+    /// <param name="archivePath">The path to the archive file.</param>
+    /// <param name="archiveType">The type of archive (zip, 7z, rar).</param>
+    /// <returns>The password entered by the user, or null if cancelled.</returns>
+    private static string? PromptForPassword(string archivePath, string archiveType)
+    {
+        // Use Dispatcher to show dialog on UI thread
+        return Application.Current?.Dispatcher.Invoke(() =>
+        {
+            var passwordWindow = new PasswordWindow(archivePath, archiveType)
+            {
+                Owner = Application.Current.MainWindow,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+
+            var result = passwordWindow.ShowDialog();
+            return result == true ? passwordWindow.Password : null;
         });
     }
 

@@ -37,9 +37,13 @@ public partial class App
             _originalConsoleOut = Console.Out;
             _originalConsoleError = Console.Error;
 
-            var redirectWriter = new LogTextWriter();
+            var redirectWriter = new LogTextWriter(_originalConsoleOut);
             Console.SetOut(redirectWriter);
             Console.SetError(redirectWriter);
+
+            // Write startup banner (same as old console version)
+            Console.WriteLine("Archive Drive using DokanNet (Streaming Access with In-Memory Entry Cache)");
+            Console.WriteLine("Supports: ZIP, 7Z, and RAR archives");
 
             // Initialize global exception handlers - MUST be done after console redirection
             ErrorLoggerStatic.InitializeGlobalExceptionHandlers();
@@ -210,9 +214,12 @@ internal class LogTextWriter : TextWriter, IDisposable
     private readonly Channel<string> _channel;
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _processingTask;
+    private readonly TextWriter? _fallbackWriter;
 
-    public LogTextWriter()
+    public LogTextWriter(TextWriter? fallbackWriter = null)
     {
+        _fallbackWriter = fallbackWriter;
+
         // Unbounded channel for maximum throughput - messages are processed asynchronously
         _channel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
         {
@@ -226,8 +233,6 @@ internal class LogTextWriter : TextWriter, IDisposable
 
     public override void Write(char value)
     {
-        // Fast path: single character writes are batched by WriteLine
-        // For individual characters, we still need to handle them but they're rare in practice
         _channel.Writer.TryWrite(value.ToString());
     }
 
@@ -238,6 +243,13 @@ internal class LogTextWriter : TextWriter, IDisposable
         _channel.Writer.TryWrite(value);
     }
 
+    public override void Write(char[] buffer, int index, int count)
+    {
+        if (count <= 0) return;
+
+        _channel.Writer.TryWrite(new string(buffer, index, count));
+    }
+
     public override void WriteLine()
     {
         _channel.Writer.TryWrite(string.Empty); // Empty string signals end of line
@@ -245,13 +257,14 @@ internal class LogTextWriter : TextWriter, IDisposable
 
     public override void WriteLine(string? value)
     {
-        // Combine the value with line ending in a single operation
         _channel.Writer.TryWrite(value ?? string.Empty);
+        _channel.Writer.TryWrite(string.Empty); // Signal end of line to flush buffer
     }
 
     public override void WriteLine(ReadOnlySpan<char> value)
     {
         _channel.Writer.TryWrite(value.ToString());
+        _channel.Writer.TryWrite(string.Empty); // Signal end of line to flush buffer
     }
 
     private async Task ProcessMessagesAsync(CancellationToken cancellationToken)
@@ -284,7 +297,7 @@ internal class LogTextWriter : TextWriter, IDisposable
         }
     }
 
-    private static void FlushBufferToLog(StringBuilder buffer)
+    private void FlushBufferToLog(StringBuilder buffer)
     {
         if (buffer.Length == 0) return;
 
@@ -292,7 +305,15 @@ internal class LogTextWriter : TextWriter, IDisposable
         if (string.IsNullOrWhiteSpace(message)) return;
 
         var loggingService = ServiceProvider.TryGet<ILoggingService>();
-        loggingService?.Log(message);
+        if (loggingService != null)
+        {
+            loggingService.Log(message);
+        }
+        else
+        {
+            // Fallback: write to original console if service not available
+            _fallbackWriter?.WriteLine(message);
+        }
     }
 
     public new void Dispose()
