@@ -11,6 +11,7 @@ namespace SimpleZipDrive.Services;
 public class LoggingService : ILoggingService
 {
     private const int MaxLogEntries = 5000;
+    private readonly object _lock = new();
 
     /// <inheritdoc />
     public ObservableCollection<LogEntry> LogEntries { get; } = [];
@@ -55,7 +56,30 @@ public class LoggingService : ILoggingService
 
     private void AddEntry(LogEntry entry)
     {
-        // Prevent exact duplicate messages within short timeframe (100ms to account for async processing)
+        var dispatcher = Application.Current?.Dispatcher;
+
+        if (dispatcher != null)
+        {
+            if (!dispatcher.CheckAccess())
+            {
+                dispatcher.Invoke(() => AddEntryCore(entry), DispatcherPriority.Normal);
+            }
+            else
+            {
+                AddEntryCore(entry);
+            }
+        }
+        else
+        {
+            lock (_lock)
+            {
+                AddEntryCore(entry);
+            }
+        }
+    }
+
+    private void AddEntryCore(LogEntry entry)
+    {
         if (LogEntries.Count > 0)
         {
             var lastEntry = LogEntries[^1];
@@ -64,23 +88,8 @@ public class LoggingService : ILoggingService
                 return;
         }
 
-        // Add entry directly or via dispatcher depending on thread
-        if (Application.Current?.Dispatcher != null && !Application.Current.Dispatcher.CheckAccess())
-        {
-            // Not on UI thread - use dispatcher synchronously to preserve order
-            Application.Current.Dispatcher.Invoke(() =>
-            {
-                LogEntries.Add(entry);
-                while (LogEntries.Count > MaxLogEntries)
-                    LogEntries.RemoveAt(0);
-            }, DispatcherPriority.Normal);
-        }
-        else
-        {
-            // Already on UI thread - add directly
-            LogEntries.Add(entry);
-            while (LogEntries.Count > MaxLogEntries)
-                LogEntries.RemoveAt(0);
-        }
+        LogEntries.Add(entry);
+        while (LogEntries.Count > MaxLogEntries)
+            LogEntries.RemoveAt(0);
     }
 }

@@ -7,65 +7,10 @@ using System.Text.Json;
 namespace SimpleZipDrive;
 
 /// <summary>
-/// Event arguments for the ErrorLogged event.
-/// </summary>
-public class ErrorLoggedEventArgs : EventArgs
-{
-    public Exception? Exception { get; init; }
-    public string Context { get; init; } = string.Empty;
-    public bool WasSentToApi { get; init; }
-}
-
-/// <summary>
-/// Interface for error logging and bug reporting service.
-/// Enables testability and dependency injection.
-/// </summary>
-public interface IErrorLogger
-{
-    /// <summary>
-    /// Event that fires when an error is logged. Can be used for UI notifications.
-    /// </summary>
-    event EventHandler<ErrorLoggedEventArgs>? ErrorLogged;
-
-    /// <summary>
-    /// Initializes global exception handlers to catch all unhandled exceptions.
-    /// Must be called once at application startup.
-    /// </summary>
-    void InitializeGlobalExceptionHandlers();
-
-    /// <summary>
-    /// Reports an exception that was silently caught. Use this for exceptions that were
-    /// previously being ignored with empty catch blocks.
-    /// </summary>
-    /// <param name="ex">The exception that was caught.</param>
-    /// <param name="context">Description of where/why the exception occurred.</param>
-    /// <param name="silent">If true, only logs to file without showing console output.</param>
-    void ReportSilentException(Exception ex, string context, bool silent = false);
-
-    /// <summary>
-    /// Logs an error synchronously. This method blocks until logging is complete
-    /// and the API call has finished (or timed out after 30 seconds).
-    /// Use this when the application is about to exit or crash.
-    /// </summary>
-    /// <param name="ex">The exception to log.</param>
-    /// <param name="contextMessage">Additional context about where the error occurred.</param>
-    void LogErrorSync(Exception? ex, string? contextMessage = null);
-
-    /// <summary>
-    /// Logs an error asynchronously. This method returns immediately and logs in the background.
-    /// Use this for normal error handling where the application continues running.
-    /// </summary>
-    /// <param name="ex">The exception to log.</param>
-    /// <param name="contextMessage">Additional context about where the error occurred.</param>
-    /// <param name="cancellationToken">Cancellation token for the async operation.</param>
-    Task LogErrorAsync(Exception? ex, string? contextMessage = null, CancellationToken cancellationToken = default);
-}
-
-/// <summary>
 /// Centralized error logging and bug reporting service implementation.
 /// Sends all non-user errors to the remote bug report API with full environment and exception details.
 /// </summary>
-public class ErrorLogger : IErrorLogger, IDisposable
+public class ErrorLogger : IDisposable
 {
     private const string ApiKey = "hjh7yu6t56tyr540o9u8767676r5674534453235264c75b6t7ggghgg76trf564e";
     private const string BugReportApiUrl = "https://www.purelogiccode.com/bugreport/api/send-bug-report";
@@ -74,11 +19,6 @@ public class ErrorLogger : IErrorLogger, IDisposable
     private readonly HttpClient _httpClient;
 
     private readonly string _baseDirectory;
-
-    /// <summary>
-    /// Event that fires when an error is logged. Can be used for UI notifications.
-    /// </summary>
-    public event EventHandler<ErrorLoggedEventArgs>? ErrorLogged;
 
     /// <summary>
     /// Gets or sets the error log file path. Used for testing.
@@ -164,14 +104,6 @@ public class ErrorLogger : IErrorLogger, IDisposable
                 Console.Error.WriteLine($"Context: {context}");
                 Console.Error.WriteLine($"Exception: {ex.GetType().Name} - {ex.Message}");
             }
-
-            // Fire event for UI notification
-            ErrorLogged?.Invoke(this, new ErrorLoggedEventArgs
-            {
-                Exception = ex,
-                Context = context,
-                WasSentToApi = false
-            });
 
             // Send to API in background (don't block)
             if (!IsUserError(ex))
@@ -353,11 +285,17 @@ public class ErrorLogger : IErrorLogger, IDisposable
         }
     }
 
-    private static string FormatErrorMessage(Exception ex, string contextMessage)
+    private static (string Version, string OsDescription, string OsArchitecture) GetBasicEnvironmentInfo()
     {
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
         var osDescription = RuntimeInformation.OSDescription;
         var osArchitecture = RuntimeInformation.OSArchitecture.ToString();
+        return (version, osDescription, osArchitecture);
+    }
+
+    private static string FormatErrorMessage(Exception ex, string contextMessage)
+    {
+        var (version, osDescription, osArchitecture) = GetBasicEnvironmentInfo();
         var frameworkDescription = RuntimeInformation.FrameworkDescription;
 
         var fullErrorMessage = new StringBuilder();
@@ -386,9 +324,7 @@ public class ErrorLogger : IErrorLogger, IDisposable
 
     private string GetEnvironmentDetails()
     {
-        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
-        var osDescription = RuntimeInformation.OSDescription;
-        var osArchitecture = RuntimeInformation.OSArchitecture.ToString();
+        var (version, osDescription, osArchitecture) = GetBasicEnvironmentInfo();
         var processorCount = Environment.ProcessorCount;
         var tempPath = Path.GetTempPath();
 
@@ -527,7 +463,7 @@ public class ErrorLogger : IErrorLogger, IDisposable
     {
         try
         {
-            var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown";
+            var (version, _, _) = GetBasicEnvironmentInfo();
             var environmentDetails = GetEnvironmentDetails();
             var errorDetails = GetErrorDetails(ex, contextMessage);
             var exceptionDetails = GetExceptionDetails(ex);
@@ -544,7 +480,6 @@ public class ErrorLogger : IErrorLogger, IDisposable
                 applicationName = ApplicationName,
                 version,
                 userInfo = contextMessage,
-                environment = environmentDetails,
                 stackTrace = ex.StackTrace ?? "No stack trace available"
             };
             var jsonPayload = JsonSerializer.Serialize(payload);
@@ -607,16 +542,7 @@ public static class ErrorLoggerStatic
     /// <summary>
     /// Gets the singleton ErrorLogger instance.
     /// </summary>
-    public static IErrorLogger Instance => Instance2.Value;
-
-    /// <summary>
-    /// Event that fires when an error is logged. Can be used for UI notifications.
-    /// </summary>
-    public static event EventHandler<ErrorLoggedEventArgs>? ErrorLogged
-    {
-        add => Instance2.Value.ErrorLogged += value;
-        remove => Instance2.Value.ErrorLogged -= value;
-    }
+    public static ErrorLogger Instance => Instance2.Value;
 
     /// <summary>
     /// Initializes global exception handlers to catch all unhandled exceptions.

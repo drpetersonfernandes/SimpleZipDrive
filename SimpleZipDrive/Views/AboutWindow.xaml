@@ -17,19 +17,15 @@
         <!-- Title -->
         <TextBlock Grid.Row="0" 
                    Text="Simple Zip Drive" 
-                   FontSize="24" 
-                   FontWeight="Bold" 
+                   Style="{StaticResource TitleTextBlockStyle}"
                    Margin="0,0,0,5"
-                   Foreground="{StaticResource TextPrimaryBrush}"
                    ToolTip="Application name" />
 
         <!-- Version -->
         <TextBlock Grid.Row="1" 
                    x:Name="VersionTextBlock" 
-                   FontSize="13"
-                   Foreground="{StaticResource AccentSecondaryBrush}" 
+                   Style="{StaticResource AccentTextBlockStyle}"
                    Margin="0,0,0,20"
-                   FontWeight="SemiBold"
                    ToolTip="Current application version" />
 
         <!-- Description Card -->
@@ -42,9 +38,7 @@
                 Margin="0,0,0,15"
                 ToolTip="Application description">
             <TextBlock TextWrapping="Wrap" 
-                       FontSize="13"
-                       LineHeight="20"
-                       Foreground="{StaticResource TextSecondaryBrush}"
+                       Style="{StaticResource BodyTextBlockStyle}"
                        ToolTip="A high-performance, user-mode filesystem utility">
                 A high-performance, user-mode filesystem utility that allows you
                 to mount ZIP, 7Z, and RAR archives as virtual drives or NTFS
@@ -75,8 +69,7 @@
             </TextBlock>
             
             <TextBlock TextWrapping="Wrap"
-                       Foreground="{StaticResource TextMutedBrush}"
-                       FontStyle="Italic"
+                       Style="{StaticResource MutedItalicTextBlockStyle}"
                        ToolTip="Developer website">
                 www.purelogiccode.com
             </TextBlock>

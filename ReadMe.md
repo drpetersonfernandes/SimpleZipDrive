@@ -20,11 +20,12 @@ Unlike traditional archive utilities that extract the entire archive to a tempor
 *   **Virtual Drive Mounting:** Mount any supported archive as a dedicated drive letter (e.g., `M:\`) or a folder path.
 *   **Hybrid Caching Engine:**
     *   **Small Files:** Cached in-memory for near-instantaneous access.
-    *   **Large Files (>512MB):** Automatically offloaded to a temporary disk cache to prevent RAM exhaustion.
+    *   **Large Files (≥512 MB by default):** Automatically offloaded to a temporary disk cache to prevent RAM exhaustion. The per-file memory threshold can be adjusted via the Settings window.
 *   **Streaming Architecture:** The source archive is accessed via a direct file stream, supporting archives of virtually any size.
 *   **Zero-Configuration UI:** Supports drag-and-drop functionality for automatic mounting to the first available drive letter (M-Q).
+*   **Configurable Cache:** Open `Settings > RAM Limit` to adjust the per-file RAM cache limit. The value is automatically clamped to 90% of available system memory to prevent out-of-memory errors.
 *   **Encrypted Archive Support:** Prompts for passwords when accessing protected archives.
-*   **Automated Maintenance:** Integrated update checker and automatic cleanup of temporary cache files upon unmounting. Also cleans up orphaned temp directories from previous sessions on startup.
+*   **Automated Maintenance:** Integrated update checker (with MessageBox prompt before opening the browser) and automatic cleanup of temporary cache files upon unmounting. Also cleans up orphaned temp directories from previous sessions on startup.
 *   **Enterprise Logging:** Comprehensive error tracking with local log rotation and remote diagnostic reporting.
 
 ---
@@ -71,15 +72,15 @@ SimpleZipDrive.exe <PathToArchiveFile> <MountPoint>
 
 ### Unmounting
 To safely unmount the drive and clean up temporary resources:
-1.  Focus the console window.
-2.  Press `Ctrl + C` or simply close the window.
+1.  Click the **Unmount** button in the toolbar.
+2.  Alternatively, close the application window.
 
 ---
 
 ## 🔍 Technical Architecture
 
 *   **Read-Only Integrity:** The filesystem is strictly read-only. No modifications are made to the source archive.
-*   **Memory Efficiency:** The application does not load the entire archive into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested.
+*   **Memory Efficiency:** The application does not load the entire archive into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested. The per-file RAM cache limit is configurable via `Settings > RAM Limit` and is automatically clamped to 90% of available system memory. A global memory cap at 95% of system memory ensures stability even under heavy load.
 *   **Permissions:** Mounting to drive letters or system-protected directories may require **Administrator Privileges**. If you encounter "Access Denied" errors, right-click the executable and select "Run as Administrator."
 *   **Temporary Storage:** Disk-based caching for large files occurs in `%TEMP%\SimpleZipDrive`. These files are purged automatically during graceful shutdown, and orphaned directories from crashed sessions are cleaned up on application startup.
 

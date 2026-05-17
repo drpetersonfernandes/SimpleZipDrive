@@ -17,7 +17,7 @@
         <!-- Top Menu -->
         <Menu Grid.Row="0">
             <MenuItem Header="File" ToolTip="File operations">
-                <MenuItem Header="Mount Archive..." Click="Mount_Click" InputGestureText="Ctrl+M" ToolTip="Select a ZIP, 7Z, or RAR archive to mount as a virtual drive" />
+                <MenuItem Header="Mount Archive..." Click="Mount_ClickAsync" InputGestureText="Ctrl+M" ToolTip="Select a ZIP, 7Z, or RAR archive to mount as a virtual drive" />
                 <Separator />
                 <MenuItem Header="Exit" Click="Exit_Click" InputGestureText="Alt+F4" ToolTip="Close the application" />
             </MenuItem>
@@ -48,7 +48,7 @@
                     <!-- Mount Button -->
                     <Button x:Name="MountButton" 
                             Content="Mount" 
-                            Click="Mount_Click" 
+                            Click="Mount_ClickAsync" 
                             Width="90" 
                             Margin="0,0,8,0"
                             Style="{StaticResource PrimaryButtonStyle}"
@@ -57,7 +57,7 @@
                     <!-- Unmount Button -->
                     <Button x:Name="UnmountButton" 
                             Content="Unmount" 
-                            Click="Unmount_Click" 
+                            Click="Unmount_ClickAsync" 
                             Width="90" 
                             Margin="0,0,8,0"
                             IsEnabled="False"
@@ -78,17 +78,7 @@
                     BorderThickness="1"
                     CornerRadius="0,0,3,3">
                 <TextBox x:Name="LogTextBox"
-                         IsReadOnly="True"
-                         IsReadOnlyCaretVisible="False"
-                         Background="{StaticResource BgPrimaryBrush}"
-                         Foreground="{StaticResource TextSecondaryBrush}"
-                         FontFamily="{StaticResource MonospaceFontFamily}"
-                         FontSize="12"
-                         BorderThickness="0"
-                         Padding="8"
-                         VerticalScrollBarVisibility="Auto"
-                         HorizontalScrollBarVisibility="Auto"
-                         TextWrapping="Wrap"
+                         Style="{StaticResource LogTextBoxStyle}"
                          ContextMenu="{StaticResource LogContextMenu}"
                          ToolTip="Application log output. Right-click for options." />
             </Border>

@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.RegularExpressions;
@@ -21,7 +20,7 @@ public class ZipFs : IDokanOperations, IDisposable
     private const int MaxRegexCacheSize = 100; // Limit cache size to prevent unbounded growth
 
     /// <summary>
-    /// The source archive stream. This stream is owned by the caller and is NOT disposed by this instance.
+    /// The source archive stream. This instance takes ownership and disposes it.
     /// </summary>
     private readonly Stream _sourceArchiveStream;
 
@@ -35,7 +34,7 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly object _archiveLock = new();
 
     // Cache for large files extracted to disk. Key: normalized path in archive, Value: path to the temp file.
-    private readonly Dictionary<string, string?> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly long _maxMemorySize;
 
     // Cache for entries that failed to decompress (e.g., SharpCompress RAR unpacker bugs). Prevents repeated costly attempts.
@@ -106,22 +105,22 @@ public class ZipFs : IDokanOperations, IDisposable
                         Directory.Delete(dir, true);
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore errors for individual directories
+                    ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.CleanupOrphanedTempDirectories: Error cleaning directory '{dir}'", true);
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore cleanup errors - this is best-effort
+            ErrorLoggerStatic.ReportSilentException(ex, "ZipFs.CleanupOrphanedTempDirectories: Error during cleanup", true);
         }
     }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ZipFs"/> class.
     /// </summary>
-    /// <param name="archiveStream">The stream containing the archive data. The caller retains ownership of this stream and is responsible for disposing it.</param>
+    /// <param name="archiveStream">The stream containing the archive data. This instance takes ownership and will dispose it.</param>
     /// <param name="mountPoint">The mount point for the virtual drive (used for logging purposes).</param>
     /// <param name="logErrorAction">Action to invoke when logging errors.</param>
     /// <param name="passwordProvider">Function that provides the password for encrypted archives.</param>
@@ -130,9 +129,8 @@ public class ZipFs : IDokanOperations, IDisposable
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="logErrorAction"/> is null.</exception>
     /// <exception cref="NotSupportedException">Thrown when the archive type is not supported.</exception>
     /// <remarks>
-    /// <para><strong>Important:</strong> The <paramref name="archiveStream"/> is stored by reference but NOT disposed by this instance.
-    /// The caller must ensure the stream remains open during the entire lifetime of this instance and dispose it after
-    /// this <see cref="ZipFs"/> instance has been disposed.</para>
+    /// <para><strong>Important:</strong> This instance takes ownership of <paramref name="archiveStream"/> and will dispose it
+    /// when <see cref="Dispose"/> is called.</para>
     /// </remarks>
     public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = DefaultMaxMemorySize)
     {
@@ -360,9 +358,9 @@ public class ZipFs : IDokanOperations, IDisposable
             var loggingService = ServiceProvider.TryGet<ILoggingService>();
             loggingService?.Log(message);
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore logging errors to prevent cascading failures
+            ErrorLoggerStatic.ReportSilentException(ex, "ZipFs.LogMessage: Logging service error", true);
         }
     }
 
@@ -489,10 +487,13 @@ public class ZipFs : IDokanOperations, IDisposable
                     if (entrySize >= _maxMemorySize || entrySize < 0)
                     {
                         // --- Large file: Cache to disk ---
-                        string? cachedPath;
+                        string? cachedPath = null;
                         lock (_archiveLock)
                         {
-                            _largeFileCache.TryGetValue(normalizedPath, out cachedPath);
+                            if (_largeFileCache.TryGetValue(normalizedPath, out var path))
+                            {
+                                cachedPath = path;
+                            }
                         }
 
                         if (cachedPath != null)
@@ -518,9 +519,9 @@ public class ZipFs : IDokanOperations, IDisposable
                                         {
                                             File.Delete(newTempFilePath);
                                         }
-                                        catch
+                                        catch (Exception ex)
                                         {
-                                            /* Best effort cleanup */
+                                            ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.CreateFile: Failed to delete temp file '{newTempFilePath}' during disk space check", true);
                                         }
 
                                         var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).";
@@ -588,10 +589,13 @@ public class ZipFs : IDokanOperations, IDisposable
                             // --- Memory limit exceeded: Fall back to disk caching ---
                             LogMessage($"Memory limit approaching. Using disk cache for small file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).");
 
-                            string? cachedPath;
+                            string? cachedPath = null;
                             lock (_archiveLock)
                             {
-                                _largeFileCache.TryGetValue(normalizedPath, out cachedPath);
+                                if (_largeFileCache.TryGetValue(normalizedPath, out var path))
+                                {
+                                    cachedPath = path;
+                                }
                             }
 
                             if (cachedPath == null)
@@ -821,11 +825,10 @@ public class ZipFs : IDokanOperations, IDisposable
         // Defensive null check
         if (info.Context is not Stream stream)
         {
-            // Log but return a more appropriate error code
             _logErrorAction(
-                new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was null. This indicates Cleanup was called before CloseFile."),
+                new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was null. This indicates CloseFile was already called."),
                 "ZipFs.ReadFile: Context is null - handle already cleaned up.");
-            return DokanResult.Error;
+            return DokanResult.InvalidHandle;
         }
 
         try
@@ -904,8 +907,11 @@ public class ZipFs : IDokanOperations, IDisposable
             }
             else
             {
+                if (entry.Key == null)
+                    return DokanResult.Error;
+
                 fileInfo.Attributes = FileAttributes.Archive | FileAttributes.ReadOnly;
-                fileInfo.FileName = Path.GetFileName(entry.Key) ?? throw new InvalidOperationException("entry.Key is null");
+                fileInfo.FileName = Path.GetFileName(entry.Key);
                 fileInfo.Length = entry.Size;
                 fileInfo.LastWriteTime = entry.LastModifiedTime ?? DateTime.Now;
                 fileInfo.CreationTime = entry.CreatedTime ?? DateTime.Now;
@@ -944,96 +950,101 @@ public class ZipFs : IDokanOperations, IDisposable
         // Use HashSet for O(1) duplicate checking instead of GroupBy
         var seenFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // All dictionaries (_archiveEntries, _directoryCreationTimes, etc.) are immutable after
+        // InitializeEntries() completes. The lock serves only as a memory barrier to ensure
+        // visibility of the fully-populated data on all threads. We enter and exit immediately
+        // so that FindFiles does not block concurrent CreateFile (stream extraction) operations.
         lock (_archiveLock)
         {
-            var isExplicitDirEntry = _archiveEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectory(dirEntry);
-            var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
+        }
 
-            if (!isExplicitDirEntry && !isImplicitDir)
+        var isExplicitDirEntry = _archiveEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectory(dirEntry);
+        var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
+
+        if (!isExplicitDirEntry && !isImplicitDir)
+        {
+            files = Array.Empty<FileInformation>();
+            return DokanResult.PathNotFound;
+        }
+
+        var searchPrefix = normalizedPath.TrimEnd('/') + (normalizedPath == "/" ? "" : "/");
+        if (normalizedPath == "/")
+        {
+            searchPrefix = "/";
+        }
+
+        // Process entries directly without creating intermediate collections
+        foreach (var kvp in _archiveEntries)
+        {
+            var path = kvp.Key;
+            if (path.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+
+            var remainder = path.Substring(searchPrefix.Length);
+            // Include direct children (no slashes) or direct child directories (single component ending with /)
+            var slashIndex = remainder.IndexOf('/');
+            if (slashIndex != -1)
             {
-                files = Array.Empty<FileInformation>();
-                return DokanResult.PathNotFound;
+                // Has slash - only include if it's a directory entry AND the slash is at the end (direct child dir)
+                if (!(remainder.EndsWith('/') && slashIndex == remainder.Length - 1))
+                    continue;
             }
 
-            var searchPrefix = normalizedPath.TrimEnd('/') + (normalizedPath == "/" ? "" : "/");
-            if (normalizedPath == "/")
+            var entry = kvp.Value;
+            string? fileNameOnly = null;
+
+            if (IsDirectory(entry))
             {
-                searchPrefix = "/";
-            }
-
-            // Process entries directly without creating intermediate collections
-            foreach (var kvp in _archiveEntries)
-            {
-                var path = kvp.Key;
-                if (path.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-                if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-
-                var remainder = path.Substring(searchPrefix.Length);
-                // Include direct children (no slashes) or direct child directories (single component ending with /)
-                var slashIndex = remainder.IndexOf('/');
-                if (slashIndex != -1)
+                // ReSharper disable once ConditionIsAlwaysTrueAccordingToNullableAPIContract
+                if (entry.Key != null)
                 {
-                    // Has slash - only include if it's a directory entry AND the slash is at the end (direct child dir)
-                    if (!(remainder.EndsWith('/') && slashIndex == remainder.Length - 1))
-                        continue;
-                }
-
-                var entry = kvp.Value;
-                string? fileNameOnly = null;
-
-                if (IsDirectory(entry))
-                {
-                    // ReSharper disable once ConditionIsAlwaysTrueAccordingToNullableAPIContract
-                    if (entry.Key != null)
-                    {
-                        var tempFullName = entry.Key.TrimEnd('/', '\\');
-                        fileNameOnly = Path.GetFileName(tempFullName);
-                    }
-                }
-                else
-                {
-                    fileNameOnly = Path.GetFileName(entry.Key);
-                }
-
-                if (!string.IsNullOrEmpty(fileNameOnly) && seenFileNames.Add(fileNameOnly))
-                {
-                    resultFiles.Add(new FileInformation
-                    {
-                        FileName = fileNameOnly,
-                        Attributes = IsDirectory(entry) ? FileAttributes.Directory : (FileAttributes.Archive | FileAttributes.ReadOnly),
-                        Length = entry.Size,
-                        LastWriteTime = entry.LastModifiedTime ?? DateTime.Now,
-                        CreationTime = entry.CreatedTime ?? DateTime.Now,
-                        LastAccessTime = DateTime.Now
-                    });
+                    var tempFullName = entry.Key.TrimEnd('/', '\\');
+                    fileNameOnly = Path.GetFileName(tempFullName);
                 }
             }
-
-            // Process implicit directories directly
-            foreach (var dirPathKey in _directoryCreationTimes.Keys)
+            else
             {
-                if (dirPathKey.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-                if (!dirPathKey.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                fileNameOnly = Path.GetFileName(entry.Key);
+            }
 
-                var remainder = dirPathKey.Substring(searchPrefix.Length);
-                if (remainder.Contains('/') || string.IsNullOrEmpty(remainder)) continue;
-
-                var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
-                if (!string.IsNullOrEmpty(name) && seenFileNames.Add(name))
+            if (!string.IsNullOrEmpty(fileNameOnly) && seenFileNames.Add(fileNameOnly))
+            {
+                resultFiles.Add(new FileInformation
                 {
-                    _directoryCreationTimes.TryGetValue(dirPathKey, out var ct);
-                    _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
-                    _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
+                    FileName = fileNameOnly,
+                    Attributes = IsDirectory(entry) ? FileAttributes.Directory : (FileAttributes.Archive | FileAttributes.ReadOnly),
+                    Length = entry.Size,
+                    LastWriteTime = entry.LastModifiedTime ?? DateTime.Now,
+                    CreationTime = entry.CreatedTime ?? DateTime.Now,
+                    LastAccessTime = DateTime.Now
+                });
+            }
+        }
 
-                    resultFiles.Add(new FileInformation
-                    {
-                        FileName = name,
-                        Attributes = FileAttributes.Directory,
-                        LastWriteTime = lwt,
-                        CreationTime = ct,
-                        LastAccessTime = lat
-                    });
-                }
+        // Process implicit directories directly
+        foreach (var dirPathKey in _directoryCreationTimes.Keys)
+        {
+            if (dirPathKey.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!dirPathKey.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+
+            var remainder = dirPathKey.Substring(searchPrefix.Length);
+            if (remainder.Contains('/') || string.IsNullOrEmpty(remainder)) continue;
+
+            var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
+            if (!string.IsNullOrEmpty(name) && seenFileNames.Add(name))
+            {
+                _directoryCreationTimes.TryGetValue(dirPathKey, out var ct);
+                _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
+                _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
+
+                resultFiles.Add(new FileInformation
+                {
+                    FileName = name,
+                    Attributes = FileAttributes.Directory,
+                    LastWriteTime = lwt,
+                    CreationTime = ct,
+                    LastAccessTime = lat
+                });
             }
         }
 
@@ -1081,7 +1092,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public NtStatus GetDiskFreeSpace(out long freeBytesAvailable, out long totalNumberOfBytes, out long totalNumberOfFreeBytes, IDokanFileInfo info)
     {
-        totalNumberOfBytes = _sourceArchiveStream.CanSeek ? _sourceArchiveStream.Length : long.MaxValue;
+        totalNumberOfBytes = _sourceArchiveStream.CanSeek ? _sourceArchiveStream.Length : 0;
         freeBytesAvailable = 0;
         totalNumberOfFreeBytes = 0;
         return DokanResult.Success;
@@ -1197,38 +1208,42 @@ public class ZipFs : IDokanOperations, IDisposable
     {
         var tempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
 
-        // Create an empty file first
         File.Create(tempFilePath).Dispose();
 
-        // Use FileInfo to get and set access control
-        var fileInfo = new FileInfo(tempFilePath);
-
-        // Get the current file security settings
-        var fileSecurity = fileInfo.GetAccessControl();
-
-        // Remove any inherited access rules to ensure clean slate
-        fileSecurity.SetAccessRuleProtection(true, false);
-
-        // Clear all existing access rules
-        var existingRules = fileSecurity.GetAccessRules(true, true, typeof(SecurityIdentifier));
-        foreach (FileSystemAccessRule rule in existingRules)
+        try
         {
-            fileSecurity.RemoveAccessRule(rule);
+            var fileInfo = new FileInfo(tempFilePath);
+
+            var fileSecurity = fileInfo.GetAccessControl();
+
+            fileSecurity.SetAccessRuleProtection(true, false);
+
+            var existingRules = fileSecurity.GetAccessRules(true, true, typeof(SecurityIdentifier));
+            foreach (FileSystemAccessRule rule in existingRules)
+            {
+                fileSecurity.RemoveAccessRule(rule);
+            }
+
+            var currentUser = WindowsIdentity.GetCurrent();
+            var currentUserSid = currentUser.User ?? throw new InvalidOperationException("Unable to get current user SID");
+
+            var accessRule = new FileSystemAccessRule(
+                currentUserSid,
+                FileSystemRights.FullControl,
+                AccessControlType.Allow);
+            fileSecurity.AddAccessRule(accessRule);
+
+            fileInfo.SetAccessControl(fileSecurity);
         }
-
-        // Get the current user's identity
-        var currentUser = WindowsIdentity.GetCurrent();
-        var currentUserSid = currentUser.User ?? throw new InvalidOperationException("Unable to get current user SID");
-
-        // Grant full control to the current user only
-        var accessRule = new FileSystemAccessRule(
-            currentUserSid,
-            FileSystemRights.FullControl,
-            AccessControlType.Allow);
-        fileSecurity.AddAccessRule(accessRule);
-
-        // Apply the security settings to the file
-        fileInfo.SetAccessControl(fileSecurity);
+        catch (PlatformNotSupportedException)
+        {
+            // File system does not support ACL (e.g., FAT32, exFAT, ReFS with insufficient version).
+            // Fall through and return the path without restricted permissions.
+        }
+        catch (InvalidOperationException)
+        {
+            // GetAccessControl/SetAccessControl may fail on some file system configurations.
+        }
 
         return tempFilePath;
     }
@@ -1346,18 +1361,12 @@ public class ZipFs : IDokanOperations, IDisposable
     }
 
     /// <summary>
-    /// Disposes the resources used by this instance.
+    /// Disposes the resources used by this instance, including the source archive stream.
     /// </summary>
-    /// <remarks>
-    /// <para><strong>Note:</strong> This method disposes the internal archive and cleans up extracted files,
-    /// but does NOT dispose the source archive stream that was passed to the constructor. The caller is
-    /// responsible for disposing the source stream after this instance has been disposed.</para>
-    /// </remarks>
     public void Dispose()
     {
-        // Dispose the archive (which may dispose its own internal streams)
-        // Note: We do NOT dispose _sourceArchiveStream as the caller owns it
         _archive.Dispose();
+        _sourceArchiveStream.Dispose();
 
         // When the drive is unmounted, clean up all temporary files that were created.
         lock (_archiveLock)

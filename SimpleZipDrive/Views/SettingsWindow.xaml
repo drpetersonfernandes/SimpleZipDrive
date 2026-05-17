@@ -16,8 +16,7 @@
         <!-- Header -->
         <TextBlock Grid.Row="0" 
                    Text="RAM Limit Per File" 
-                   FontWeight="SemiBold" 
-                   FontSize="16" 
+                   Style="{StaticResource HeaderTextBlockStyle}"
                    Margin="0,0,0,15"
                    ToolTip="Configure memory usage limits for mounted archives" />
 
@@ -59,9 +58,7 @@
                 <TextBlock Grid.Column="3" 
                            VerticalAlignment="Center" 
                            Margin="15,0,0,0"
-                           Foreground="{StaticResource TextMutedBrush}" 
-                           FontStyle="Italic"
-                           FontSize="12"
+                           Style="{StaticResource HintTextBlockStyle}"
                            Text="(512 MB default)"
                            ToolTip="Default value if not specified" />
             </Grid>

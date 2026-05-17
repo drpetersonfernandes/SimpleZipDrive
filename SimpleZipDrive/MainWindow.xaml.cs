@@ -10,6 +10,7 @@ public partial class MainWindow : IDisposable
 {
     private readonly IMountService _mountService;
     private readonly ILoggingService _loggingService;
+    private int _isShuttingDown;
 
     public MainWindow()
     {
@@ -30,7 +31,7 @@ public partial class MainWindow : IDisposable
         // Wire up context menu event handlers
         WireUpContextMenuHandlers();
 
-        Loaded += MainWindow_Loaded;
+        Loaded += MainWindow_LoadedAsync;
     }
 
     private void OnMountStatusChanged(object? sender, MountStatusChangedEventArgs e)
@@ -100,7 +101,7 @@ public partial class MainWindow : IDisposable
         LogTextBox.ScrollToEnd();
     }
 
-    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    private async void MainWindow_LoadedAsync(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -112,7 +113,7 @@ public partial class MainWindow : IDisposable
         }
         catch (Exception ex)
         {
-            const string context = "Error in method MainWindow_Loaded";
+            const string context = "Error in method MainWindow_LoadedAsync";
             await ErrorLoggerStatic.LogErrorAsync(ex, context);
         }
     }
@@ -187,7 +188,7 @@ public partial class MainWindow : IDisposable
         Close();
     }
 
-    private async void Mount_Click(object sender, RoutedEventArgs e)
+    private async void Mount_ClickAsync(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -213,14 +214,14 @@ public partial class MainWindow : IDisposable
         }
         catch (Exception ex)
         {
-            const string context = "Error in method Mount_Click";
+            const string context = "Error in method Mount_ClickAsync";
             await ErrorLoggerStatic.LogErrorAsync(ex, context);
             MessageBox.Show($"Error mounting archive: {ex.Message}", "Mount Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
-    private async void Unmount_Click(object sender, RoutedEventArgs e)
+    private async void Unmount_ClickAsync(object sender, RoutedEventArgs e)
     {
         try
         {
@@ -285,7 +286,9 @@ public partial class MainWindow : IDisposable
 
     private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
-        // Prevent the window from closing immediately while we cleanup
+        if (Interlocked.Exchange(ref _isShuttingDown, 1) != 0)
+            return;
+
         e.Cancel = true;
         _ = PerformShutdownAsync();
     }
@@ -294,7 +297,6 @@ public partial class MainWindow : IDisposable
     {
         try
         {
-            // Disable UI interaction during shutdown
             Dispatcher.Invoke(() =>
             {
                 IsEnabled = false;
@@ -308,44 +310,50 @@ public partial class MainWindow : IDisposable
                 }
             });
 
-            // If mounted, unmount via the service
             if (_mountService.IsMounted)
             {
-                try
+                var unmountTask = _mountService.UnmountAsync();
+                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(5));
+                var completedTask = await Task.WhenAny(unmountTask, timeoutTask);
+                if (completedTask == timeoutTask)
                 {
-                    await _mountService.UnmountAsync();
+                    // Unmount timed out, force exit
+                    App.ShutdownCts.Cancel();
+                    ForceExit();
+                    return;
                 }
-                catch
-                {
-                    // Ignore unmount errors during shutdown
-                }
+
+                await unmountTask;
             }
 
-            // Signal the global shutdown
             App.ShutdownCts.Cancel();
 
-            // Now properly shutdown the application
-            Dispatcher.Invoke(() =>
-            {
-                try
-                {
-                    // Remove the closing handler to prevent recursion
-                    Closing -= MainWindow_Closing;
-                }
-                catch
-                {
-                    // Ignore removal errors
-                }
+            Closing -= MainWindow_Closing;
+            Application.Current.Shutdown();
 
-                // Shutdown the application
-                Application.Current.Shutdown();
+            // Safety net: if Shutdown() didn't work within 3 seconds, force exit
+            _ = Task.Run(static async () =>
+            {
+                await Task.Delay(TimeSpan.FromSeconds(3));
+                ForceExit();
             });
         }
         catch (Exception ex)
         {
-            await ErrorLoggerStatic.LogErrorAsync(ex, "Error during shutdown");
-            // Force shutdown on error
-            Application.Current.Shutdown();
+            ErrorLoggerStatic.ReportSilentException(ex, "MainWindow.PerformShutdownAsync: Shutdown failed", true);
+            ForceExit();
+        }
+    }
+
+    private static void ForceExit()
+    {
+        try
+        {
+            Environment.Exit(0);
+        }
+        catch
+        {
+            Environment.FailFast(null);
         }
     }
 
@@ -382,9 +390,9 @@ public partial class MainWindow : IDisposable
             // Dispose the mount service (which handles unmounting if needed)
             (_mountService as IDisposable)?.Dispose();
         }
-        catch
+        catch (Exception ex)
         {
-            // Ignore disposal errors
+            ErrorLoggerStatic.ReportSilentException(ex, "MainWindow.Dispose: Error during disposal", true);
         }
 
         GC.SuppressFinalize(this);

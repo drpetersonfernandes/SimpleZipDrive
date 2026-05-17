@@ -1,17 +1,11 @@
-using System.Collections.ObjectModel;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Channels;
 using System.Windows;
-using SimpleZipDrive.Models;
 
 namespace SimpleZipDrive;
 
 public partial class App
 {
-    // Legacy static access for backward compatibility
-    internal static ObservableCollection<LogEntry> LogEntries => ServiceProvider.Get<ILoggingService>().LogEntries;
-    internal static AppSettings Settings => ServiceProvider.Get<ISettingsService>().Settings;
     internal static string[] StartupArgs { get; private set; } = [];
 
     /// <summary>
@@ -21,6 +15,7 @@ public partial class App
 
     private static TextWriter? _originalConsoleOut;
     private static TextWriter? _originalConsoleError;
+    private static LogTextWriter? _logTextWriter;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -37,9 +32,9 @@ public partial class App
             _originalConsoleOut = Console.Out;
             _originalConsoleError = Console.Error;
 
-            var redirectWriter = new LogTextWriter(_originalConsoleOut);
-            Console.SetOut(redirectWriter);
-            Console.SetError(redirectWriter);
+            _logTextWriter = new LogTextWriter(_originalConsoleOut);
+            Console.SetOut(_logTextWriter);
+            Console.SetError(_logTextWriter);
 
             // Get logging service
             var loggingService = ServiceProvider.Get<ILoggingService>();
@@ -64,9 +59,9 @@ public partial class App
                 {
                     updateService.CheckForUpdateAsync(ShutdownCts.Token);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore update check errors during startup
+                    ErrorLoggerStatic.ReportSilentException(ex, "App.OnStartup: Update check failed during startup", true);
                 }
             }
 
@@ -109,8 +104,12 @@ public partial class App
         var mountService = new MountService(loggingService, settingsService);
         ServiceProvider.Register<IMountService>(mountService);
 
+        // Register user notification service
+        var userNotificationService = new UserNotificationService(loggingService);
+        ServiceProvider.Register<IUserNotificationService>(userNotificationService);
+
         // Register update service
-        var updateService = new UpdateService(loggingService);
+        var updateService = new UpdateService(userNotificationService);
         ServiceProvider.Register<IUpdateService>(updateService);
 
         // Register stats service
@@ -155,8 +154,6 @@ public partial class App
             // Report any other failures in background task coordination
             ErrorLoggerStatic.ReportSilentException(ex, "RunBackgroundTasksAsync failed", true);
         }
-
-        RuntimeHelpers.RunClassConstructor(typeof(ErrorLoggerStatic).TypeHandle);
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -173,14 +170,37 @@ public partial class App
                 // Already disposed
             }
 
+            // Dispose the log text writer to stop its background processing task
+            try
+            {
+                _logTextWriter?.Dispose();
+            }
+            catch (Exception ex)
+            {
+                ErrorLoggerStatic.ReportSilentException(ex, "App.OnExit: Failed to dispose LogTextWriter", true);
+            }
+
+            // Dispose MainWindow to unsubscribe events before services are disposed
+            try
+            {
+                if (Current.MainWindow is IDisposable disposableMainWindow)
+                {
+                    disposableMainWindow.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                ErrorLoggerStatic.ReportSilentException(ex, "App.OnExit: Failed to dispose MainWindow", true);
+            }
+
             // Dispose all registered services that implement IDisposable
             try
             {
                 ServiceProvider.DisposeAllServices();
             }
-            catch
+            catch (Exception ex)
             {
-                // Ensure shutdown continues even if service disposal fails
+                ErrorLoggerStatic.ReportSilentException(ex, "App.OnExit: Failed to dispose services", true);
             }
 
             // Always dispose the shutdown token source to prevent resource leak
@@ -192,31 +212,12 @@ public partial class App
             if (_originalConsoleError != null)
                 Console.SetError(_originalConsoleError);
         }
-        catch
+        catch (Exception ex)
         {
-            // Ensure we always complete shutdown, even if cleanup fails
+            ErrorLoggerStatic.ReportSilentException(ex, "App.OnExit: Error during exit cleanup", true);
         }
 
         base.OnExit(e);
-    }
-
-    // Legacy method for backward compatibility
-    internal static void SaveSettings()
-    {
-        ServiceProvider.Get<ISettingsService>().SaveSettings();
-    }
-
-    // Legacy method for backward compatibility
-    internal static void Log(string message)
-    {
-        try
-        {
-            ServiceProvider.TryGet<ILoggingService>()?.Log(message);
-        }
-        catch
-        {
-            // Ignore logging failures
-        }
     }
 }
 
@@ -342,9 +343,9 @@ internal class LogTextWriter : TextWriter, IDisposable
         {
             _processingTask.Wait(TimeSpan.FromSeconds(2));
         }
-        catch
+        catch (Exception ex)
         {
-            // Best effort - don't block shutdown
+            ErrorLoggerStatic.ReportSilentException(ex, "LogTextWriter.Dispose: Processing task wait failed", true);
         }
 
         _cts.Dispose();

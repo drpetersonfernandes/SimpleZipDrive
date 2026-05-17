@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using DokanNet;
 using DokanNet.Logging;
@@ -49,7 +50,7 @@ public class MountService : IDisposable, IMountService
         if (!File.Exists(archivePath))
         {
             _loggingService.Log($"Error: Archive file not found at '{archivePath}'.");
-            return Task.CompletedTask;
+            throw new FileNotFoundException($"Archive file not found at '{archivePath}'.", archivePath);
         }
 
         var archiveType = GetArchiveType(archivePath);
@@ -60,7 +61,9 @@ public class MountService : IDisposable, IMountService
         {
             _loggingService.Log($"\n{AppTheme.Section("INVALID FILE TYPE")}");
             _loggingService.Log($"Error: The file '{Path.GetFileName(archivePath)}' is not a supported archive.");
-            return Task.CompletedTask;
+            throw new ArgumentException(
+                $"The file '{Path.GetFileName(archivePath)}' is not a supported archive format (expected .zip, .7z, or .rar).",
+                nameof(archivePath));
         }
 
         if (!CheckForAdministratorRole.IsAdministrator())
@@ -71,7 +74,7 @@ public class MountService : IDisposable, IMountService
             _loggingService.Log("");
         }
 
-        ILogger logger = new ConsoleLogger(AppTheme.DokanLogPrefix);
+        ILogger logger = new DokanPrefixedLogger(AppTheme.DokanLogPrefix);
         CurrentArchivePath = archivePath;
 
         if (string.IsNullOrEmpty(mountPoint))
@@ -97,12 +100,20 @@ public class MountService : IDisposable, IMountService
         try
         {
             _loggingService.Log("Unmounting drive...");
-            _mountCancellation?.Cancel();
+            var cts = _mountCancellation;
+            try
+            {
+                cts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
             IsMounted = false;
 
             // Allow time for ongoing Dokan operations to acknowledge cancellation
             // before disposing the ZipFs instance to avoid race conditions
-            await Task.Delay(500);
+            if (cts != null) await Task.Delay(500, cts.Token);
 
             _currentZipFs?.Dispose();
             _currentZipFs = null;
@@ -136,6 +147,14 @@ public class MountService : IDisposable, IMountService
     /// <inheritdoc />
     public void Dispose()
     {
+        try
+        {
+            _mountCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
         _mountCancellation?.Dispose();
         _currentZipFs?.Dispose();
         GC.SuppressFinalize(this);
@@ -208,15 +227,23 @@ public class MountService : IDisposable, IMountService
             _loggingService.Log($"RAM cache limit: {effectiveMaxMemoryMb:F0} MB (Available system memory: {availableMemoryMb:F0} MB)");
             _loggingService.Log("");
 
-            await using Stream fileStream = new FileStream(archivePath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
+            Stream fileStream = new FileStream(archivePath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
 
-            _currentZipFs = new ZipFs(
-                fileStream,
-                mountPoint,
-                ErrorLoggerStatic.LogErrorSync,
-                () => PromptForPassword(archivePath, archiveType), // Password callback using WPF dialog
-                archiveType,
-                effectiveMaxMemoryBytes);
+            try
+            {
+                _currentZipFs = new ZipFs(
+                    fileStream,
+                    mountPoint,
+                    ErrorLoggerStatic.LogErrorSync,
+                    () => PromptForPassword(archivePath, archiveType), // Password callback using WPF dialog
+                    archiveType,
+                    effectiveMaxMemoryBytes);
+            }
+            catch
+            {
+                await fileStream.DisposeAsync();
+                throw;
+            }
 
             var builder = new DokanInstanceBuilder(dokan)
                 .ConfigureOptions(options =>
@@ -253,15 +280,15 @@ public class MountService : IDisposable, IMountService
         }
         catch (DokanException ex)
         {
-            // Dokan errors are typically user/environment issues - log but don't report as bug
             _loggingService.LogError($"Dokan error: {ex.Message}");
+            ErrorLoggerStatic.ReportSilentException(ex, $"MountService.AttemptMountLifecycleAsync: DokanException mounting '{archivePath}' to '{mountPoint}'", true);
             return false;
         }
         catch (Exception ex) when (ex.Message.Contains("drive", StringComparison.OrdinalIgnoreCase) ||
                                    ex.Message.Contains("mount", StringComparison.OrdinalIgnoreCase))
         {
-            // Drive/mount related errors are typically user/environment issues
             _loggingService.LogError($"Mount error: {ex.Message}");
+            ErrorLoggerStatic.ReportSilentException(ex, $"MountService.AttemptMountLifecycleAsync: Drive/mount error for '{archivePath}' to '{mountPoint}'", true);
             return false;
         }
         catch (Exception ex)
@@ -309,5 +336,56 @@ public class MountService : IDisposable, IMountService
             var result = passwordWindow.ShowDialog();
             return result == true ? passwordWindow.Password : null;
         });
+    }
+}
+
+/// <summary>
+/// ILogger wrapper that guarantees the DokanNet prefix is applied to all log messages.
+/// Writes directly to Console.Out, which is redirected to LogTextWriter.
+/// </summary>
+internal sealed class DokanPrefixedLogger : ILogger, IDisposable
+{
+    private readonly string _prefix;
+
+    public bool DebugEnabled => true;
+
+    public DokanPrefixedLogger(string prefix)
+    {
+        _prefix = prefix;
+    }
+
+    public void Debug(string message, params object[] args)
+    {
+        Log(message, args);
+    }
+
+    public void Info(string message, params object[] args)
+    {
+        Log(message, args);
+    }
+
+    public void Warn(string message, params object[] args)
+    {
+        Log(message, args);
+    }
+
+    public void Error(string message, params object[] args)
+    {
+        Log(message, args);
+    }
+
+    public void Fatal(string message, params object[] args)
+    {
+        Log(message, args);
+    }
+
+    private void Log(string message, params object[] args)
+    {
+        var formatted = args.Length > 0 ? string.Format(CultureInfo.InvariantCulture, message, args) : message;
+        Console.WriteLine(_prefix + formatted);
+    }
+
+    public void Dispose()
+    {
     }
 }

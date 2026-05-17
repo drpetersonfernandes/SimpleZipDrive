@@ -18,7 +18,7 @@ public partial class SettingsWindow
     {
         try
         {
-            if (int.TryParse(RamLimitTextBox.Text, out var value) && value > 0)
+            if (long.TryParse(RamLimitTextBox.Text, out var value) && value > 0)
             {
                 _settingsService.Settings.MaxMemoryPerFileMb = value;
                 _settingsService.SaveSettings();

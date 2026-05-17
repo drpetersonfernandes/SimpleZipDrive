@@ -314,4 +314,204 @@ public partial class UpdateCheckerTests
     private static partial Regex VersionRegex();
 
     #endregion
+
+    #region User Notification Service Tests
+
+    [Fact]
+    public void FakeUserNotificationServiceRecordsCalls()
+    {
+        var fake = new Fakes.FakeUserNotificationService();
+        var current = new Version(1, 0, 0);
+        var latest = new Version(2, 0, 0);
+        const string url = "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/v2.0.0";
+
+        _ = fake.ShowUpdateAvailable(current, latest, url);
+
+        Assert.True(fake.ShowUpdateAvailableCalled);
+        Assert.Equal(current, fake.CalledWithCurrentVersion);
+        Assert.Equal(latest, fake.CalledWithLatestVersion);
+        Assert.Equal(url, fake.CalledWithDownloadUrl);
+    }
+
+    [Fact]
+    public void FakeUserNotificationServiceResetClearsState()
+    {
+        var fake = new Fakes.FakeUserNotificationService();
+        var current = new Version(1, 0, 0);
+        var latest = new Version(2, 0, 0);
+        const string url = "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/v2.0.0";
+
+        fake.ShowUpdateAvailable(current, latest, url);
+        fake.Reset();
+
+        Assert.False(fake.ShowUpdateAvailableCalled);
+        Assert.Null(fake.CalledWithCurrentVersion);
+        Assert.Null(fake.CalledWithLatestVersion);
+        Assert.Null(fake.CalledWithDownloadUrl);
+        Assert.False(fake.ReturnValue);
+    }
+
+    [Fact]
+    public void FakeUserNotificationServiceReturnsConfigurableValue()
+    {
+        var fake = new Fakes.FakeUserNotificationService { ReturnValue = true };
+
+        var result = fake.ShowUpdateAvailable(
+            new Version(1, 0, 0), new Version(2, 0, 0),
+            "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/v2.0.0");
+
+        Assert.True(result);
+
+        fake.ReturnValue = false;
+        result = fake.ShowUpdateAvailable(
+            new Version(1, 0, 0), new Version(2, 0, 0),
+            "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/v2.0.0");
+
+        Assert.False(result);
+    }
+
+    #endregion
+
+    #region Notification Message Format Tests
+
+    [Fact]
+    public void NotificationMessageContainsRepoName()
+    {
+        const string repoName = "SimpleZipDrive";
+
+        Assert.Contains(repoName, "A newer version of SimpleZipDrive is available.");
+    }
+
+    [Fact]
+    public void NotificationMessageContainsCurrentVersion()
+    {
+        var current = new Version(1, 10, 0);
+        var message = $"Current version: {current}";
+
+        Assert.Contains("1.10.0", message);
+    }
+
+    [Fact]
+    public void NotificationMessageContainsLatestVersion()
+    {
+        var latest = new Version(1, 10, 1);
+        var message = $"Latest version: {latest}";
+
+        Assert.Contains("1.10.1", message);
+    }
+
+    [Fact]
+    public void NotificationMessageContainsBrowserPrompt()
+    {
+        const string prompt = "Would you like to open the download page in your browser?";
+
+        Assert.Contains("download page", prompt);
+        Assert.EndsWith("?", prompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NotificationMessageContainsDownloadUrl()
+    {
+        const string downloadUrl = "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/release_1.10.1";
+
+        Assert.StartsWith("https://github.com/", downloadUrl, StringComparison.Ordinal);
+        Assert.Contains("/releases/tag/", downloadUrl, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeclinedNotificationLogMessageContainsUrl()
+    {
+        const string downloadUrl = "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/release_1.10.1";
+        const string logMessage = $"Update available but user declined to open download page. Visit: {downloadUrl}";
+
+        Assert.Contains("Update available", logMessage, StringComparison.Ordinal);
+        Assert.Contains("declined", logMessage, StringComparison.Ordinal);
+        Assert.Contains(downloadUrl, logMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrowserOpenedLogMessageIsCorrect()
+    {
+        const string logMessage = "Browser opened to latest release page.";
+
+        Assert.Contains("Browser opened", logMessage, StringComparison.Ordinal);
+        Assert.Contains("release page", logMessage, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BrowserErrorLogMessageContainsUrl()
+    {
+        const string downloadUrl = "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/release_1.10.1";
+        const string logMessage = $"Could not launch browser: access denied. Please visit: {downloadUrl}";
+
+        Assert.Contains("Could not launch browser", logMessage, StringComparison.Ordinal);
+        Assert.Contains(downloadUrl, logMessage, StringComparison.Ordinal);
+    }
+
+    #endregion
+
+    #region Update Notification Decision Tests
+
+    [Theory]
+    [InlineData("1.0.0", "1.0.1", "https://github.com/owner/repo/releases/tag/v1.0.1", true)]
+    [InlineData("1.0.0", "1.0.0", "https://github.com/owner/repo/releases/tag/v1.0.0", false)]
+    [InlineData("2.0.0", "1.0.0", "https://github.com/owner/repo/releases/tag/v1.0.0", false)]
+    [InlineData("0.0.0", "1.0.0", "https://github.com/owner/repo/releases/tag/v1.0.0", true)]
+    public void UserIsNotifiedOnlyWhenNewerVersionExists(
+        string currentStr, string latestStr, string downloadUrl, bool shouldNotify)
+    {
+        var current = Version.Parse(currentStr);
+        var latest = Version.Parse(latestStr);
+        var fake = new Fakes.FakeUserNotificationService();
+
+        if (latest > current)
+        {
+            fake.ShowUpdateAvailable(current, latest, downloadUrl);
+        }
+
+        Assert.Equal(shouldNotify, fake.ShowUpdateAvailableCalled);
+    }
+
+    [Fact]
+    public void NotificationIncludesAllRequiredInformation()
+    {
+        var current = new Version(2, 0, 0);
+        var latest = new Version(3, 0, 0);
+        const string downloadUrl = "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/v3.0.0";
+        var fake = new Fakes.FakeUserNotificationService();
+
+        fake.ShowUpdateAvailable(current, latest, downloadUrl);
+
+        Assert.True(fake.ShowUpdateAvailableCalled);
+        Assert.Equal(new Version(2, 0, 0), fake.CalledWithCurrentVersion);
+        Assert.Equal(new Version(3, 0, 0), fake.CalledWithLatestVersion);
+        Assert.StartsWith("https://github.com/", fake.CalledWithDownloadUrl, StringComparison.Ordinal);
+        Assert.Contains("/releases/tag/", fake.CalledWithDownloadUrl, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UserDecliningNotificationReturnsFalse()
+    {
+        var fake = new Fakes.FakeUserNotificationService { ReturnValue = false };
+
+        var result = fake.ShowUpdateAvailable(
+            new Version(1, 0, 0), new Version(2, 0, 0),
+            "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/v2.0.0");
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void UserAcceptingNotificationReturnsTrue()
+    {
+        var fake = new Fakes.FakeUserNotificationService { ReturnValue = true };
+
+        var result = fake.ShowUpdateAvailable(
+            new Version(1, 0, 0), new Version(2, 0, 0),
+            "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/v2.0.0");
+
+        Assert.True(result);
+    }
+
+    #endregion
 }

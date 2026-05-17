@@ -475,13 +475,13 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void ReadFileWithNullContextReturnsError()
+    public void ReadFileWithNullContextReturnsInvalidHandle()
     {
         var info = new FakeDokanFileInfo { Context = null };
         var buffer = new byte[100];
         var result = _zipFs.ReadFile("\\readme.txt", buffer, out var bytesRead, 0, info);
 
-        Assert.Equal(DokanResult.Error, result);
+        Assert.Equal(DokanResult.InvalidHandle, result);
         Assert.Equal(0, bytesRead);
     }
 

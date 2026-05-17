@@ -5,7 +5,7 @@ namespace SimpleZipDrive.Services;
 /// </summary>
 public static class ServiceProvider
 {
-    private static readonly Dictionary<Type, object> Services = [];
+    private static readonly ConcurrentDictionary<Type, object> Services = new();
 
     /// <summary>
     /// Registers a service instance.
@@ -61,9 +61,9 @@ public static class ServiceProvider
                 {
                     disposable.Dispose();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore disposal errors during shutdown
+                    ErrorLoggerStatic.ReportSilentException(ex, $"ServiceProvider.DisposeAllServices: Error disposing {service.GetType().Name}", true);
                 }
             }
         }

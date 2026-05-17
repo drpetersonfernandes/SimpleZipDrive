@@ -12,7 +12,7 @@ public partial class PasswordWindow
         InitializeComponent();
         ArchiveTypeRun.Text = archiveType.ToUpperInvariant();
         ArchiveNameText.Text = Path.GetFileName(archivePath);
-        PasswordBox.Focus();
+        Loaded += (_, _) => PasswordBox.Focus();
     }
 
     private void Ok_Click(object sender, RoutedEventArgs e)
