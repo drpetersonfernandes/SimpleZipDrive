@@ -480,6 +480,7 @@ public class ErrorLogger : IDisposable
                 applicationName = ApplicationName,
                 version,
                 userInfo = contextMessage,
+                environment = environmentDetails,
                 stackTrace = ex.StackTrace ?? "No stack trace available"
             };
             var jsonPayload = JsonSerializer.Serialize(payload);

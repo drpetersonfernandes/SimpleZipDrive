@@ -113,7 +113,7 @@ public class MountService : IDisposable, IMountService
 
             // Allow time for ongoing Dokan operations to acknowledge cancellation
             // before disposing the ZipFs instance to avoid race conditions
-            if (cts != null) await Task.Delay(500, cts.Token);
+            await Task.Delay(500);
 
             _currentZipFs?.Dispose();
             _currentZipFs = null;

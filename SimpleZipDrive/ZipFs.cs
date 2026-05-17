@@ -145,9 +145,9 @@ public class ZipFs : IDokanOperations, IDisposable
         _passwordProvider = passwordProvider;
         _archiveType = archiveType.ToLowerInvariant();
         _maxMemorySize = maxMemorySize;
-        // Set total memory cache limit to 95% of available system memory to prevent OOM errors
+        // Set total memory cache limit to 90% of available free memory to prevent OOM errors
         var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
-        _maxTotalMemoryCache = (long)(availableMemory * 0.95);
+        _maxTotalMemoryCache = (long)(availableMemory * 0.90);
         // Use a unique directory per instance in the system temp folder to avoid collisions between multiple running instances
         _tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive", $"{Environment.ProcessId}_{Guid.NewGuid():N}");
 
@@ -973,79 +973,89 @@ public class ZipFs : IDokanOperations, IDisposable
             searchPrefix = "/";
         }
 
-        // Process entries directly without creating intermediate collections
-        foreach (var kvp in _archiveEntries)
+        try
         {
-            var path = kvp.Key;
-            if (path.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-            if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-
-            var remainder = path.Substring(searchPrefix.Length);
-            // Include direct children (no slashes) or direct child directories (single component ending with /)
-            var slashIndex = remainder.IndexOf('/');
-            if (slashIndex != -1)
+            // Process entries directly without creating intermediate collections
+            foreach (var kvp in _archiveEntries)
             {
-                // Has slash - only include if it's a directory entry AND the slash is at the end (direct child dir)
-                if (!(remainder.EndsWith('/') && slashIndex == remainder.Length - 1))
-                    continue;
-            }
+                var path = kvp.Key;
+                if (path.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
 
-            var entry = kvp.Value;
-            string? fileNameOnly = null;
-
-            if (IsDirectory(entry))
-            {
-                // ReSharper disable once ConditionIsAlwaysTrueAccordingToNullableAPIContract
-                if (entry.Key != null)
+                var remainder = path.Substring(searchPrefix.Length);
+                // Include direct children (no slashes) or direct child directories (single component ending with /)
+                var slashIndex = remainder.IndexOf('/');
+                if (slashIndex != -1)
                 {
-                    var tempFullName = entry.Key.TrimEnd('/', '\\');
-                    fileNameOnly = Path.GetFileName(tempFullName);
+                    // Has slash - only include if it's a directory entry AND the slash is at the end (direct child dir)
+                    if (!(remainder.EndsWith('/') && slashIndex == remainder.Length - 1))
+                        continue;
+                }
+
+                var entry = kvp.Value;
+                string? fileNameOnly = null;
+                var isDir = IsDirectory(entry);
+
+                if (isDir)
+                {
+                    // ReSharper disable once ConditionIsAlwaysTrueAccordingToNullableAPIContract
+                    if (entry.Key != null)
+                    {
+                        var tempFullName = entry.Key.TrimEnd('/', '\\');
+                        fileNameOnly = Path.GetFileName(tempFullName);
+                    }
+                }
+                else
+                {
+                    fileNameOnly = Path.GetFileName(entry.Key);
+                }
+
+                if (!string.IsNullOrEmpty(fileNameOnly) && seenFileNames.Add(fileNameOnly))
+                {
+                    resultFiles.Add(new FileInformation
+                    {
+                        FileName = fileNameOnly,
+                        Attributes = isDir ? FileAttributes.Directory : (FileAttributes.Archive | FileAttributes.ReadOnly),
+                        Length = isDir ? 0 : entry.Size,
+                        LastWriteTime = entry.LastModifiedTime ?? DateTime.Now,
+                        CreationTime = entry.CreatedTime ?? DateTime.Now,
+                        LastAccessTime = DateTime.Now
+                    });
                 }
             }
-            else
-            {
-                fileNameOnly = Path.GetFileName(entry.Key);
-            }
 
-            if (!string.IsNullOrEmpty(fileNameOnly) && seenFileNames.Add(fileNameOnly))
+            // Process implicit directories directly
+            foreach (var dirPathKey in _directoryCreationTimes.Keys)
             {
-                resultFiles.Add(new FileInformation
+                if (dirPathKey.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!dirPathKey.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+
+                var remainder = dirPathKey.Substring(searchPrefix.Length);
+                if (remainder.Contains('/') || string.IsNullOrEmpty(remainder)) continue;
+
+                var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
+                if (!string.IsNullOrEmpty(name) && seenFileNames.Add(name))
                 {
-                    FileName = fileNameOnly,
-                    Attributes = IsDirectory(entry) ? FileAttributes.Directory : (FileAttributes.Archive | FileAttributes.ReadOnly),
-                    Length = entry.Size,
-                    LastWriteTime = entry.LastModifiedTime ?? DateTime.Now,
-                    CreationTime = entry.CreatedTime ?? DateTime.Now,
-                    LastAccessTime = DateTime.Now
-                });
+                    _directoryCreationTimes.TryGetValue(dirPathKey, out var ct);
+                    _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
+                    _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
+
+                    resultFiles.Add(new FileInformation
+                    {
+                        FileName = name,
+                        Attributes = FileAttributes.Directory,
+                        LastWriteTime = lwt,
+                        CreationTime = ct,
+                        LastAccessTime = lat
+                    });
+                }
             }
         }
-
-        // Process implicit directories directly
-        foreach (var dirPathKey in _directoryCreationTimes.Keys)
+        catch (Exception ex)
         {
-            if (dirPathKey.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-            if (!dirPathKey.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-
-            var remainder = dirPathKey.Substring(searchPrefix.Length);
-            if (remainder.Contains('/') || string.IsNullOrEmpty(remainder)) continue;
-
-            var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
-            if (!string.IsNullOrEmpty(name) && seenFileNames.Add(name))
-            {
-                _directoryCreationTimes.TryGetValue(dirPathKey, out var ct);
-                _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
-                _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
-
-                resultFiles.Add(new FileInformation
-                {
-                    FileName = name,
-                    Attributes = FileAttributes.Directory,
-                    LastWriteTime = lwt,
-                    CreationTime = ct,
-                    LastAccessTime = lat
-                });
-            }
+            _logErrorAction(ex, $"Error in FindFiles for path '{fileName}'.");
+            files = Array.Empty<FileInformation>();
+            return DokanResult.Error;
         }
 
         files = resultFiles;

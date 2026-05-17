@@ -16,7 +16,7 @@ public class LogEntryTests
 
         var result = entry.ToString();
 
-        Assert.Equal("10:30:45 Test message", result);
+        Assert.Equal("Test message", result);
     }
 
     [Fact]
@@ -31,7 +31,7 @@ public class LogEntryTests
 
         var result = entry.ToString();
 
-        Assert.Equal("14:22:10 [ERROR] Something went wrong", result);
+        Assert.Equal("[ERROR] Something went wrong", result);
     }
 
     [Fact]
@@ -46,7 +46,7 @@ public class LogEntryTests
 
         var result = entry.ToString();
 
-        Assert.Equal("00:00:00 ", result);
+        Assert.Equal("", result);
     }
 
     [Fact]

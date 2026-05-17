@@ -19,6 +19,8 @@ public class LoggingService : ILoggingService
     /// <inheritdoc />
     public void Log(string message)
     {
+        if (string.IsNullOrWhiteSpace(message)) return;
+
         var entry = new LogEntry
         {
             Timestamp = DateTime.Now,
@@ -32,6 +34,8 @@ public class LoggingService : ILoggingService
     /// <inheritdoc />
     public void LogError(string message)
     {
+        if (string.IsNullOrWhiteSpace(message)) return;
+
         var entry = new LogEntry
         {
             Timestamp = DateTime.Now,

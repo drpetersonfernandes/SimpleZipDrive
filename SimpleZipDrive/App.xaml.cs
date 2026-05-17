@@ -333,22 +333,25 @@ internal class LogTextWriter : TextWriter, IDisposable
         }
     }
 
-    public new void Dispose()
+    protected override void Dispose(bool disposing)
     {
-        // Signal completion and wait for processing to finish
-        _channel.Writer.Complete();
-        _cts.Cancel();
-
-        try
+        if (disposing)
         {
-            _processingTask.Wait(TimeSpan.FromSeconds(2));
-        }
-        catch (Exception ex)
-        {
-            ErrorLoggerStatic.ReportSilentException(ex, "LogTextWriter.Dispose: Processing task wait failed", true);
+            _channel.Writer.Complete();
+            _cts.Cancel();
+
+            try
+            {
+                _processingTask.Wait(TimeSpan.FromSeconds(2));
+            }
+            catch (Exception ex)
+            {
+                ErrorLoggerStatic.ReportSilentException(ex, "LogTextWriter.Dispose: Processing task wait failed", true);
+            }
+
+            _cts.Dispose();
         }
 
-        _cts.Dispose();
-        GC.SuppressFinalize(this);
+        base.Dispose(disposing);
     }
 }

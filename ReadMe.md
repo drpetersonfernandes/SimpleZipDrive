@@ -80,7 +80,7 @@ To safely unmount the drive and clean up temporary resources:
 ## 🔍 Technical Architecture
 
 *   **Read-Only Integrity:** The filesystem is strictly read-only. No modifications are made to the source archive.
-*   **Memory Efficiency:** The application does not load the entire archive into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested. The per-file RAM cache limit is configurable via `Settings > RAM Limit` and is automatically clamped to 90% of available system memory. A global memory cap at 95% of system memory ensures stability even under heavy load.
+*   **Memory Efficiency:** The application does not load the entire archive into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested. The per-file RAM cache limit is configurable via `Settings > RAM Limit` and is automatically clamped to 90% of available system memory. A global memory cap at 90% of available free memory ensures stability even under heavy load.
 *   **Permissions:** Mounting to drive letters or system-protected directories may require **Administrator Privileges**. If you encounter "Access Denied" errors, right-click the executable and select "Run as Administrator."
 *   **Temporary Storage:** Disk-based caching for large files occurs in `%TEMP%\SimpleZipDrive`. These files are purged automatically during graceful shutdown, and orphaned directories from crashed sessions are cleaned up on application startup.
 
