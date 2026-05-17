@@ -46,10 +46,11 @@ public class ErrorLogger : IDisposable
     public void InitializeGlobalExceptionHandlers()
     {
         // Catch UI thread exceptions (WPF)
+        // Use async logging to avoid blocking the UI thread for up to 30 seconds
         System.Windows.Application.Current.DispatcherUnhandledException += (_, args) =>
         {
             const string context = "Unhandled exception in UI thread (Dispatcher)";
-            LogErrorSync(args.Exception, context);
+            FireAndForget(LogErrorAsync(args.Exception, context));
             args.Handled = true; // Prevent application crash
         };
 
@@ -108,7 +109,7 @@ public class ErrorLogger : IDisposable
             // Send to API in background (don't block)
             if (!IsUserError(ex))
             {
-                _ = Task.Run(async () =>
+                FireAndForget(Task.Run(async () =>
                 {
                     CancellationTokenSource? cts = null;
                     try
@@ -124,7 +125,7 @@ public class ErrorLogger : IDisposable
                     {
                         cts?.Dispose();
                     }
-                });
+                }));
             }
         }
         catch
@@ -266,6 +267,21 @@ public class ErrorLogger : IDisposable
             {
                 await Console.Error.WriteLineAsync("Failed to send error details to remote logging service (async path). Error is saved locally.");
             }
+        }
+    }
+
+    /// <summary>
+    /// Fire-and-forget a task without suppressing the compiler warning. Handles any unobserved exceptions.
+    /// </summary>
+    private static async void FireAndForget(Task task)
+    {
+        try
+        {
+            await task;
+        }
+        catch
+        {
+            // Task failures are silently ignored — the task's own error handling should cover this
         }
     }
 

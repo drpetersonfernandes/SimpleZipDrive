@@ -48,6 +48,7 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly string _tempDirectoryPath;
     private readonly Func<string?> _passwordProvider;
     private readonly string _archiveType;
+    private volatile bool _disposed;
 
     private const string VolumeLabel = "SimpleZipDrive";
     private const long DefaultMaxMemorySize = 512L * 1024 * 1024; // 512 MB default for file caching
@@ -420,12 +421,18 @@ public class ZipFs : IDokanOperations, IDisposable
         if (pathValidationResult != DokanResult.Success)
             return pathValidationResult;
 
+        if (_disposed)
+            return DokanResult.NotReady;
+
         var normalizedPath = NormalizePath(fileName);
 
         IArchiveEntry? entry;
         bool isImplicitDir;
         lock (_archiveLock)
         {
+            if (_disposed)
+                return DokanResult.NotReady;
+
             _archiveEntries.TryGetValue(normalizedPath, out entry);
             isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath);
         }
@@ -541,14 +548,30 @@ public class ZipFs : IDokanOperations, IDisposable
                             // deflate decompression errors (invalid distance code, invalid block type, etc.)
                             lock (_archiveLock)
                             {
-                                using var entryStream = entry.OpenEntryStream();
-                                using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
-                                entryStream.CopyTo(tempFileStream);
-                                _largeFileCache[normalizedPath] = newTempFilePath;
+                                // Re-check cache inside lock to prevent duplicate extraction by concurrent threads
+                                if (_largeFileCache.TryGetValue(normalizedPath, out var existingPath))
+                                {
+                                    cachedPath = existingPath;
+                                    try
+                                    {
+                                        File.Delete(newTempFilePath);
+                                    }
+                                    catch
+                                    {
+                                        /* best effort */
+                                    }
+                                }
+                                else
+                                {
+                                    using var entryStream = entry.OpenEntryStream();
+                                    using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
+                                    entryStream.CopyTo(tempFileStream);
+                                    _largeFileCache[normalizedPath] = newTempFilePath;
+                                    cachedPath = newTempFilePath;
+                                }
                             }
 
-                            cachedPath = newTempFilePath;
-                            LogMessage($"Extraction complete for '{normalizedPath}'. Temp file: '{newTempFilePath}'");
+                            LogMessage($"Extraction complete for '{normalizedPath}'. Temp file: '{cachedPath}'");
                         }
 
                         // Open the temp file for reading and assign it as the context.
@@ -607,13 +630,28 @@ public class ZipFs : IDokanOperations, IDisposable
                                 // from different entries cause stream position corruption.
                                 lock (_archiveLock)
                                 {
-                                    using var entryStream = entry.OpenEntryStream();
-                                    using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
-                                    entryStream.CopyTo(tempFileStream);
-                                    _largeFileCache[normalizedPath] = newTempFilePath;
+                                    // Re-check cache inside lock to prevent duplicate extraction by concurrent threads
+                                    if (_largeFileCache.TryGetValue(normalizedPath, out var existingPath))
+                                    {
+                                        cachedPath = existingPath;
+                                        try
+                                        {
+                                            File.Delete(newTempFilePath);
+                                        }
+                                        catch
+                                        {
+                                            /* best effort */
+                                        }
+                                    }
+                                    else
+                                    {
+                                        using var entryStream = entry.OpenEntryStream();
+                                        using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
+                                        entryStream.CopyTo(tempFileStream);
+                                        _largeFileCache[normalizedPath] = newTempFilePath;
+                                        cachedPath = newTempFilePath;
+                                    }
                                 }
-
-                                cachedPath = newTempFilePath;
                             }
 
                             if (!string.IsNullOrEmpty(cachedPath))
@@ -1375,6 +1413,16 @@ public class ZipFs : IDokanOperations, IDisposable
     /// </summary>
     public void Dispose()
     {
+        if (_disposed)
+            return;
+
+        // Set _disposed under _archiveLock to ensure no in-flight extraction is running.
+        // Any CreateFile thread currently inside the lock will finish before we proceed.
+        lock (_archiveLock)
+        {
+            _disposed = true;
+        }
+
         _archive.Dispose();
         _sourceArchiveStream.Dispose();
 

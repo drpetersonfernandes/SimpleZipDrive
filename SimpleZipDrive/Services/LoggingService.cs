@@ -19,8 +19,6 @@ public class LoggingService : ILoggingService
     /// <inheritdoc />
     public void Log(string message)
     {
-        if (string.IsNullOrWhiteSpace(message)) return;
-
         var entry = new LogEntry
         {
             Timestamp = DateTime.Now,
@@ -62,19 +60,13 @@ public class LoggingService : ILoggingService
     {
         var dispatcher = Application.Current?.Dispatcher;
 
-        if (dispatcher != null)
+        if (dispatcher != null && !dispatcher.CheckAccess())
         {
-            if (!dispatcher.CheckAccess())
-            {
-                dispatcher.Invoke(() => AddEntryCore(entry), DispatcherPriority.Normal);
-            }
-            else
-            {
-                AddEntryCore(entry);
-            }
+            dispatcher.BeginInvoke(() => AddEntryCore(entry), DispatcherPriority.Normal);
         }
         else
         {
+            // Either on UI thread (production) or no dispatcher (test context)
             lock (_lock)
             {
                 AddEntryCore(entry);

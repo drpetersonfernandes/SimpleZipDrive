@@ -68,7 +68,6 @@ public partial class MainWindow : IDisposable
             {
                 case NotifyCollectionChangedAction.Add:
                 {
-                    // Append new entries to the text box
                     foreach (var newItem in e.NewItems?.Cast<Models.LogEntry>() ?? [])
                     {
                         if (LogTextBox.Text.Length > 0)
@@ -76,17 +75,12 @@ public partial class MainWindow : IDisposable
                         LogTextBox.AppendText(newItem.ToString());
                     }
 
-                    // Auto-scroll to the end
                     LogTextBox.ScrollToEnd();
-
-                    // Limit log size
-                    while (_loggingService.LogEntries.Count > 5000)
-                    {
-                        _loggingService.LogEntries.RemoveAt(0);
-                    }
-
                     break;
                 }
+                case NotifyCollectionChangedAction.Remove:
+                    UpdateLogText();
+                    break;
                 case NotifyCollectionChangedAction.Reset:
                     LogTextBox.Clear();
                     break;

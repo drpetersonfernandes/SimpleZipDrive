@@ -15,36 +15,43 @@ public class UserNotificationService : IUserNotificationService
 
     public bool ShowUpdateAvailable(Version currentVersion, Version latestVersion, string downloadUrl)
     {
-        var message = $"A newer version of {RepoName} is available.\n\n" +
-                      $"Current version: {currentVersion}\n" +
-                      $"Latest version: {latestVersion}\n\n" +
-                      $"Would you like to open the download page in your browser?";
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null)
+            return false;
 
-        var result = MessageBox.Show(message, "Update Available", MessageBoxButton.YesNo, MessageBoxImage.Information);
-
-        if (result == MessageBoxResult.Yes)
+        return dispatcher.Invoke(() =>
         {
-            try
+            var message = $"A newer version of {RepoName} is available.\n\n" +
+                          $"Current version: {currentVersion}\n" +
+                          $"Latest version: {latestVersion}\n\n" +
+                          $"Would you like to open the download page in your browser?";
+
+            var result = MessageBox.Show(message, "Update Available", MessageBoxButton.YesNo, MessageBoxImage.Information);
+
+            if (result == MessageBoxResult.Yes)
             {
-                ProcessStartInfo psi = new()
+                try
                 {
-                    FileName = downloadUrl,
-                    UseShellExecute = true
-                };
-                Process.Start(psi);
-                _loggingService.Log("Browser opened to latest release page.");
-            }
-            catch (Exception ex)
-            {
-                _loggingService.Log($"Could not launch browser: {ex.Message}");
-                MessageBox.Show($"Could not open browser automatically.\n\nPlease visit:\n{downloadUrl}",
-                    "Browser Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    ProcessStartInfo psi = new()
+                    {
+                        FileName = downloadUrl,
+                        UseShellExecute = true
+                    };
+                    Process.Start(psi);
+                    _loggingService.Log("Browser opened to latest release page.");
+                }
+                catch (Exception ex)
+                {
+                    _loggingService.Log($"Could not launch browser: {ex.Message}");
+                    MessageBox.Show($"Could not open browser automatically.\n\nPlease visit:\n{downloadUrl}",
+                        "Browser Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+
+                return true;
             }
 
-            return true;
-        }
-
-        _loggingService.Log($"Update available but user declined to open download page. Visit: {downloadUrl}");
-        return false;
+            _loggingService.Log($"Update available but user declined to open download page. Visit: {downloadUrl}");
+            return false;
+        });
     }
 }

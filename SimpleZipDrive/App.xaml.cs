@@ -203,6 +203,17 @@ public partial class App
                 ErrorLoggerStatic.ReportSilentException(ex, "App.OnExit: Failed to dispose services", true);
             }
 
+            // Dispose the singleton ErrorLogger (HttpClient connection pool)
+            try
+            {
+                ErrorLoggerStatic.Instance.Dispose();
+            }
+            catch (Exception ex)
+            {
+                // Last-resort: can't use ErrorLoggerStatic here since we just disposed it
+                System.Diagnostics.Debug.WriteLine($"Failed to dispose ErrorLogger: {ex.Message}");
+            }
+
             // Always dispose the shutdown token source to prevent resource leak
             ShutdownCts.Dispose();
 
@@ -224,7 +235,7 @@ public partial class App
 /// <summary>
 /// Text writer that redirects console output to the logging service using async-friendly Channel for high throughput.
 /// </summary>
-internal class LogTextWriter : TextWriter, IDisposable
+internal class LogTextWriter : TextWriter
 {
     public override Encoding Encoding => Encoding.UTF8;
 
@@ -338,11 +349,14 @@ internal class LogTextWriter : TextWriter, IDisposable
         if (disposing)
         {
             _channel.Writer.Complete();
-            _cts.Cancel();
 
             try
             {
-                _processingTask.Wait(TimeSpan.FromSeconds(2));
+                if (!_processingTask.Wait(TimeSpan.FromSeconds(2)))
+                {
+                    _cts.Cancel();
+                    _processingTask.Wait(TimeSpan.FromMilliseconds(500));
+                }
             }
             catch (Exception ex)
             {

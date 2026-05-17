@@ -113,7 +113,7 @@ public class MountService : IDisposable, IMountService
 
             // Allow time for ongoing Dokan operations to acknowledge cancellation
             // before disposing the ZipFs instance to avoid race conditions
-            await Task.Delay(500);
+            if (cts != null) await Task.Delay(500, cts.Token);
 
             _currentZipFs?.Dispose();
             _currentZipFs = null;
@@ -245,21 +245,32 @@ public class MountService : IDisposable, IMountService
                 throw;
             }
 
-            var builder = new DokanInstanceBuilder(dokan)
-                .ConfigureOptions(options =>
-                {
-                    options.Options = DokanOptions.RemovableDrive;
-                    options.MountPoint = mountPoint;
-                });
+            DokanInstance? dokanInstance;
+            try
+            {
+                var builder = new DokanInstanceBuilder(dokan)
+                    .ConfigureOptions(options =>
+                    {
+                        options.Options = DokanOptions.RemovableDrive;
+                        options.MountPoint = mountPoint;
+                    });
 
-            using (builder.Build(_currentZipFs))
+                dokanInstance = builder.Build(_currentZipFs);
+            }
+            catch
+            {
+                _currentZipFs?.Dispose();
+                _currentZipFs = null;
+                throw;
+            }
+
+            using (dokanInstance)
             {
                 _loggingService.Log($"Successfully mounted on '{mountPoint}'.");
                 _loggingService.Log("");
                 _loggingService.Log("Use the Unmount button or close the window to unmount.");
                 _loggingService.Log("");
 
-                // Fire the status changed event immediately after successful mount
                 IsMounted = true;
                 CurrentMountPoint = mountPoint;
                 CurrentArchivePath = archivePath;
@@ -294,14 +305,8 @@ public class MountService : IDisposable, IMountService
         catch (Exception ex)
         {
             _loggingService.LogError($"Mount error: {ex.Message}");
-            // Report actual bugs to the API
             ErrorLoggerStatic.LogErrorSync(ex, $"MountService.AttemptMountLifecycleAsync: Error mounting archive '{archivePath}' to '{mountPoint}'");
             return false;
-        }
-        finally
-        {
-            _mountCancellation?.Dispose();
-            _mountCancellation = null;
         }
     }
 

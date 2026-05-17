@@ -53,13 +53,21 @@ public class LoggingServiceTests : IDisposable
     }
 
     [Fact]
-    public void LogNullOrWhitespaceDoesNotAddEntry()
+    public void LogNullDoesNotAddEntry()
     {
-        _service.Log("");
-        _service.Log("   ");
         _service.Log(null!);
 
         Assert.Empty(_service.LogEntries);
+    }
+
+    [Fact]
+    public void LogEmptyStringAddsEmptyLineEntry()
+    {
+        _service.Log("");
+
+        Assert.Single(_service.LogEntries);
+        Assert.Equal(string.Empty, _service.LogEntries[0].Message);
+        Assert.False(_service.LogEntries[0].IsError);
     }
 
     [Fact]
