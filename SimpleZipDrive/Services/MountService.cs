@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Windows;
 using DokanNet;
 using DokanNet.Logging;
@@ -72,6 +74,13 @@ public class MountService : IDisposable, IMountService
             _loggingService.Log("Warning: Running without Administrator privileges.");
             _loggingService.Log("Mounting to drive letters or certain paths may require elevated permissions.");
             _loggingService.Log("");
+        }
+
+        if (!IsDokanInstalled())
+        {
+            _loggingService.LogError("Dokan driver not found. Unable to mount archive.");
+            ShowDokanNotInstalledDialog();
+            return Task.CompletedTask;
         }
 
         ILogger logger = new DokanPrefixedLogger(AppTheme.DokanLogPrefix);
@@ -158,6 +167,30 @@ public class MountService : IDisposable, IMountService
         _mountCancellation?.Dispose();
         _currentZipFs?.Dispose();
         GC.SuppressFinalize(this);
+    }
+
+    private static bool IsDokanInstalled()
+    {
+        return NativeLibrary.TryLoad("dokan2", typeof(MountService).Assembly, null, out _);
+    }
+
+    private static void ShowDokanNotInstalledDialog()
+    {
+        const string message = "The Dokan file system driver (dokan2.dll) is required to mount archives as virtual drives. " +
+                               "It does not appear to be installed on this system.\n\n" +
+                               "Would you like to open the Dokan download page?";
+
+        var result = MessageBox.Show(message, "Dokan Driver Not Found",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://github.com/dokan-dev/dokany/releases",
+                UseShellExecute = true
+            });
+        }
     }
 
     private async Task MountWithAutoDriveLetterAsync(string archivePath, string archiveType, ILogger logger)
