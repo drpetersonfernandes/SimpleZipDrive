@@ -169,9 +169,23 @@ public class MountService : IDisposable, IMountService
         GC.SuppressFinalize(this);
     }
 
+    [DllImport("dokan2.dll", ExactSpelling = true)]
+    private static extern uint DokanVersion();
+
     private static bool IsDokanInstalled()
     {
-        return NativeLibrary.TryLoad("dokan2", typeof(MountService).Assembly, null, out _);
+        try
+        {
+            return DokanVersion() > 0;
+        }
+        catch (DllNotFoundException)
+        {
+            return false;
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return false;
+        }
     }
 
     private static void ShowDokanNotInstalledDialog()
@@ -208,16 +222,30 @@ public class MountService : IDisposable, IMountService
                 continue;
             }
 
-            using var dokan = new Dokan(logger);
-            _loggingService.Log($"Dokan Library Version: {dokan.Version}");
-            _loggingService.Log($"Dokan Driver Version: {dokan.DriverVersion}");
-            _loggingService.Log("");
-            _loggingService.Log($"Attempting to mount on '{currentMountPoint}'...");
-
-            if (await AttemptMountLifecycleAsync(archivePath, currentMountPoint, dokan, archiveType))
+            Dokan dokan;
+            try
             {
-                // Event is already fired inside AttemptMountLifecycleAsync when mount succeeds
+                dokan = new Dokan(logger);
+            }
+            catch (DllNotFoundException)
+            {
+                _loggingService.LogError("Dokan driver not found. Unable to mount archive.");
+                ShowDokanNotInstalledDialog();
                 return;
+            }
+
+            using (dokan)
+            {
+                _loggingService.Log($"Dokan Library Version: {dokan.Version}");
+                _loggingService.Log($"Dokan Driver Version: {dokan.DriverVersion}");
+                _loggingService.Log("");
+                _loggingService.Log($"Attempting to mount on '{currentMountPoint}'...");
+
+                if (await AttemptMountLifecycleAsync(archivePath, currentMountPoint, dokan, archiveType))
+                {
+                    // Event is already fired inside AttemptMountLifecycleAsync when mount succeeds
+                    return;
+                }
             }
         }
 
@@ -231,16 +259,30 @@ public class MountService : IDisposable, IMountService
             mountPoint = mountPoint.ToUpperInvariant() + @":\";
         }
 
-        using var dokan = new Dokan(logger);
-        _loggingService.Log($"Dokan Library Version: {dokan.Version}");
-        _loggingService.Log($"Dokan Driver Version: {dokan.DriverVersion}");
-        _loggingService.Log("");
-
-        if (!await AttemptMountLifecycleAsync(archivePath, mountPoint, dokan, archiveType))
+        Dokan dokan;
+        try
         {
-            _loggingService.Log($"Error: Failed to mount on '{mountPoint}'.");
+            dokan = new Dokan(logger);
         }
-        // Event is already fired inside AttemptMountLifecycleAsync when mount succeeds
+        catch (DllNotFoundException)
+        {
+            _loggingService.LogError("Dokan driver not found. Unable to mount archive.");
+            ShowDokanNotInstalledDialog();
+            return;
+        }
+
+        using (dokan)
+        {
+            _loggingService.Log($"Dokan Library Version: {dokan.Version}");
+            _loggingService.Log($"Dokan Driver Version: {dokan.DriverVersion}");
+            _loggingService.Log("");
+
+            if (!await AttemptMountLifecycleAsync(archivePath, mountPoint, dokan, archiveType))
+            {
+                _loggingService.Log($"Error: Failed to mount on '{mountPoint}'.");
+            }
+            // Event is already fired inside AttemptMountLifecycleAsync when mount succeeds
+        }
     }
 
     private async Task<bool> AttemptMountLifecycleAsync(string archivePath, string mountPoint, Dokan dokan, string archiveType)
