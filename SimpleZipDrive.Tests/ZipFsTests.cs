@@ -965,4 +965,260 @@ public class ZipFsTests : IDisposable
         _stream.Dispose();
         GC.SuppressFinalize(this);
     }
+
+    // ─── Stored (uncompressed) entry tests ───
+
+    private static MemoryStream CreateStoredZipStream()
+    {
+        // Build real stored ZIP entries (compression method = 0) in binary.
+        // System.IO.Compression ZipArchive with NoCompression uses deflate level 0,
+        // not true "stored" entries. So we write the ZIP structure manually.
+        var ms = new MemoryStream();
+        var w = new BinaryWriter(ms, Encoding.UTF8, true);
+
+        var entries = new (string Name, byte[] Data)[]
+        {
+            ("stored.txt", Encoding.UTF8.GetBytes("Direct read content from stored entry")),
+            ("sub/stored-data.bin", Enumerable.Range(0, 256).Select(static i => (byte)i).ToArray()),
+        };
+
+        // Write local file headers + data, record offsets for central directory
+        var offsets = new long[entries.Length];
+        for (int i = 0; i < entries.Length; i++)
+        {
+            offsets[i] = ms.Position;
+            var nameBytes = Encoding.UTF8.GetBytes(entries[i].Name);
+            var crc = ComputeCrc32(entries[i].Data);
+            var len = (uint)entries[i].Data.Length;
+
+            w.Write(0x04034b50u);          // Local file header signature
+            w.Write((ushort)20);            // Version needed
+            w.Write((ushort)0);             // Flags
+            w.Write((ushort)0);             // Compression method: STORED
+            w.Write((ushort)0);             // Last mod time
+            w.Write((ushort)0);             // Last mod date
+            w.Write(crc);                   // CRC-32
+            w.Write(len);                   // Compressed size
+            w.Write(len);                   // Uncompressed size
+            w.Write((ushort)nameBytes.Length);
+            w.Write((ushort)0);             // Extra field length
+            w.Write(nameBytes);
+            w.Write(entries[i].Data);
+        }
+
+        // Central directory
+        var cdStart = ms.Position;
+        for (int i = 0; i < entries.Length; i++)
+        {
+            var nameBytes = Encoding.UTF8.GetBytes(entries[i].Name);
+            var crc = ComputeCrc32(entries[i].Data);
+            var len = (uint)entries[i].Data.Length;
+
+            w.Write(0x02014b50u);          // Central directory signature
+            w.Write((ushort)20);            // Version made by
+            w.Write((ushort)20);            // Version needed
+            w.Write((ushort)0);             // Flags
+            w.Write((ushort)0);             // Compression method: STORED
+            w.Write((ushort)0);             // Last mod time
+            w.Write((ushort)0);             // Last mod date
+            w.Write(crc);                   // CRC-32
+            w.Write(len);                   // Compressed size
+            w.Write(len);                   // Uncompressed size
+            w.Write((ushort)nameBytes.Length);
+            w.Write((ushort)0);             // Extra field length
+            w.Write((ushort)0);             // File comment length
+            w.Write((ushort)0);             // Disk number start
+            w.Write((ushort)0);             // Internal attributes
+            w.Write((uint)0);               // External attributes
+            w.Write((uint)offsets[i]);      // Relative offset of local header
+            w.Write(nameBytes);
+        }
+
+        var cdSize = (uint)(ms.Position - cdStart);
+
+        // End of central directory
+        w.Write(0x06054b50u);              // EOCD signature
+        w.Write((ushort)0);                // Disk number
+        w.Write((ushort)0);                // Disk with CD
+        w.Write((ushort)entries.Length);   // Entries on disk
+        w.Write((ushort)entries.Length);   // Total entries
+        w.Write(cdSize);                   // CD size
+        w.Write((uint)cdStart);            // CD offset
+        w.Write((ushort)0);                // Comment length
+
+        ms.Position = 0;
+        return ms;
+    }
+
+    private static uint ComputeCrc32(byte[] data)
+    {
+        uint crc = 0xFFFFFFFF;
+        foreach (var b in data)
+        {
+            crc ^= b;
+            for (var j = 0; j < 8; j++)
+                crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        }
+        return ~crc;
+    }
+
+    [Fact]
+    public void StoredEntryCreateFileReturnsSuccessAndDirectStream()
+    {
+        using var stream = CreateStoredZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip", maxMemorySize: 1);
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.CreateFile(
+            "\\stored.txt",
+            FileAccess.ReadData,
+            FileShare.Read,
+            FileMode.Open,
+            FileOptions.None,
+            FileAttributes.Normal,
+            info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.NotNull(info.Context);
+        Assert.IsAssignableFrom<Stream>(info.Context);
+        Assert.IsNotType<FileStream>(info.Context);   // Not disk cache
+        Assert.IsNotType<MemoryStream>(info.Context);  // Not RAM cache
+
+        zipFs.CloseFile("\\stored.txt", info);
+    }
+
+    [Fact]
+    public void StoredEntryReadFileReturnsCorrectContent()
+    {
+        using var stream = CreateStoredZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip", maxMemorySize: 1);
+
+        var info = new FakeDokanFileInfo();
+        zipFs.CreateFile("\\stored.txt", FileAccess.ReadData, FileShare.Read,
+            FileMode.Open, FileOptions.None, FileAttributes.Normal, info);
+
+        var buffer = new byte[100];
+        var result = zipFs.ReadFile("\\stored.txt", buffer, out var bytesRead, 0, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal("Direct read content from stored entry", Encoding.UTF8.GetString(buffer, 0, bytesRead));
+
+        zipFs.CloseFile("\\stored.txt", info);
+    }
+
+    [Fact]
+    public void StoredEntryReadFileWithOffsetSeeks()
+    {
+        using var stream = CreateStoredZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip", maxMemorySize: 1);
+
+        var info = new FakeDokanFileInfo();
+        zipFs.CreateFile("\\stored.txt", FileAccess.ReadData, FileShare.Read,
+            FileMode.Open, FileOptions.None, FileAttributes.Normal, info);
+
+        var buffer = new byte[100];
+        var result = zipFs.ReadFile("\\stored.txt", buffer, out var bytesRead, 7, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal("read content from stored entry", Encoding.UTF8.GetString(buffer, 0, bytesRead));
+
+        zipFs.CloseFile("\\stored.txt", info);
+    }
+
+    [Fact]
+    public void StoredEntryNoTempFileCreated()
+    {
+        using var stream = CreateStoredZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip", maxMemorySize: 1);
+
+        var info = new FakeDokanFileInfo();
+        zipFs.CreateFile("\\stored.txt", FileAccess.ReadData, FileShare.Read,
+            FileMode.Open, FileOptions.None, FileAttributes.Normal, info);
+
+        var cacheField = typeof(ZipFs).GetField("_largeFileCache",
+            BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(cacheField);
+        var cache = cacheField.GetValue(zipFs) as Dictionary<string, string>;
+        Assert.NotNull(cache);
+        Assert.DoesNotContain(cache, kvp => kvp.Key.Contains("stored.txt", StringComparison.OrdinalIgnoreCase));
+
+        zipFs.CloseFile("\\stored.txt", info);
+    }
+
+    [Fact]
+    public void StoredEntryCloseFileDisposesStream()
+    {
+        using var stream = CreateStoredZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip", maxMemorySize: 1);
+
+        var info = new FakeDokanFileInfo();
+        zipFs.CreateFile("\\stored.txt", FileAccess.ReadData, FileShare.Read,
+            FileMode.Open, FileOptions.None, FileAttributes.Normal, info);
+
+        var contextStream = info.Context as Stream;
+        Assert.NotNull(contextStream);
+        zipFs.CloseFile("\\stored.txt", info);
+
+        Assert.Null(info.Context);
+        Assert.Throws<ObjectDisposedException>(() => contextStream.ReadByte());
+    }
+
+    [Fact]
+    public void StoredEntryBinaryContentReadsCorrectly()
+    {
+        using var stream = CreateStoredZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip", maxMemorySize: 1);
+
+        var info = new FakeDokanFileInfo();
+        zipFs.CreateFile("\\sub\\stored-data.bin", FileAccess.ReadData, FileShare.Read,
+            FileMode.Open, FileOptions.None, FileAttributes.Normal, info);
+
+        var buffer = new byte[10];
+        zipFs.ReadFile("\\sub\\stored-data.bin", buffer, out var bytesRead, 100, info);
+
+        Assert.Equal(10, bytesRead);
+        for (var i = 0; i < 10; i++)
+            Assert.Equal((byte)(100 + i), buffer[i]);
+
+        zipFs.CloseFile("\\sub\\stored-data.bin", info);
+    }
+
+    [Fact]
+    public void StoredEntryEofReturnsZeroBytes()
+    {
+        using var stream = CreateStoredZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip", maxMemorySize: 1);
+
+        var info = new FakeDokanFileInfo();
+        zipFs.CreateFile("\\stored.txt", FileAccess.ReadData, FileShare.Read,
+            FileMode.Open, FileOptions.None, FileAttributes.Normal, info);
+
+        var buffer = new byte[100];
+        var result = zipFs.ReadFile("\\stored.txt", buffer, out var bytesRead, 9999, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal(0, bytesRead);
+
+        zipFs.CloseFile("\\stored.txt", info);
+    }
+
+    [Fact]
+    public void IsStoredEntryDetection()
+    {
+        using var stream = CreateStoredZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
+
+        var method = typeof(ZipFs).GetMethod("IsStoredEntry", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var entriesField = typeof(ZipFs).GetField("_archiveEntries", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(entriesField);
+
+        var entries = entriesField.GetValue(zipFs) as System.Collections.IDictionary;
+        Assert.NotNull(entries);
+        Assert.True(entries.Contains("/stored.txt"));
+
+        var storedEntry = entries["/stored.txt"];
+        Assert.True((bool)(method.Invoke(null, [storedEntry]) ?? false));
+    }
 }

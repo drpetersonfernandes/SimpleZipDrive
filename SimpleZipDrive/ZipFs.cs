@@ -336,6 +336,20 @@ public class ZipFs : IDokanOperations, IDisposable
         return entry.IsDirectory || (entry.Key != null && (entry.Key.EndsWith('/') || entry.Key.EndsWith('\\')));
     }
 
+    private static bool IsStoredEntry(IArchiveEntry entry)
+    {
+        if (entry.IsDirectory || entry.IsEncrypted || entry.IsSolid || entry.Size <= 0)
+            return false;
+
+        return entry switch
+        {
+            ZipArchiveEntry ze => ze.CompressionType == CompressionType.None,
+            SevenZipArchiveEntry se => se.CompressionType == CompressionType.None,
+            RarArchiveEntry re => re.CompressionType == CompressionType.None,
+            _ => entry.CompressedSize == entry.Size
+        };
+    }
+
     private static string NormalizePath(string path)
     {
         if (string.IsNullOrEmpty(path)) return "/";
@@ -490,7 +504,37 @@ public class ZipFs : IDokanOperations, IDisposable
                 {
                     var entrySize = entry.Size;
 
+                    // Stored (uncompressed) entry fast path: direct-read from archive, no caching needed
+                    if (IsStoredEntry(entry) && _sourceArchiveStream.CanSeek)
+                    {
+                        Stream? storedStream = null;
+                        lock (_archiveLock)
+                        {
+                            try
+                            {
+                                // Open the entry stream to determine the data offset
+                                // SharpCompress seeks _sourceArchiveStream to the data start
+                                using var entryStream = entry.OpenEntryStream();
+                                var dataStart = _sourceArchiveStream.Position;
+                                storedStream = new StoredEntryStream(_sourceArchiveStream, dataStart, entrySize, _archiveLock);
+                            }
+                            catch
+                            {
+                                // Fall through to hybrid caching below if OpenEntryStream fails
+                            }
+                        }
+
+                        if (storedStream != null)
+                        {
+                            info.Context = storedStream;
+                            LogMessage($"Stored entry detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Using direct-read mode (no cache).");
+                            LogMessage("");
+                        }
+                    }
+
                     // Hybrid caching - memory for small files, temp disk file for large files
+                    if (info.Context == null)
+                    {
                     if (entrySize >= _maxMemorySize || entrySize < 0)
                     {
                         // --- Large file: Cache to disk ---
@@ -693,6 +737,8 @@ public class ZipFs : IDokanOperations, IDisposable
                             // Wrap in a custom stream that tracks disposal for memory accounting
                             info.Context = new TrackedMemoryStream(entryBytes, this);
                         }
+                    }
+
                     }
 
                     // Verify that context was successfully created
@@ -1506,6 +1552,85 @@ public class ZipFs : IDokanOperations, IDisposable
                 _disposed = true;
             }
 
+            base.Dispose(disposing);
+        }
+    }
+
+    private sealed class StoredEntryStream : Stream
+    {
+        private readonly Stream _sourceStream;
+        private readonly long _dataOffset;
+        private readonly long _dataLength;
+        private readonly object _sourceLock;
+        private long _position;
+        private bool _disposed;
+
+        public StoredEntryStream(Stream sourceStream, long dataOffset, long dataLength, object sourceLock)
+        {
+            _sourceStream = sourceStream;
+            _dataOffset = dataOffset;
+            _dataLength = dataLength;
+            _sourceLock = sourceLock;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => true;
+        public override bool CanWrite => false;
+        public override long Length => _dataLength;
+
+        public override long Position
+        {
+            get => _position;
+            set
+            {
+                if (value < 0 || value > Length)
+                    throw new ArgumentOutOfRangeException(nameof(value));
+                _position = value;
+            }
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(StoredEntryStream));
+
+            lock (_sourceLock)
+            {
+                var maxBytes = (int)Math.Min(count, _dataLength - _position);
+                if (maxBytes <= 0) return 0;
+                _sourceStream.Position = _dataOffset + _position;
+                var bytesRead = _sourceStream.Read(buffer, offset, maxBytes);
+                _position += bytesRead;
+                return bytesRead;
+            }
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            if (_disposed)
+                throw new ObjectDisposedException(nameof(StoredEntryStream));
+
+            _position = origin switch
+            {
+                SeekOrigin.Begin => offset,
+                SeekOrigin.Current => _position + offset,
+                SeekOrigin.End => Length + offset,
+                _ => throw new ArgumentOutOfRangeException(nameof(origin))
+            };
+
+            if (_position < 0 || _position > Length)
+                throw new IOException("Seek position out of range");
+
+            return _position;
+        }
+
+        public override void Flush() { }
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            _disposed = true;
             base.Dispose(disposing);
         }
     }
