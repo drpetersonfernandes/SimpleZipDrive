@@ -2,6 +2,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.RegularExpressions;
 using DokanNet;
+using Microsoft.Win32.SafeHandles;
 using SharpCompress.Archives;
 using SharpCompress.Archives.Rar;
 using SharpCompress.Archives.SevenZip;
@@ -535,127 +536,9 @@ public class ZipFs : IDokanOperations, IDisposable
                     // Hybrid caching - memory for small files, temp disk file for large files
                     if (info.Context == null)
                     {
-                    if (entrySize >= _maxMemorySize || entrySize < 0)
-                    {
-                        // --- Large file: Cache to disk ---
-                        string? cachedPath = null;
-                        lock (_archiveLock)
+                        if (entrySize >= _maxMemorySize || entrySize < 0)
                         {
-                            if (_largeFileCache.TryGetValue(normalizedPath, out var path))
-                            {
-                                cachedPath = path;
-                            }
-                        }
-
-                        if (cachedPath != null)
-                        {
-                            LogMessage($"Reusing existing temporary cache for '{normalizedPath}'.");
-                        }
-                        else
-                        {
-                            LogMessage($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
-                            LogMessage("");
-                            var newTempFilePath = CreateSecureTempFile();
-
-                            if (entrySize >= 0)
-                            {
-                                try
-                                {
-                                    var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath) ?? "C:\\";
-                                    var tempDrive = new DriveInfo(tempDrivePathRoot);
-                                    if (tempDrive.AvailableFreeSpace < entrySize)
-                                    {
-                                        // Clean up the temp file we created before returning error
-                                        try
-                                        {
-                                            File.Delete(newTempFilePath);
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.CreateFile: Failed to delete temp file '{newTempFilePath}' during disk space check", true);
-                                        }
-
-                                        var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).";
-                                        _logErrorAction(new IOException(errorMessage), "ZipFs.CreateFile: Disk space check failed.");
-                                        return DokanResult.DiskFull;
-                                    }
-                                }
-                                catch (Exception driveEx)
-                                {
-                                    _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'.");
-                                }
-                            }
-
-                            // CRITICAL: Lock during extraction to prevent concurrent stream access.
-                            // SharpCompress shares the underlying archive stream, and concurrent reads
-                            // from different entries cause stream position corruption, leading to
-                            // deflate decompression errors (invalid distance code, invalid block type, etc.)
-                            lock (_archiveLock)
-                            {
-                                // Re-check cache inside lock to prevent duplicate extraction by concurrent threads
-                                if (_largeFileCache.TryGetValue(normalizedPath, out var existingPath))
-                                {
-                                    cachedPath = existingPath;
-                                    try
-                                    {
-                                        File.Delete(newTempFilePath);
-                                    }
-                                    catch
-                                    {
-                                        /* best effort */
-                                    }
-                                }
-                                else
-                                {
-                                    using var entryStream = entry.OpenEntryStream();
-                                    using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
-                                    entryStream.CopyTo(tempFileStream);
-                                    _largeFileCache[normalizedPath] = newTempFilePath;
-                                    cachedPath = newTempFilePath;
-                                }
-                            }
-
-                            LogMessage($"Extraction complete for '{normalizedPath}'. Temp file: '{cachedPath}'");
-                        }
-
-                        // Open the temp file for reading and assign it as the context.
-                        if (!string.IsNullOrEmpty(cachedPath))
-                        {
-                            try
-                            {
-                                info.Context = new FileStream(cachedPath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
-                            }
-                            catch (Exception fsEx)
-                            {
-                                _logErrorAction(fsEx, $"ZipFs.CreateFile: Failed to open cached temp file '{cachedPath}' for reading.");
-                                info.Context = null;
-                                return DokanResult.Error;
-                            }
-                        }
-                        else
-                        {
-                            // cachedPath is null/empty - caching failed but wasn't caught by exception
-                            _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: cachedPath is null/empty for large file '{normalizedPath}' after caching attempt."), "ZipFs.CreateFile: Large file caching failed silently.");
-                            return DokanResult.Error;
-                        }
-                    }
-                    else
-                    {
-                        // --- Small file: Cache in memory with throttling ---
-                        // Check if adding this file would exceed total memory limit
-                        bool useDiskCache;
-
-                        lock (_memoryLock)
-                        {
-                            var projectedMemoryUsage = _currentMemoryUsage + entrySize;
-                            useDiskCache = projectedMemoryUsage > _maxTotalMemoryCache;
-                        }
-
-                        if (useDiskCache)
-                        {
-                            // --- Memory limit exceeded: Fall back to disk caching ---
-                            LogMessage($"Memory limit approaching. Using disk cache for small file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).");
-
+                            // --- Large file: Cache to disk ---
                             string? cachedPath = null;
                             lock (_archiveLock)
                             {
@@ -665,13 +548,49 @@ public class ZipFs : IDokanOperations, IDisposable
                                 }
                             }
 
-                            if (cachedPath == null)
+                            if (cachedPath != null)
                             {
+                                LogMessage($"Reusing existing temporary cache for '{normalizedPath}'.");
+                            }
+                            else
+                            {
+                                LogMessage($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
+                                LogMessage("");
                                 var newTempFilePath = CreateSecureTempFile();
+
+                                if (entrySize >= 0)
+                                {
+                                    try
+                                    {
+                                        var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath) ?? "C:\\";
+                                        var tempDrive = new DriveInfo(tempDrivePathRoot);
+                                        if (tempDrive.AvailableFreeSpace < entrySize)
+                                        {
+                                            // Clean up the temp file we created before returning error
+                                            try
+                                            {
+                                                File.Delete(newTempFilePath);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.CreateFile: Failed to delete temp file '{newTempFilePath}' during disk space check", true);
+                                            }
+
+                                            var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).";
+                                            _logErrorAction(new IOException(errorMessage), "ZipFs.CreateFile: Disk space check failed.");
+                                            return DokanResult.DiskFull;
+                                        }
+                                    }
+                                    catch (Exception driveEx)
+                                    {
+                                        _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'.");
+                                    }
+                                }
 
                                 // CRITICAL: Lock during extraction to prevent concurrent stream access.
                                 // SharpCompress shares the underlying archive stream, and concurrent reads
-                                // from different entries cause stream position corruption.
+                                // from different entries cause stream position corruption, leading to
+                                // deflate decompression errors (invalid distance code, invalid block type, etc.)
                                 lock (_archiveLock)
                                 {
                                     // Re-check cache inside lock to prevent duplicate extraction by concurrent threads
@@ -696,8 +615,11 @@ public class ZipFs : IDokanOperations, IDisposable
                                         cachedPath = newTempFilePath;
                                     }
                                 }
+
+                                LogMessage($"Extraction complete for '{normalizedPath}'. Temp file: '{cachedPath}'");
                             }
 
+                            // Open the temp file for reading and assign it as the context.
                             if (!string.IsNullOrEmpty(cachedPath))
                             {
                                 try
@@ -706,39 +628,117 @@ public class ZipFs : IDokanOperations, IDisposable
                                 }
                                 catch (Exception fsEx)
                                 {
-                                    _logErrorAction(fsEx, $"ZipFs.CreateFile: Failed to open disk-cached temp file '{cachedPath}' for reading.");
+                                    _logErrorAction(fsEx, $"ZipFs.CreateFile: Failed to open cached temp file '{cachedPath}' for reading.");
                                     info.Context = null;
                                     return DokanResult.Error;
                                 }
                             }
+                            else
+                            {
+                                // cachedPath is null/empty - caching failed but wasn't caught by exception
+                                _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: cachedPath is null/empty for large file '{normalizedPath}' after caching attempt."), "ZipFs.CreateFile: Large file caching failed silently.");
+                                return DokanResult.Error;
+                            }
                         }
                         else
                         {
-                            // --- Small file: Cache in memory ---
-                            // CRITICAL: Lock during extraction to prevent concurrent stream access.
-                            // SharpCompress shares the underlying archive stream, and concurrent reads
-                            // from different entries cause stream position corruption.
-                            byte[] entryBytes;
-                            lock (_archiveLock)
-                            {
-                                using var entryStream = entry.OpenEntryStream();
-                                var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
-                                using var tempMs = new MemoryStream(capacity);
-                                entryStream.CopyTo(tempMs);
-                                entryBytes = tempMs.ToArray();
-                            }
+                            // --- Small file: Cache in memory with throttling ---
+                            // Check if adding this file would exceed total memory limit
+                            bool useDiskCache;
 
-                            // Track memory usage
                             lock (_memoryLock)
                             {
-                                _currentMemoryUsage += entryBytes.Length;
+                                var projectedMemoryUsage = _currentMemoryUsage + entrySize;
+                                useDiskCache = projectedMemoryUsage > _maxTotalMemoryCache;
                             }
 
-                            // Wrap in a custom stream that tracks disposal for memory accounting
-                            info.Context = new TrackedMemoryStream(entryBytes, this);
-                        }
-                    }
+                            if (useDiskCache)
+                            {
+                                // --- Memory limit exceeded: Fall back to disk caching ---
+                                LogMessage($"Memory limit approaching. Using disk cache for small file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).");
 
+                                string? cachedPath = null;
+                                lock (_archiveLock)
+                                {
+                                    if (_largeFileCache.TryGetValue(normalizedPath, out var path))
+                                    {
+                                        cachedPath = path;
+                                    }
+                                }
+
+                                if (cachedPath == null)
+                                {
+                                    var newTempFilePath = CreateSecureTempFile();
+
+                                    // CRITICAL: Lock during extraction to prevent concurrent stream access.
+                                    // SharpCompress shares the underlying archive stream, and concurrent reads
+                                    // from different entries cause stream position corruption.
+                                    lock (_archiveLock)
+                                    {
+                                        // Re-check cache inside lock to prevent duplicate extraction by concurrent threads
+                                        if (_largeFileCache.TryGetValue(normalizedPath, out var existingPath))
+                                        {
+                                            cachedPath = existingPath;
+                                            try
+                                            {
+                                                File.Delete(newTempFilePath);
+                                            }
+                                            catch
+                                            {
+                                                /* best effort */
+                                            }
+                                        }
+                                        else
+                                        {
+                                            using var entryStream = entry.OpenEntryStream();
+                                            using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, System.IO.FileAccess.Write, FileShare.None);
+                                            entryStream.CopyTo(tempFileStream);
+                                            _largeFileCache[normalizedPath] = newTempFilePath;
+                                            cachedPath = newTempFilePath;
+                                        }
+                                    }
+                                }
+
+                                if (!string.IsNullOrEmpty(cachedPath))
+                                {
+                                    try
+                                    {
+                                        info.Context = new FileStream(cachedPath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
+                                    }
+                                    catch (Exception fsEx)
+                                    {
+                                        _logErrorAction(fsEx, $"ZipFs.CreateFile: Failed to open disk-cached temp file '{cachedPath}' for reading.");
+                                        info.Context = null;
+                                        return DokanResult.Error;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                // --- Small file: Cache in memory ---
+                                // CRITICAL: Lock during extraction to prevent concurrent stream access.
+                                // SharpCompress shares the underlying archive stream, and concurrent reads
+                                // from different entries cause stream position corruption.
+                                byte[] entryBytes;
+                                lock (_archiveLock)
+                                {
+                                    using var entryStream = entry.OpenEntryStream();
+                                    var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
+                                    using var tempMs = new MemoryStream(capacity);
+                                    entryStream.CopyTo(tempMs);
+                                    entryBytes = tempMs.ToArray();
+                                }
+
+                                // Track memory usage
+                                lock (_memoryLock)
+                                {
+                                    _currentMemoryUsage += entryBytes.Length;
+                                }
+
+                                // Wrap in a custom stream that tracks disposal for memory accounting
+                                info.Context = new TrackedMemoryStream(entryBytes, this);
+                            }
+                        }
                     }
 
                     // Verify that context was successfully created
@@ -917,6 +917,12 @@ public class ZipFs : IDokanOperations, IDisposable
 
         try
         {
+            if (stream is StoredEntryStream stored)
+            {
+                bytesRead = stored.ReadAt(offset, buffer, 0, buffer.Length);
+                return DokanResult.Success;
+            }
+
             if (stream.CanSeek)
             {
                 if (offset >= stream.Length) return DokanResult.Success; // EOF
@@ -1560,8 +1566,8 @@ public class ZipFs : IDokanOperations, IDisposable
     {
         private readonly Stream _sourceStream;
         private readonly long _dataOffset;
-        private readonly long _dataLength;
         private readonly object _sourceLock;
+        private readonly SafeFileHandle? _fileHandle;
         private long _position;
         private bool _disposed;
 
@@ -1569,14 +1575,15 @@ public class ZipFs : IDokanOperations, IDisposable
         {
             _sourceStream = sourceStream;
             _dataOffset = dataOffset;
-            _dataLength = dataLength;
+            Length = dataLength;
             _sourceLock = sourceLock;
+            _fileHandle = (sourceStream as FileStream)?.SafeFileHandle;
         }
 
         public override bool CanRead => true;
         public override bool CanSeek => true;
         public override bool CanWrite => false;
-        public override long Length => _dataLength;
+        public override long Length { get; }
 
         public override long Position
         {
@@ -1585,19 +1592,27 @@ public class ZipFs : IDokanOperations, IDisposable
             {
                 if (value < 0 || value > Length)
                     throw new ArgumentOutOfRangeException(nameof(value));
+
                 _position = value;
             }
         }
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            if (_disposed)
-                throw new ObjectDisposedException(nameof(StoredEntryStream));
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            var maxBytes = (int)Math.Min(count, Length - _position);
+            if (maxBytes <= 0) return 0;
+
+            if (_fileHandle != null)
+            {
+                var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(offset, maxBytes), _dataOffset + _position);
+                _position += bytesRead;
+                return bytesRead;
+            }
 
             lock (_sourceLock)
             {
-                var maxBytes = (int)Math.Min(count, _dataLength - _position);
-                if (maxBytes <= 0) return 0;
                 _sourceStream.Position = _dataOffset + _position;
                 var bytesRead = _sourceStream.Read(buffer, offset, maxBytes);
                 _position += bytesRead;
@@ -1605,10 +1620,52 @@ public class ZipFs : IDokanOperations, IDisposable
             }
         }
 
+        public override int Read(Span<byte> buffer)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            var maxBytes = (int)Math.Min(buffer.Length, Length - _position);
+            if (maxBytes <= 0) return 0;
+
+            if (_fileHandle != null)
+            {
+                var bytesRead = RandomAccess.Read(_fileHandle, buffer[..maxBytes], _dataOffset + _position);
+                _position += bytesRead;
+                return bytesRead;
+            }
+
+            lock (_sourceLock)
+            {
+                _sourceStream.Position = _dataOffset + _position;
+                var bytesRead = _sourceStream.Read(buffer[..maxBytes]);
+                _position += bytesRead;
+                return bytesRead;
+            }
+        }
+
+        public int ReadAt(long fileOffset, byte[] buffer, int bufferOffset, int count)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            if (fileOffset < 0 || fileOffset >= Length)
+                return 0;
+
+            var maxBytes = (int)Math.Min(count, Length - fileOffset);
+            if (maxBytes <= 0) return 0;
+
+            if (_fileHandle != null)
+                return RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, maxBytes), _dataOffset + fileOffset);
+
+            lock (_sourceLock)
+            {
+                _sourceStream.Position = _dataOffset + fileOffset;
+                return _sourceStream.Read(buffer, bufferOffset, maxBytes);
+            }
+        }
+
         public override long Seek(long offset, SeekOrigin origin)
         {
-            if (_disposed)
-                throw new ObjectDisposedException(nameof(StoredEntryStream));
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
             _position = origin switch
             {
@@ -1624,9 +1681,19 @@ public class ZipFs : IDokanOperations, IDisposable
             return _position;
         }
 
-        public override void Flush() { }
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override void Flush()
+        {
+        }
+
+        public override void SetLength(long value)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            throw new NotSupportedException();
+        }
 
         protected override void Dispose(bool disposing)
         {
