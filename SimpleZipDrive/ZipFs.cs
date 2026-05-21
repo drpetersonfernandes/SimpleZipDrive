@@ -337,16 +337,17 @@ public class ZipFs : IDokanOperations, IDisposable
         return entry.IsDirectory || (entry.Key != null && (entry.Key.EndsWith('/') || entry.Key.EndsWith('\\')));
     }
 
-    private static bool IsStoredEntry(IArchiveEntry entry)
+    private bool IsStoredEntry(IArchiveEntry entry)
     {
+        if (_archiveType != "zip")
+            return false;
+
         if (entry.IsDirectory || entry.IsEncrypted || entry.IsSolid || entry.Size <= 0)
             return false;
 
         return entry switch
         {
             ZipArchiveEntry ze => ze.CompressionType == CompressionType.None,
-            SevenZipArchiveEntry se => se.CompressionType == CompressionType.None,
-            RarArchiveEntry re => re.CompressionType == CompressionType.None,
             _ => entry.CompressedSize == entry.Size
         };
     }
