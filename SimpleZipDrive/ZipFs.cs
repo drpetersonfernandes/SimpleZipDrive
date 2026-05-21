@@ -1563,10 +1563,15 @@ public class ZipFs : IDokanOperations, IDisposable
 
     private sealed class StoredEntryStream : Stream
     {
+        private const int ReadAheadBufferSize = 4 * 1024 * 1024;
+
         private readonly Stream _sourceStream;
         private readonly long _dataOffset;
         private readonly object _sourceLock;
         private readonly SafeFileHandle? _fileHandle;
+        private readonly byte[] _readAheadBuffer;
+        private long _readAheadStart;
+        private long _readAheadEnd;
         private long _position;
         private bool _disposed;
 
@@ -1577,6 +1582,9 @@ public class ZipFs : IDokanOperations, IDisposable
             Length = dataLength;
             _sourceLock = sourceLock;
             _fileHandle = (sourceStream as FileStream)?.SafeFileHandle;
+            _readAheadBuffer = new byte[ReadAheadBufferSize];
+            _readAheadStart = -1;
+            _readAheadEnd = -1;
         }
 
         public override bool CanRead => true;
@@ -1596,6 +1604,40 @@ public class ZipFs : IDokanOperations, IDisposable
             }
         }
 
+        private int ReadWithAhead(long fileOffset, Span<byte> destination)
+        {
+            if (fileOffset >= _readAheadStart && fileOffset + destination.Length <= _readAheadEnd)
+            {
+                var offsetInBuffer = (int)(fileOffset - _readAheadStart);
+                _readAheadBuffer.AsSpan(offsetInBuffer, destination.Length).CopyTo(destination);
+                return destination.Length;
+            }
+
+            var readSize = (int)Math.Min(ReadAheadBufferSize, Length - fileOffset);
+            if (readSize <= 0) return 0;
+
+            int actualRead;
+            if (_fileHandle != null)
+            {
+                actualRead = RandomAccess.Read(_fileHandle, _readAheadBuffer.AsSpan(0, readSize), _dataOffset + fileOffset);
+            }
+            else
+            {
+                lock (_sourceLock)
+                {
+                    _sourceStream.Position = _dataOffset + fileOffset;
+                    actualRead = _sourceStream.Read(_readAheadBuffer, 0, readSize);
+                }
+            }
+
+            _readAheadStart = fileOffset;
+            _readAheadEnd = fileOffset + actualRead;
+
+            var copySize = Math.Min(destination.Length, actualRead);
+            _readAheadBuffer.AsSpan(0, copySize).CopyTo(destination);
+            return copySize;
+        }
+
         public override int Read(byte[] buffer, int offset, int count)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -1603,20 +1645,9 @@ public class ZipFs : IDokanOperations, IDisposable
             var maxBytes = (int)Math.Min(count, Length - _position);
             if (maxBytes <= 0) return 0;
 
-            if (_fileHandle != null)
-            {
-                var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(offset, maxBytes), _dataOffset + _position);
-                _position += bytesRead;
-                return bytesRead;
-            }
-
-            lock (_sourceLock)
-            {
-                _sourceStream.Position = _dataOffset + _position;
-                var bytesRead = _sourceStream.Read(buffer, offset, maxBytes);
-                _position += bytesRead;
-                return bytesRead;
-            }
+            var bytesRead = ReadWithAhead(_position, buffer.AsSpan(offset, maxBytes));
+            _position += bytesRead;
+            return bytesRead;
         }
 
         public override int Read(Span<byte> buffer)
@@ -1626,20 +1657,9 @@ public class ZipFs : IDokanOperations, IDisposable
             var maxBytes = (int)Math.Min(buffer.Length, Length - _position);
             if (maxBytes <= 0) return 0;
 
-            if (_fileHandle != null)
-            {
-                var bytesRead = RandomAccess.Read(_fileHandle, buffer[..maxBytes], _dataOffset + _position);
-                _position += bytesRead;
-                return bytesRead;
-            }
-
-            lock (_sourceLock)
-            {
-                _sourceStream.Position = _dataOffset + _position;
-                var bytesRead = _sourceStream.Read(buffer[..maxBytes]);
-                _position += bytesRead;
-                return bytesRead;
-            }
+            var bytesRead = ReadWithAhead(_position, buffer[..maxBytes]);
+            _position += bytesRead;
+            return bytesRead;
         }
 
         public int ReadAt(long fileOffset, byte[] buffer, int bufferOffset, int count)
@@ -1652,14 +1672,7 @@ public class ZipFs : IDokanOperations, IDisposable
             var maxBytes = (int)Math.Min(count, Length - fileOffset);
             if (maxBytes <= 0) return 0;
 
-            if (_fileHandle != null)
-                return RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, maxBytes), _dataOffset + fileOffset);
-
-            lock (_sourceLock)
-            {
-                _sourceStream.Position = _dataOffset + fileOffset;
-                return _sourceStream.Read(buffer, bufferOffset, maxBytes);
-            }
+            return ReadWithAhead(fileOffset, buffer.AsSpan(bufferOffset, maxBytes));
         }
 
         public override long Seek(long offset, SeekOrigin origin)
