@@ -50,7 +50,7 @@ public class ErrorLogger : IDisposable
         System.Windows.Application.Current.DispatcherUnhandledException += (_, args) =>
         {
             const string context = "Unhandled exception in UI thread (Dispatcher)";
-            FireAndForget(LogErrorAsync(args.Exception, context));
+            FireAndForgetAsync(LogErrorAsync(args.Exception, context));
             args.Handled = true; // Prevent application crash
         };
 
@@ -109,7 +109,7 @@ public class ErrorLogger : IDisposable
             // Send to API in background (don't block)
             if (!IsUserError(ex))
             {
-                FireAndForget(Task.Run(async () =>
+                FireAndForgetAsync(Task.Run(async () =>
                 {
                     CancellationTokenSource? cts = null;
                     try
@@ -273,7 +273,7 @@ public class ErrorLogger : IDisposable
     /// <summary>
     /// Fire-and-forget a task without suppressing the compiler warning. Handles any unobserved exceptions.
     /// </summary>
-    private static async void FireAndForget(Task task)
+    private static async void FireAndForgetAsync(Task task)
     {
         try
         {

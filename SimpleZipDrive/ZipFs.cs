@@ -166,8 +166,8 @@ public class ZipFs : IDokanOperations, IDisposable
 
             _archive = OpenArchive(archiveStream);
             InitializeEntries();
-            LogMessage($"ZipFs Constructor: Using SharpCompress. Archive type: {_archiveType}, _sourceArchiveStream.CanSeek = {_sourceArchiveStream.CanSeek}, _sourceArchiveStream type = {_sourceArchiveStream.GetType().FullName}");
-            LogMessage("");
+            // LogMessage($"ZipFs Constructor: Using SharpCompress. Archive type: {_archiveType}, _sourceArchiveStream.CanSeek = {_sourceArchiveStream.CanSeek}, _sourceArchiveStream type = {_sourceArchiveStream.GetType().FullName}");
+            // LogMessage("");
         }
         catch (Exception ex)
         {

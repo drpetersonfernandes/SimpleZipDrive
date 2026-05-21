@@ -19,6 +19,7 @@ Unlike traditional archive utilities that extract the entire archive to a tempor
 *   **Multi-Format Support:** Mount ZIP, 7Z, and RAR archives seamlessly.
 *   **Virtual Drive Mounting:** Mount any supported archive as a dedicated drive letter (e.g., `M:\`) or a folder path.
 *   **Hybrid Caching Engine:**
+    *   **Stored Entries (ZIP):** Uncompressed entries are read directly from the source archive with zero-copy, zero-cache performance — no RAM or disk overhead.
     *   **Small Files:** Cached in-memory for near-instantaneous access.
     *   **Large Files (≥512 MB by default):** Automatically offloaded to a temporary disk cache to prevent RAM exhaustion. The per-file memory threshold can be adjusted via the Settings window.
 *   **Streaming Architecture:** The source archive is accessed via a direct file stream, supporting archives of virtually any size.
@@ -80,7 +81,7 @@ To safely unmount the drive and clean up temporary resources:
 ## 🔍 Technical Architecture
 
 *   **Read-Only Integrity:** The filesystem is strictly read-only. No modifications are made to the source archive.
-*   **Memory Efficiency:** The application does not load the entire archive into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested. The per-file RAM cache limit is configurable via `Settings > RAM Limit` and is automatically clamped to 90% of available system memory. A global memory cap at 90% of available free memory ensures stability even under heavy load.
+*   **Memory Efficiency:** The application does not load the entire archive into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested. Stored (uncompressed) entries in ZIP archives bypass caching entirely using direct-read with Windows `RandomAccess` for near-zero overhead. The per-file RAM cache limit is configurable via `Settings > RAM Limit` and is automatically clamped to 90% of available system memory. A global memory cap at 90% of available free memory ensures stability even under heavy load.
 *   **Permissions:** Mounting to drive letters or system-protected directories may require **Administrator Privileges**. If you encounter "Access Denied" errors, right-click the executable and select "Run as Administrator."
 *   **Temporary Storage:** Disk-based caching for large files occurs in `%TEMP%\SimpleZipDrive`. These files are purged automatically during graceful shutdown, and orphaned directories from crashed sessions are cleaned up on application startup.
 
@@ -90,7 +91,7 @@ To safely unmount the drive and clean up temporary resources:
 
 | Issue                             | Solution                                                                                                                      |
 |:----------------------------------|:------------------------------------------------------------------------------------------------------------------------------|
-| **Dokan Initialization Failed**   | Ensure the Dokan driver is installed and you have restarted your PC after installation.                                       |
+| **Dokan Initialization Failed**   | Ensure the Dokan driver is installed and you have restarted your PC after installation. The app detects missing drivers and offers to open the download page automatically. |
 | **Drive Letter in Use**           | Specify a different drive letter via CLI or ensure letters M-Q are not mapped to network shares.                              |
 | **Out of Memory**                 | Occurs if too many large files are opened simultaneously. Close applications accessing the virtual drive to free up cache.    |
 | **Archive File Error**            | Simple Zip Drive supports standard ZIP, 7Z, and RAR formats. Other formats like `.tar.gz` or `.bz2` are not supported.        |

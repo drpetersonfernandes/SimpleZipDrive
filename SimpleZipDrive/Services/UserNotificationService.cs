@@ -42,6 +42,7 @@ public class UserNotificationService : IUserNotificationService
                 }
                 catch (Exception ex)
                 {
+                    ErrorLoggerStatic.ReportSilentException(ex, "UserNotificationService: Failed to launch browser for update download", true);
                     _loggingService.Log($"Could not launch browser: {ex.Message}");
                     MessageBox.Show($"Could not open browser automatically.\n\nPlease visit:\n{downloadUrl}",
                         "Browser Error", MessageBoxButton.OK, MessageBoxImage.Warning);

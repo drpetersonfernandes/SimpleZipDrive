@@ -960,6 +960,291 @@ public class ZipFsTests : IDisposable
         }
     }
 
+    // ─── NormalizePath tests ───
+
+    [Fact]
+    public void NormalizePathNullReturnsRoot()
+    {
+        var method = typeof(ZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [null]);
+
+        Assert.Equal("/", result);
+    }
+
+    [Fact]
+    public void NormalizePathEmptyReturnsRoot()
+    {
+        var method = typeof(ZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [""]);
+
+        Assert.Equal("/", result);
+    }
+
+    [Fact]
+    public void NormalizePathConvertsBackslashes()
+    {
+        var method = typeof(ZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [@"foo\bar\baz.txt"]);
+
+        Assert.Equal("/foo/bar/baz.txt", result);
+    }
+
+    [Fact]
+    public void NormalizePathAddsLeadingSlash()
+    {
+        var method = typeof(ZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, ["data/info.txt"]);
+
+        Assert.Equal("/data/info.txt", result);
+    }
+
+    [Fact]
+    public void NormalizePathPreservesExistingLeadingSlash()
+    {
+        var method = typeof(ZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, ["/already/normalized"]);
+
+        Assert.Equal("/already/normalized", result);
+    }
+
+    // ─── IsPasswordRequiredException tests ───
+
+    [Fact]
+    public void IsPasswordRequiredExceptionMessageContainsPasswordReturnsTrue()
+    {
+        var method = typeof(ZipFs).GetMethod("IsPasswordRequiredException", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [new InvalidOperationException("archive requires a password")]);
+
+        Assert.True((bool)(result ?? false));
+    }
+
+    [Fact]
+    public void IsPasswordRequiredExceptionMessageContainsEncryptedReturnsTrue()
+    {
+        var method = typeof(ZipFs).GetMethod("IsPasswordRequiredException", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [new InvalidOperationException("file is encrypted")]);
+
+        Assert.True((bool)(result ?? false));
+    }
+
+    [Fact]
+    public void IsPasswordRequiredExceptionMessageContainsRarAndHeaderReturnsTrue()
+    {
+        var method = typeof(ZipFs).GetMethod("IsPasswordRequiredException", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [new InvalidOperationException("RAR header is encrypted")]);
+
+        Assert.True((bool)(result ?? false));
+    }
+
+    [Fact]
+    public void IsPasswordRequiredExceptionNonMatchingMessageReturnsFalse()
+    {
+        var method = typeof(ZipFs).GetMethod("IsPasswordRequiredException", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [new InvalidOperationException("file not found")]);
+
+        Assert.False((bool)(result ?? true));
+    }
+
+    // ─── IsDirectory tests ───
+
+    [Fact]
+    public void IsDirectoryTrailingSlashReturnsTrue()
+    {
+        using var stream = CreateZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
+
+        var method = typeof(ZipFs).GetMethod("IsDirectory", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var entriesField = typeof(ZipFs).GetField("_archiveEntries", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(entriesField);
+        var entries = entriesField.GetValue(zipFs) as System.Collections.IDictionary;
+        Assert.NotNull(entries);
+
+        var result = method.Invoke(null, [entries["/empty/"]]);
+
+        Assert.True((bool)(result ?? false));
+    }
+
+    [Fact]
+    public void IsDirectoryFileEntryReturnsFalse()
+    {
+        using var stream = CreateZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
+
+        var method = typeof(ZipFs).GetMethod("IsDirectory", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var entriesField = typeof(ZipFs).GetField("_archiveEntries", BindingFlags.NonPublic | BindingFlags.Instance);
+        Assert.NotNull(entriesField);
+        var entries = entriesField.GetValue(zipFs) as System.Collections.IDictionary;
+        Assert.NotNull(entries);
+
+        var result = method.Invoke(null, [entries["/readme.txt"]]);
+
+        Assert.False((bool)(result ?? true));
+    }
+
+    // ─── IsPathLengthValid tests ───
+
+    [Fact]
+    public void IsPathLengthValidNullReturnsTrue()
+    {
+        var method = typeof(ZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [null]);
+
+        Assert.True((bool)(result ?? false));
+    }
+
+    [Fact]
+    public void IsPathLengthValidEmptyReturnsTrue()
+    {
+        var method = typeof(ZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, [""]);
+
+        Assert.True((bool)(result ?? false));
+    }
+
+    [Fact]
+    public void IsPathLengthValidExactlyMaxPathReturnsTrue()
+    {
+        var method = typeof(ZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var path = "\\" + new string('a', 259);
+        var result = method.Invoke(null, [path]);
+
+        Assert.True((bool)(result ?? false));
+    }
+
+    [Fact]
+    public void IsPathLengthValidExceedsMaxPathReturnsFalse()
+    {
+        var method = typeof(ZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var path = "\\" + new string('a', 260);
+        var result = method.Invoke(null, [path]);
+
+        Assert.False((bool)(result ?? true));
+    }
+
+    [Fact]
+    public void IsPathLengthValidExtendedPathPrefixWithinLimitReturnsTrue()
+    {
+        var method = typeof(ZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var path = @"\\?\" + new string('a', 260);
+        var result = method.Invoke(null, [path]);
+
+        Assert.True((bool)(result ?? false));
+    }
+
+    // ─── IsMatchSimple tests ───
+
+    [Fact]
+    public void IsMatchSimpleWildcardQuestionMarkMatchesSingleChar()
+    {
+        var method = typeof(ZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, ["abc.txt", "abc.tx?"]);
+
+        Assert.True((bool)(result ?? false));
+    }
+
+    [Fact]
+    public void IsMatchSimpleWildcardQuestionMarkDoesNotMatchDifferentLength()
+    {
+        var method = typeof(ZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, ["abcd.txt", "abc.tx?"]);
+
+        Assert.False((bool)(result ?? true));
+    }
+
+    [Fact]
+    public void IsMatchSimplePatternTooLongReturnsFalse()
+    {
+        var method = typeof(ZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var pattern = new string('a', 261);
+        var result = method.Invoke(null, ["anything", pattern]);
+
+        Assert.False((bool)(result ?? true));
+    }
+
+    [Fact]
+    public void IsMatchSimpleStarStarPattern()
+    {
+        var method = typeof(ZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, ["readme.txt", "*"]);
+
+        Assert.True((bool)(result ?? false));
+    }
+
+    [Fact]
+    public void IsMatchSimpleDotStarPattern()
+    {
+        var method = typeof(ZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var result = method.Invoke(null, ["test.txt", "*.*"]);
+
+        Assert.True((bool)(result ?? false));
+    }
+
+    // ─── CreateFile after Dispose test ───
+
+    [Fact]
+    public void CreateFileAfterDisposeReturnsNotReady()
+    {
+        using var stream = CreateZipStream();
+        var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
+        zipFs.Dispose();
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.CreateFile(
+            "\\readme.txt",
+            FileAccess.ReadData,
+            FileShare.Read,
+            FileMode.Open,
+            FileOptions.None,
+            FileAttributes.Normal,
+            info);
+
+        Assert.Equal(DokanResult.NotReady, result);
+
+        stream.Dispose();
+    }
+
     public void Dispose()
     {
         _zipFs.Dispose();
@@ -1212,7 +1497,7 @@ public class ZipFsTests : IDisposable
         using var stream = CreateStoredZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var method = typeof(ZipFs).GetMethod("IsStoredEntry", BindingFlags.NonPublic | BindingFlags.Static);
+        var method = typeof(ZipFs).GetMethod("IsStoredEntry", BindingFlags.NonPublic | BindingFlags.Instance);
         Assert.NotNull(method);
 
         var entriesField = typeof(ZipFs).GetField("_archiveEntries", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -1223,7 +1508,7 @@ public class ZipFsTests : IDisposable
         Assert.True(entries.Contains("/stored.txt"));
 
         var storedEntry = entries["/stored.txt"];
-        Assert.True((bool)(method.Invoke(null, [storedEntry]) ?? false));
+        Assert.True((bool)(method.Invoke(zipFs, [storedEntry]) ?? false));
     }
 
     private static string CreateTempStoredZipFile(string entryName, byte[] data)
@@ -1320,7 +1605,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public async Task StoredEntryFileStreamSourceConcurrentMultiFileReads()
+    public async Task StoredEntryFileStreamSourceConcurrentMultiFileReadsAsync()
     {
         const int size = 256 * 1024;
         var data1 = CreatePatternData(size, 0);
@@ -1391,7 +1676,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public async Task StoredEntryFileStreamSourceSingleFileConcurrentSeeking()
+    public async Task StoredEntryFileStreamSourceSingleFileConcurrentSeekingAsync()
     {
         const int size = 512 * 1024;
         var data = CreatePatternData(size, 42);

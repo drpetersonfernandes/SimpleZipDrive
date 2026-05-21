@@ -59,7 +59,7 @@ public class ErrorLoggerTests : IDisposable
     }
 
     [Fact]
-    public async Task LogErrorAsyncUserErrorWritesToLogFile()
+    public async Task LogErrorAsyncUserErrorWritesToLogFileAsync()
     {
         var ex = new DirectoryNotFoundException("test dir missing");
         await _errorLogger.LogErrorAsync(ex, "async test");
@@ -83,7 +83,7 @@ public class ErrorLoggerTests : IDisposable
     }
 
     [Fact]
-    public async Task LogErrorAsyncNullContextWritesDefault()
+    public async Task LogErrorAsyncNullContextWritesDefaultAsync()
     {
         var ex = new FileNotFoundException("test");
         await _errorLogger.LogErrorAsync(ex);
@@ -109,7 +109,7 @@ public class ErrorLoggerTests : IDisposable
     }
 
     [Fact]
-    public async Task LogErrorAsyncNullExceptionCreatesPlaceholder()
+    public async Task LogErrorAsyncNullExceptionCreatesPlaceholderAsync()
     {
         await _errorLogger.LogErrorAsync(null, "async null test");
 
@@ -202,6 +202,105 @@ public class ErrorLoggerTests : IDisposable
     public void IsUserErrorMessageContainsDriveLetterPatternReturnsTrue()
     {
         var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("can't assign a drive letter to this device")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorOperationCanceledExceptionReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new OperationCanceledException()]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorTaskCanceledExceptionReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new TaskCanceledException()]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorHttpRequestExceptionWithInnerOperationCanceledExceptionReturnsTrue()
+    {
+        var ex = new HttpRequestException("request failed", new OperationCanceledException());
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [ex]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsCanceledReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("operation was canceled")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsCancelledReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("operation was cancelled by user")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsTimeoutReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("connection timeout")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsCannotFindCentralDirectoryReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("cannot find central directory in zip")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsUnknownFormatReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("unknown format for archive")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsNotAValidReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("this is not a valid archive")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsDriveLetterInUseReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("drive letter is in use")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsMountPointInvalidReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("mount point is invalid")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorMessageContainsHeaderAndInvalidReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("archive header is invalid")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorSharpCompressArchiveExceptionReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new SharpCompress.Common.ArchiveException("invalid archive")]) ?? throw new InvalidOperationException());
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserErrorSharpCompressInvalidFormatExceptionReturnsTrue()
+    {
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new SharpCompress.Common.InvalidFormatException("invalid format")]) ?? throw new InvalidOperationException());
         Assert.True(result);
     }
 
