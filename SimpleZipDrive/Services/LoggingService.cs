@@ -19,6 +19,9 @@ public class LoggingService : ILoggingService
     /// <inheritdoc />
     public void Log(string message)
     {
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+        if (message is null) return;
+
         var entry = new LogEntry
         {
             Timestamp = DateTime.Now,
