@@ -25,8 +25,13 @@ public class SettingsServiceTests
     [Fact]
     public void SaveSettingsDoesNotThrow()
     {
-        var service = new SettingsService();
-        service.Settings.MaxMemoryPerFileMb = 256;
+        var service = new SettingsService
+        {
+            Settings =
+            {
+                MaxMemoryPerFileMb = 256
+            }
+        };
 
         var ex = Record.Exception(service.SaveSettings);
 
@@ -37,7 +42,6 @@ public class SettingsServiceTests
     public void ReloadSettingsRefreshesInstance()
     {
         var service = new SettingsService();
-        var original = service.Settings;
 
         service.ReloadSettings();
 
@@ -52,8 +56,13 @@ public class SettingsServiceTests
     [InlineData(1024)]
     public void UpdateRamLimitPositiveValuesUpdateSettings(int memoryMb)
     {
-        var service = new SettingsService();
-        service.Settings.MaxMemoryPerFileMb = 0;
+        var service = new SettingsService
+        {
+            Settings =
+            {
+                MaxMemoryPerFileMb = 0
+            }
+        };
 
         service.UpdateRamLimit(memoryMb);
 

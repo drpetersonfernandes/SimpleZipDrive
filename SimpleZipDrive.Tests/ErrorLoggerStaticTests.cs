@@ -1,5 +1,3 @@
-using System.Reflection;
-
 namespace SimpleZipDrive.Tests;
 
 public class ErrorLoggerStaticTests
@@ -36,7 +34,7 @@ public class ErrorLoggerStaticTests
     [Fact]
     public void LogErrorSyncDelegatesToInstanceWithNullException()
     {
-        var thrownEx = Record.Exception(() =>
+        var thrownEx = Record.Exception(static () =>
             ErrorLoggerStatic.LogErrorSync(null, "test null"));
 
         Assert.Null(thrownEx);
@@ -58,8 +56,7 @@ public class ErrorLoggerStaticTests
     {
         var ex = new InvalidOperationException("test async log");
 
-        var thrownEx = await Record.ExceptionAsync(
-            () => ErrorLoggerStatic.LogErrorAsync(ex, "test async context"));
+        var thrownEx = await Record.ExceptionAsync(() => ErrorLoggerStatic.LogErrorAsync(ex, "test async context"));
 
         Assert.Null(thrownEx);
     }
@@ -67,8 +64,7 @@ public class ErrorLoggerStaticTests
     [Fact]
     public async Task LogErrorAsyncDelegatesToInstanceWithNullException()
     {
-        var thrownEx = await Record.ExceptionAsync(
-            () => ErrorLoggerStatic.LogErrorAsync(null, "test async null"));
+        var thrownEx = await Record.ExceptionAsync(static () => ErrorLoggerStatic.LogErrorAsync(null, "test async null"));
 
         Assert.Null(thrownEx);
     }
@@ -76,7 +72,7 @@ public class ErrorLoggerStaticTests
     [Fact]
     public void InitializeGlobalExceptionHandlersThrowsWithoutWpfContext()
     {
-        var ex = Record.Exception(() => ErrorLoggerStatic.InitializeGlobalExceptionHandlers());
+        var ex = Record.Exception(static () => ErrorLoggerStatic.InitializeGlobalExceptionHandlers());
 
         Assert.IsType<NullReferenceException>(ex);
     }

@@ -460,15 +460,6 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         
-        <!-- Header Label Style -->
-        <Style x:Key="HeaderLabelStyle" TargetType="Label">
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-            <Setter Property="FontFamily" Value="{StaticResource PrimaryFontFamily}" />
-            <Setter Property="FontSize" Value="16" />
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Padding" Value="0,4" />
-        </Style>
-        
         <!-- ============================================ -->
         <!-- TEXTBLOCK STYLES -->
         <!-- ============================================ -->
@@ -482,19 +473,6 @@
             <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}" />
             <Setter Property="FontFamily" Value="{StaticResource PrimaryFontFamily}" />
             <Setter Property="FontSize" Value="12" />
-        </Style>
-        
-        <!-- ============================================ -->
-        <!-- CHECKBOX STYLES -->
-        <!-- ============================================ -->
-        <Style TargetType="CheckBox">
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-            <Setter Property="FontFamily" Value="{StaticResource PrimaryFontFamily}" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="{StaticResource BorderPrimaryBrush}" />
-            <Setter Property="Padding" Value="6,0,0,0" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         
         <!-- ============================================ -->
@@ -537,144 +515,6 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
-        </Style>
-        
-        <!-- ============================================ -->
-        <!-- COMBOBOX STYLES -->
-        <!-- ============================================ -->
-        <Style TargetType="ComboBox">
-            <Setter Property="Background" Value="{StaticResource BgSecondaryBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-            <Setter Property="FontFamily" Value="{StaticResource PrimaryFontFamily}" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="BorderBrush" Value="{StaticResource BorderPrimaryBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="6,4" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBox">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition />
-                                <ColumnDefinition />
-                                <ColumnDefinition />
-                            </Grid.ColumnDefinitions>
-                            <ToggleButton x:Name="ToggleButton"
-                                          Grid.Column="2"
-                                          ClickMode="Press"
-                                          Focusable="False"
-                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
-                                          Template="{DynamicResource ComboBoxToggleButtonTemplate}" />
-                            <Border Grid.Column="0" x:Name="Border"
-                                    Background="{TemplateBinding Background}"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}"
-                                    CornerRadius="2"
-                                    SnapsToDevicePixels="True">
-                                <ContentPresenter x:Name="ContentSite"
-                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
-                                                  Content="{TemplateBinding SelectionBoxItem}"
-                                                  ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
-                                                  HorizontalAlignment="Left"
-                                                  VerticalAlignment="Center"
-                                                  Margin="6,4,25,4" />
-                            </Border>
-                            <Popup Grid.Column="0" x:Name="Popup"
-                                   Placement="Bottom"
-                                   IsOpen="{TemplateBinding IsDropDownOpen}"
-                                   AllowsTransparency="True"
-                                   Focusable="False"
-                                   PopupAnimation="Slide">
-                                <Grid x:Name="DropDown"
-                                      SnapsToDevicePixels="True"
-                                      MinWidth="{TemplateBinding ActualWidth}"
-                                      MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                                    <Border x:Name="DropDownBorder"
-                                            Background="{StaticResource BgSecondaryBrush}"
-                                            BorderBrush="{StaticResource BorderPrimaryBrush}"
-                                            BorderThickness="1"
-                                            CornerRadius="2">
-                                        <ScrollViewer SnapsToDevicePixels="True">
-                                            <StackPanel IsItemsHost="True"
-                                                        KeyboardNavigation.DirectionalNavigation="Contained" />
-                                        </ScrollViewer>
-                                    </Border>
-                                </Grid>
-                            </Popup>
-                        </Grid>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsFocused" Value="True">
-                                <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource AccentPrimaryBrush}" />
-                                <Setter TargetName="Border" Property="BorderThickness" Value="1.5" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        
-        <!-- ComboBox ToggleButton Template -->
-        <ControlTemplate x:Key="ComboBoxToggleButtonTemplate" TargetType="ToggleButton">
-            <Grid>
-                <Border x:Name="Border"
-                        Background="{StaticResource BgTertiaryBrush}"
-                        BorderBrush="{StaticResource BorderPrimaryBrush}"
-                        BorderThickness="0,1,1,1"
-                        CornerRadius="0,2,2,0"
-                        Width="22"
-                        HorizontalAlignment="Right">
-                    <Path x:Name="Arrow"
-                          Fill="{StaticResource TextSecondaryBrush}"
-                          HorizontalAlignment="Center"
-                          VerticalAlignment="Center"
-                          Data="M0,0 L4,4 L8,0 Z" />
-                </Border>
-            </Grid>
-            <ControlTemplate.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter TargetName="Border" Property="Background" Value="{StaticResource BgQuaternaryBrush}" />
-                </Trigger>
-            </ControlTemplate.Triggers>
-        </ControlTemplate>
-        
-        <Style TargetType="ComboBoxItem">
-            <Setter Property="Background" Value="{StaticResource BgSecondaryBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-            <Setter Property="Padding" Value="8,4" />
-            <Style.Triggers>
-                <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="{StaticResource AccentPrimaryBrush}" />
-                </Trigger>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource BgTertiaryBrush}" />
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-        
-        <!-- ============================================ -->
-        <!-- LISTBOX STYLES -->
-        <!-- ============================================ -->
-        <Style TargetType="ListBox">
-            <Setter Property="Background" Value="{StaticResource BgPrimaryBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-            <Setter Property="FontFamily" Value="{StaticResource MonospaceFontFamily}" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="BorderBrush" Value="{StaticResource BorderPrimaryBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="0" />
-        </Style>
-        
-        <Style TargetType="ListBoxItem">
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-            <Setter Property="Padding" Value="8,3" />
-            <Style.Triggers>
-                <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="{StaticResource AccentPrimaryBrush}" />
-                </Trigger>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource BgTertiaryBrush}" />
-                </Trigger>
-            </Style.Triggers>
         </Style>
         
         <!-- ============================================ -->
@@ -853,23 +693,6 @@
             <Setter Property="HorizontalScrollBarVisibility" Value="Auto" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
-        
-        <!-- ============================================ -->
-        <!-- LEGACY STYLE ALIASES (for backward compatibility) -->
-        <!-- ============================================ -->
-        <SolidColorBrush x:Key="CrtBackgroundBrush" Color="{StaticResource BgPrimaryColor}" />
-        <SolidColorBrush x:Key="CrtSurfaceBrush" Color="{StaticResource BgSecondaryColor}" />
-        <SolidColorBrush x:Key="CrtForegroundBrush" Color="{StaticResource TextPrimaryColor}" />
-        <SolidColorBrush x:Key="CrtForegroundDimBrush" Color="{StaticResource TextMutedColor}" />
-        <SolidColorBrush x:Key="CrtAccentBrush" Color="{StaticResource AccentSecondaryColor}" />
-        <SolidColorBrush x:Key="CrtMenuBackgroundBrush" Color="{StaticResource BgSecondaryColor}" />
-        <SolidColorBrush x:Key="CrtStatusBackgroundBrush" Color="{StaticResource AccentPrimaryColor}" />
-        <SolidColorBrush x:Key="CrtBorderBrush" Color="{StaticResource BorderPrimaryColor}" />
-        <SolidColorBrush x:Key="CrtHighlightBrush" Color="{StaticResource BgTertiaryColor}" />
-        <FontFamily x:Key="CrtFontFamily">{StaticResource PrimaryFontFamily}</FontFamily>
-        <Style x:Key="CrtWindowStyle" TargetType="Window" BasedOn="{StaticResource ModernWindowStyle}" />
-        <Style x:Key="CrtTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource MonospaceTextBoxStyle}" />
-        <Style x:Key="CrtHyperlinkStyle" TargetType="Hyperlink" BasedOn="{StaticResource {x:Type Hyperlink}}" />
         
     </Application.Resources>
 </Application>

@@ -87,7 +87,6 @@ public partial class UpdateService : IUpdateService, IDisposable
 
             if (latest <= current)
             {
-                // _loggingService.Log("You are using the most updated version.");
                 return;
             }
 

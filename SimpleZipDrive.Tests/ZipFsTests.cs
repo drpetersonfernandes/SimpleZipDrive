@@ -1226,7 +1226,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void CreateFileAfterDisposeReturnsNotReady()
     {
-        using var stream = CreateZipStream();
+        var stream = CreateZipStream();
         var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
         zipFs.Dispose();
 
@@ -1241,8 +1241,6 @@ public class ZipFsTests : IDisposable
             info);
 
         Assert.Equal(DokanResult.NotReady, result);
-
-        stream.Dispose();
     }
 
     public void Dispose()
