@@ -1577,6 +1577,7 @@ public class ZipFs : IDokanOperations, IDisposable
             Length = dataLength;
             _sourceLock = sourceLock;
             _fileHandle = (sourceStream as FileStream)?.SafeFileHandle;
+            _sourceStream.Position = dataOffset;
         }
 
         public override bool CanRead => true;
@@ -1603,6 +1604,23 @@ public class ZipFs : IDokanOperations, IDisposable
             var maxBytes = (int)Math.Min(count, Length - _position);
             if (maxBytes <= 0) return 0;
 
+            if (Monitor.TryEnter(_sourceLock))
+            {
+                try
+                {
+                    if (_sourceStream.Position == _dataOffset + _position)
+                    {
+                        var bytesRead = _sourceStream.Read(buffer, offset, maxBytes);
+                        _position += bytesRead;
+                        return bytesRead;
+                    }
+                }
+                finally
+                {
+                    Monitor.Exit(_sourceLock);
+                }
+            }
+
             if (_fileHandle != null)
             {
                 var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(offset, maxBytes), _dataOffset + _position);
@@ -1625,6 +1643,23 @@ public class ZipFs : IDokanOperations, IDisposable
 
             var maxBytes = (int)Math.Min(buffer.Length, Length - _position);
             if (maxBytes <= 0) return 0;
+
+            if (Monitor.TryEnter(_sourceLock))
+            {
+                try
+                {
+                    if (_sourceStream.Position == _dataOffset + _position)
+                    {
+                        var bytesRead = _sourceStream.Read(buffer[..maxBytes]);
+                        _position += bytesRead;
+                        return bytesRead;
+                    }
+                }
+                finally
+                {
+                    Monitor.Exit(_sourceLock);
+                }
+            }
 
             if (_fileHandle != null)
             {
@@ -1651,6 +1686,19 @@ public class ZipFs : IDokanOperations, IDisposable
 
             var maxBytes = (int)Math.Min(count, Length - fileOffset);
             if (maxBytes <= 0) return 0;
+
+            if (Monitor.TryEnter(_sourceLock))
+            {
+                try
+                {
+                    if (_sourceStream.Position == _dataOffset + fileOffset)
+                        return _sourceStream.Read(buffer, bufferOffset, maxBytes);
+                }
+                finally
+                {
+                    Monitor.Exit(_sourceLock);
+                }
+            }
 
             if (_fileHandle != null)
                 return RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, maxBytes), _dataOffset + fileOffset);
