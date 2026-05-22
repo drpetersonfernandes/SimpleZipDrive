@@ -100,6 +100,98 @@ sb.AppendLine("Algorithm: SHA-512");
 sb.AppendLine(CultureInfo.InvariantCulture, $"Hash: {hashHex}");
 sb.AppendLine(CultureInfo.InvariantCulture, $"Hash time: {hashSeconds} seconds");
 
+// ===== 3. XXH3 Sequential Hash (Raw Read Speed) =====
+var xxhsumPath = Path.Combine(exeDir, "xxhsum.exe");
+
+if (File.Exists(xxhsumPath))
+{
+    Console.WriteLine("Computing XXH3 sequential hash...");
+
+    sw.Restart();
+
+    var psi = new ProcessStartInfo
+    {
+        FileName = xxhsumPath,
+        Arguments = $"-H3 \"{filePath}\"",
+        UseShellExecute = false,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        CreateNoWindow = true
+    };
+
+    using var xxhProcess = Process.Start(psi)!;
+    var xxhOutput = xxhProcess.StandardOutput.ReadToEnd();
+    xxhProcess.WaitForExit();
+    sw.Stop();
+
+    var xxh3SeqSeconds = Math.Round(sw.Elapsed.TotalSeconds, 3);
+    var xxh3SeqSpeedMBs = xxh3SeqSeconds > 0 ? Math.Round(fileSizeBytes / (1024.0 * 1024.0) / xxh3SeqSeconds, 2) : 0;
+    var xxh3SeqHash = xxhOutput.Trim().Split(' ')[0];
+
+    sb.AppendLine("Algorithm: XXH3 (xxhsum sequential)");
+    sb.AppendLine(CultureInfo.InvariantCulture, $"XXH3 Hash: {xxh3SeqHash}");
+    sb.AppendLine(CultureInfo.InvariantCulture, $"XXH3 time: {xxh3SeqSeconds} seconds");
+    sb.AppendLine(CultureInfo.InvariantCulture, $"XXH3 speed: {xxh3SeqSpeedMBs} MB/s");
+
+    Console.WriteLine($"XXH3 Sequential: {xxh3SeqSeconds}s @ {xxh3SeqSpeedMBs} MB/s");
+
+    // ===== 4. XXH3 Random Access Read =====
+    Console.WriteLine("Computing XXH3 random access read...");
+
+    const int randomBlockCount = 1024;
+    const int randomBlockSize = 4096;
+
+    sw.Restart();
+    long randomTotalRead = 0;
+
+    var raPsi = new ProcessStartInfo
+    {
+        FileName = xxhsumPath,
+        Arguments = "-H3 -",
+        UseShellExecute = false,
+        RedirectStandardInput = true,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        CreateNoWindow = true
+    };
+
+    using var raProcess = Process.Start(raPsi)!;
+    using var raFs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.RandomAccess);
+
+    var maxOffset = fileSizeBytes - randomBlockSize;
+    var raBuffer = new byte[randomBlockSize];
+
+    for (var i = 0; i < randomBlockCount; i++)
+    {
+        var offset = Random.Shared.NextInt64(0, maxOffset + 1);
+        raFs.Seek(offset, SeekOrigin.Begin);
+        var bytesRead = raFs.Read(raBuffer, 0, randomBlockSize);
+        raProcess.StandardInput.BaseStream.Write(raBuffer, 0, bytesRead);
+        randomTotalRead += bytesRead;
+    }
+
+    raProcess.StandardInput.Close();
+    var raHashOutput = raProcess.StandardOutput.ReadToEnd();
+    raProcess.WaitForExit();
+    sw.Stop();
+
+    var raSeconds = Math.Round(sw.Elapsed.TotalSeconds, 3);
+    var raSpeedMBs = raSeconds > 0 ? Math.Round(randomTotalRead / (1024.0 * 1024.0) / raSeconds, 2) : 0;
+    var raHash = raHashOutput.Trim().Split(' ')[0];
+
+    sb.AppendLine("Algorithm: XXH3 Random Access");
+    sb.AppendLine(CultureInfo.InvariantCulture, $"Random XXH3 Hash: {raHash}");
+    sb.AppendLine(CultureInfo.InvariantCulture, $"Random reads: {randomBlockCount} blocks of {randomBlockSize} bytes ({Math.Round(randomTotalRead / 1024.0, 2)} KB total)");
+    sb.AppendLine(CultureInfo.InvariantCulture, $"Random access time: {raSeconds} seconds");
+    sb.AppendLine(CultureInfo.InvariantCulture, $"Random access speed: {raSpeedMBs} MB/s");
+
+    Console.WriteLine($"XXH3 Random Access: {raSeconds}s @ {raSpeedMBs} MB/s ({randomBlockCount} x {randomBlockSize}B reads)");
+}
+else
+{
+    Console.WriteLine("xxhsum.exe not found, skipping XXH3 benchmarks.");
+}
+
 // ===== Write results =====
 var output = sb.ToString();
 File.AppendAllText(resultFile, output);

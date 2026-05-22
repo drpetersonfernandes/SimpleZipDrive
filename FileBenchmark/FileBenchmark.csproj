@@ -14,4 +14,10 @@
         <Company>PureLogicCode.com</Company>
     </PropertyGroup>
 
+    <ItemGroup>
+      <None Update="xxhsum.exe">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+
 </Project>
