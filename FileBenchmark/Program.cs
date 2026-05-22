@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
 
 if (args.Length == 0)
@@ -82,25 +81,7 @@ sb.AppendLine(CultureInfo.InvariantCulture, $"Read speed: {speedMBs} MB/s");
 
 Console.WriteLine($"Read: {readSeconds}s @ {speedMBs} MB/s");
 
-// ===== 2. Hash Computation =====
-Console.WriteLine("Computing SHA-512 hash...");
-
-sw.Restart();
-
-using var sha512 = SHA512.Create();
-using var hashStream = File.OpenRead(filePath);
-var hashBytes = sha512.ComputeHash(hashStream);
-
-sw.Stop();
-
-var hashHex = Convert.ToHexString(hashBytes).ToLowerInvariant();
-var hashSeconds = Math.Round(sw.Elapsed.TotalSeconds, 3);
-
-sb.AppendLine("Algorithm: SHA-512");
-sb.AppendLine(CultureInfo.InvariantCulture, $"Hash: {hashHex}");
-sb.AppendLine(CultureInfo.InvariantCulture, $"Hash time: {hashSeconds} seconds");
-
-// ===== 3. XXH3 Sequential Hash (Raw Read Speed) =====
+// ===== 2. XXH3 Sequential Hash (Raw Read Speed) =====
 var xxhsumPath = Path.Combine(exeDir, "xxhsum.exe");
 
 if (File.Exists(xxhsumPath))
@@ -135,7 +116,7 @@ if (File.Exists(xxhsumPath))
 
     Console.WriteLine($"XXH3 Sequential: {xxh3SeqSeconds}s @ {xxh3SeqSpeedMBs} MB/s");
 
-    // ===== 4. XXH3 Random Access Read =====
+    // ===== 3. XXH3 Random Access Read =====
     Console.WriteLine("Computing XXH3 random access read...");
 
     const int randomBlockCount = 1024;
