@@ -302,7 +302,7 @@ public class MountService : IDisposable, IMountService
             _loggingService.Log($"RAM cache limit: {effectiveMaxMemoryMb:F0} MB (Available system memory: {availableMemoryMb:F0} MB)");
             _loggingService.Log("");
 
-            Stream fileStream = new FileStream(archivePath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan);
+            Stream fileStream = new FileStream(archivePath, FileMode.Open, System.IO.FileAccess.Read, FileShare.Read);
 
             try
             {
@@ -326,10 +326,8 @@ public class MountService : IDisposable, IMountService
                 var builder = new DokanInstanceBuilder(dokan)
                     .ConfigureOptions(options =>
                     {
-                        options.Options = DokanOptions.RemovableDrive | DokanOptions.WriteProtection;
+                        options.Options = DokanOptions.RemovableDrive;
                         options.MountPoint = mountPoint;
-                        options.AllocationUnitSize = 65536;
-                        options.SectorSize = 4096;
                     });
 
                 dokanInstance = builder.Build(_currentZipFs);
