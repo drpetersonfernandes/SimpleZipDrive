@@ -1,21 +1,39 @@
 # FileBenchmark
 
-A console tool for measuring file I/O performance. Drop a file onto the executable or pass its path as a command-line argument to run a suite of read speed and hashing benchmarks.
+A console tool for measuring cold-file I/O performance. Drops the Windows Standby List (page cache) between each test to ensure accurate, hardware-bound disk I/O measurements unaffected by OS-level caching.
+
+Requires **Administrator privileges** (manifest enforces `requireAdministrator`).
 
 ## Requirements
 
 - [.NET 10.0 Runtime](https://dotnet.microsoft.com/download)
 - `xxhsum.exe` shipped alongside the executable (bundled automatically on build)
+- `RAMMap64.exe` shipped alongside the executable (bundled automatically on build)
+- Administrator privileges
 
 ## Usage
 
 ```
-FileBenchmark <filepath>
+FileBenchmark <filepath> [--no-clear]
 ```
 
 Or drag-and-drop a file onto `FileBenchmark.exe`.
 
 Results are printed to the console and appended to `result.txt` in the executable's directory.
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--no-clear` | Skip Windows Standby List purging between tests (allows warm-cache comparison) |
+
+## Cache Clearing
+
+By default, the Windows Standby List (page cache) is purged before **each** of the three benchmarks using RAMMap64 (`-Et`). This guarantees cold reads from the physical disk and eliminates OS caching effects.
+
+- **Primary**: `RAMMap64.exe -Et` (bundled) — purges the standby list via Sysinternals RAMMap.
+- **Fallback**: P/Invoke `NtSetSystemInformation` with `SystemMemoryListInformation` (0x50) — calls the undocumented but stable internal NT API directly.
+- If neither works (e.g., not running as Administrator), the test continues with a warning.
 
 ## Benchmarks
 

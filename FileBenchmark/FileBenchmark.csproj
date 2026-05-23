@@ -12,10 +12,14 @@
         <FileVersion>1.0.0</FileVersion>
         <NeutralLanguage>en</NeutralLanguage>
         <Company>PureLogicCode.com</Company>
+        <ApplicationManifest>app.manifest</ApplicationManifest>
     </PropertyGroup>
 
     <ItemGroup>
       <None Update="xxhsum.exe">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="RAMMap64.exe">
         <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       </None>
     </ItemGroup>
