@@ -207,6 +207,29 @@ public class MountService : IDisposable, IMountService
         }
     }
 
+    private static void ShowDokanDriverErrorDialog(string errorMessage)
+    {
+        const string message = "The Dokan file system driver encountered an error:\n\n" +
+                               "\"{0}\"\n\n" +
+                               "Your Dokan driver may be outdated, corrupted, or not configured correctly. " +
+                               "Please try reinstalling or updating the Dokan driver.\n\n" +
+                               "Would you like to open the Dokan download page?";
+
+        var formattedMessage = string.Format(CultureInfo.CurrentCulture, message, errorMessage);
+
+        var result = MessageBox.Show(formattedMessage, "Dokan Driver Error",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://github.com/dokan-dev/dokany/releases",
+                UseShellExecute = true
+            });
+        }
+    }
+
     private async Task MountWithAutoDriveLetterAsync(string archivePath, string archiveType, ILogger logger)
     {
         char[] preferredDriveLetters = ['M', 'N', 'O', 'P', 'Q'];
@@ -320,6 +343,9 @@ public class MountService : IDisposable, IMountService
                 throw;
             }
 
+            const int maxRetries = 2;
+            const int retryDelayMs = 1000;
+
             DokanInstance? dokanInstance;
             try
             {
@@ -330,7 +356,20 @@ public class MountService : IDisposable, IMountService
                         options.MountPoint = mountPoint;
                     });
 
-                dokanInstance = builder.Build(_currentZipFs);
+                for (var attempt = 0;; attempt++)
+                {
+                    try
+                    {
+                        dokanInstance = builder.Build(_currentZipFs);
+                        break;
+                    }
+                    catch (DokanException) when (attempt < maxRetries)
+                    {
+                        var delay = retryDelayMs * (attempt + 1);
+                        _loggingService.Log($"Dokan driver error, retrying in {delay / 1000}s... (attempt {attempt + 1}/{maxRetries})");
+                        await Task.Delay(delay);
+                    }
+                }
             }
             catch
             {
@@ -368,6 +407,7 @@ public class MountService : IDisposable, IMountService
         {
             _loggingService.LogError($"Dokan error: {ex.Message}");
             ErrorLoggerStatic.ReportSilentException(ex, $"MountService.AttemptMountLifecycleAsync: DokanException mounting '{archivePath}' to '{mountPoint}'", true);
+            ShowDokanDriverErrorDialog(ex.Message);
             return false;
         }
         catch (Exception ex) when (ex.Message.Contains("drive", StringComparison.OrdinalIgnoreCase) ||
