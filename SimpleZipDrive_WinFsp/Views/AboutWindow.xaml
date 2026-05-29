@@ -1,0 +1,86 @@
+<Window x:Class="SimpleZipDrive_WinFsp.Views.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="About Simple Zip Drive (WinFsp)" Height="420" Width="500"
+        ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
+         Style="{StaticResource ModernWindowStyle}">
+
+    <Grid Margin="25">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <TextBlock Grid.Row="0" 
+                   Text="Simple Zip Drive (WinFsp)" 
+                   Style="{StaticResource TitleTextBlockStyle}"
+                   Margin="0,0,0,5"
+                   ToolTip="Application name" />
+
+        <!-- Version -->
+        <TextBlock Grid.Row="1" 
+                   x:Name="VersionTextBlock" 
+                   Style="{StaticResource AccentTextBlockStyle}"
+                   Margin="0,0,0,20"
+                   ToolTip="Current application version" />
+
+        <!-- Description Card -->
+        <Border Grid.Row="2"
+                Background="{StaticResource BgSecondaryBrush}"
+                BorderBrush="{StaticResource BorderPrimaryBrush}"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="15"
+                Margin="0,0,0,15"
+                ToolTip="Application description">
+            <TextBlock TextWrapping="Wrap" 
+                       Style="{StaticResource BodyTextBlockStyle}"
+                       ToolTip="A high-performance, user-mode filesystem utility">
+                A high-performance, user-mode filesystem utility that allows you
+                to mount ZIP, 7Z, and RAR archives as virtual drives or NTFS
+                directory mount points. Built on WinFsp.
+            </TextBlock>
+        </Border>
+
+        <!-- Info Section -->
+        <StackPanel Grid.Row="3" Margin="0,0,0,15">
+            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">
+                <Run Text="Built on " Foreground="{StaticResource TextMutedBrush}" />
+                <Hyperlink x:Name="WinFspLink" Click="WinFspLink_Click" ToolTip="Open WinFsp website (user-mode file system library)">WinFsp</Hyperlink>
+                <Run Text=" and " Foreground="{StaticResource TextMutedBrush}" />
+                <Hyperlink x:Name="SharpCompressLink" Click="SharpCompressLink_Click" ToolTip="Open SharpCompress website (archive compression library)">SharpCompress</Hyperlink>
+                <Run Text="." Foreground="{StaticResource TextMutedBrush}" />
+            </TextBlock>
+            
+            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">
+                <Run Text="Licensed under " Foreground="{StaticResource TextMutedBrush}" />
+                <Run Text="GPLv3" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" ToolTip="GNU General Public License version 3" />
+                <Run Text="." Foreground="{StaticResource TextMutedBrush}" />
+            </TextBlock>
+            
+            <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">
+                <Hyperlink x:Name="GitHubLink" Click="GitHubLink_Click" ToolTip="Open project GitHub repository">
+                    https://github.com/drpetersonfernandes/SimpleZipDrive
+                </Hyperlink>
+            </TextBlock>
+            
+            <TextBlock TextWrapping="Wrap"
+                       Style="{StaticResource MutedItalicTextBlockStyle}"
+                       ToolTip="Developer website">
+                www.purelogiccode.com
+            </TextBlock>
+        </StackPanel>
+
+        <!-- Close Button -->
+        <Button Grid.Row="4" 
+                Content="_Close" 
+                Click="Close_Click" 
+                Width="85"
+                HorizontalAlignment="Right"
+                ToolTip="Close this window" />
+    </Grid>
+</Window>
