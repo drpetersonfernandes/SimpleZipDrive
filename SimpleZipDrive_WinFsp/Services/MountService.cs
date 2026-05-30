@@ -347,8 +347,14 @@ public class MountService : IDisposable, IMountService
 
             try
             {
-                DiagnosticLogger.Log($"  Calling host.Mount(\"{mountPoint}\")...");
-                var status = host.Mount(mountPoint);
+                var winfspDebugLogPath = Path.Combine(
+                    Path.GetDirectoryName(DiagnosticLogger.LogFilePath) ?? AppDomain.CurrentDomain.BaseDirectory,
+                    $"winfsp_debug_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+                FileSystemHost.SetDebugLogFile(winfspDebugLogPath);
+                DiagnosticLogger.Log($"  WinFsp debug log: {winfspDebugLogPath}");
+
+                DiagnosticLogger.Log($"  Calling host.Mount(\"{mountPoint}\", DebugLog=-1)...");
+                var status = host.Mount(mountPoint, null, false, unchecked((uint)-1));
 
                 if (status != 0)
                 {

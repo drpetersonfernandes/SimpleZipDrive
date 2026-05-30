@@ -488,6 +488,22 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return null;
     }
 
+    public override int Init(object Host)
+    {
+        if (Host is FileSystemHost host)
+        {
+            host.CasePreservedNames = true;
+            host.UnicodeOnDisk = true;
+            host.PersistentAcls = false;
+            host.PostCleanupWhenModifiedOnly = true;
+            host.PassQueryDirectoryPattern = true;
+            host.FlushAndPurgeOnCleanup = true;
+            host.FileSystemName = "SimpleZipDrive";
+        }
+
+        return STATUS_SUCCESS;
+    }
+
     public override int Create(
         string FileName,
         uint CreateOptions,
@@ -501,7 +517,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         out string NormalizedName)
     {
         var result = OpenOrCreateFile(FileName, out FileNode, out FileDesc, out FileInfo, out NormalizedName);
-        DiagnosticLogger.LogOperation("Create", FileName, result, $"options=0x{CreateOptions:X8}, access=0x{GrantedAccess:X8}, attrs=0x{FileAttributes:X8}, node={FileNode.GetType().Name}, desc={FileDesc.GetType().Name}");
+        DiagnosticLogger.LogOperation("Create", FileName, result, $"options=0x{CreateOptions:X8}, access=0x{GrantedAccess:X8}, attrs=0x{FileAttributes:X8}, node={FileNode?.GetType().Name}, desc={FileDesc?.GetType().Name}");
         return result;
     }
 
@@ -515,7 +531,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         out string NormalizedName)
     {
         var result = OpenOrCreateFile(FileName, out FileNode, out FileDesc, out FileInfo, out NormalizedName);
-        DiagnosticLogger.LogOperation("Open", FileName, result, $"options=0x{CreateOptions:X8}, access=0x{GrantedAccess:X8}, node={FileNode.GetType().Name}, desc={FileDesc.GetType().Name}");
+        DiagnosticLogger.LogOperation("Open", FileName, result, $"options=0x{CreateOptions:X8}, access=0x{GrantedAccess:X8}, node={FileNode?.GetType().Name}, desc={FileDesc?.GetType().Name}");
         return result;
     }
 
@@ -558,7 +574,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         var normalizedPath = NormalizePath(fileName);
         normalizedPath = ResolveSpecialPaths(normalizedPath);
-        normalizedName = normalizedPath;
+        normalizedName = normalizedPath == "/" ? "\\" : normalizedPath.Replace('/', '\\');
 
         var node = GetEntryNode(normalizedPath);
         if (node == null)
@@ -1071,7 +1087,8 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         var parentPath = dirNode.NormalizedPath;
         var searchPrefix = parentPath == "/" ? "/" : parentPath + "/";
-        var childPath = searchPrefix + FileName;
+        var normalizedFileName = FileName.Replace('\\', '/');
+        var childPath = searchPrefix + normalizedFileName;
         childPath = ResolveSpecialPaths(childPath);
 
         var childNode = GetEntryNode(childPath);
@@ -1155,7 +1172,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
     {
         FileName = null!;
         FileInfo = default;
-        DiagnosticLogger.Log($"  ReadDirectoryEntry: ENTER Pattern=\"{Pattern}\" Marker=\"{Marker}\" ContextIsNull={Context == null}");
+        DiagnosticLogger.Log($"  ReadDirectoryEntry: ENTER Pattern=\"{Pattern}\" Marker=\"{Marker}\" ContextIsNull={false}");
 
         try
         {

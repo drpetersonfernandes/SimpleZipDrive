@@ -160,7 +160,7 @@ public class WinFspZipFsTests : IDisposable
     {
         InvokeOpenOrCreateFile("\\readme.txt", out var fileNode, out var fileDesc, out _, out var normalizedName);
 
-        Assert.Equal("/readme.txt", normalizedName);
+        Assert.Equal("\\readme.txt", normalizedName);
 
         InvokeClose(fileNode, fileDesc);
     }
@@ -1159,7 +1159,9 @@ public class WinFspZipFsTests : IDisposable
             names.Add((string)args[5]);
         }
 
-        Assert.Single(names);
+        Assert.Equal(3, names.Count);
+        Assert.Contains(".", names);
+        Assert.Contains("..", names);
         Assert.Contains("info.txt", names);
     }
 
@@ -1186,7 +1188,7 @@ public class WinFspZipFsTests : IDisposable
     }
 
     [Fact]
-    public void ReadDirectoryEntry_NoMatch_ReturnsEmpty()
+    public void ReadDirectoryEntry_NoMatch_ReturnsOnlyDots()
     {
         InvokeOpenOrCreateFile("\\", out var fileNode, out _, out _, out _);
 
@@ -1194,9 +1196,16 @@ public class WinFspZipFsTests : IDisposable
         Assert.NotNull(method);
 
         var args = new[] { fileNode, null!, "*.xyz", "", null!, null!, default(Fsp.Interop.FileInfo) };
-        var hasEntry = (bool)(method.Invoke(_zipFs, args) ?? false);
+        var names = new List<string>();
+        while ((bool)(method.Invoke(_zipFs, args) ?? false))
+        {
+            names.Add((string)args[5]);
+        }
 
-        Assert.False(hasEntry);
+        Assert.Contains(".", names);
+        Assert.Contains("..", names);
+        Assert.DoesNotContain("readme.txt", names);
+        Assert.DoesNotContain("data", names);
     }
 
     public void Dispose()
