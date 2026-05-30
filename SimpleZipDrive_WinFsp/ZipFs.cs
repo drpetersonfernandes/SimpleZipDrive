@@ -132,9 +132,24 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
             _archive = OpenArchive(archiveStream);
             InitializeEntries();
+
+            DiagnosticLogger.LogSection("ZipFs CONSTRUCTED");
+            DiagnosticLogger.Log($"  Archive type: {_archiveType}");
+            DiagnosticLogger.Log($"  Mount point: {mountPoint}");
+            DiagnosticLogger.Log($"  Total entries: {_archiveEntries.Count}");
+            DiagnosticLogger.Log($"  Implicit directories: {_directoryCreationTimes.Count}");
+            DiagnosticLogger.Log($"  Max memory cache: {maxMemorySize / 1024.0 / 1024.0:F0} MB");
+            DiagnosticLogger.Log($"  Max total memory: {_maxTotalMemoryCache / 1024.0 / 1024.0:F0} MB");
+            DiagnosticLogger.Log($"  Temp directory: {_tempDirectoryPath}");
+            DiagnosticLogger.Log($"  Source stream CanSeek: {archiveStream.CanSeek}");
+            DiagnosticLogger.Log($"  Source stream Length: {(archiveStream.CanSeek ? archiveStream.Length / 1024.0 / 1024.0 : -1):F2} MB");
+
+            DumpEntries(30);
         }
         catch (Exception ex)
         {
+            DiagnosticLogger.LogSection("ZipFs CONSTRUCTION FAILED");
+            DiagnosticLogger.Log(ex, $"Archive type: {_archiveType}, Mount: {mountPoint}");
             _logErrorAction(ex, $"Error during ZipFs construction for mount point '{mountPoint}'.");
             throw;
         }
@@ -494,10 +509,16 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         var pathValidationResult = ValidatePathLength(fileName, nameof(OpenOrCreateFile));
         if (pathValidationResult != STATUS_SUCCESS)
+        {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, pathValidationResult, "path validation failed");
             return pathValidationResult;
+        }
 
         if (_disposed)
+        {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_DEVICE_NOT_READY, "disposed");
             return STATUS_DEVICE_NOT_READY;
+        }
 
         var normalizedPath = NormalizePath(fileName);
         normalizedName = normalizedPath;
@@ -515,9 +536,11 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                     LastWriteTime = DateTime.Now,
                     LastAccessTime = DateTime.Now
                 };
+                DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, "root directory created");
             }
             else
             {
+                DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_OBJECT_NAME_NOT_FOUND, "not found");
                 return STATUS_OBJECT_NAME_NOT_FOUND;
             }
         }
@@ -526,11 +549,15 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         {
             fileNode = node;
             fileInfo = EntryNodeToFileInfo(node);
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, "directory");
             return STATUS_SUCCESS;
         }
 
         if (node.Entry == null)
+        {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_OBJECT_NAME_NOT_FOUND, "entry has null Entry");
             return STATUS_OBJECT_NAME_NOT_FOUND;
+        }
 
         var entry = node.Entry;
 
@@ -538,6 +565,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         {
             if (_failedEntries.Contains(normalizedPath))
             {
+                DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "in failed entries");
                 return STATUS_UNSUCCESSFUL;
             }
         }
@@ -557,9 +585,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                         var dataStart = _sourceArchiveStream.Position;
                         storedStream = new StoredEntryStream(_sourceArchiveStream, dataStart, entrySize, _archiveLock);
                     }
-                    catch
+                    catch (Exception storedEx)
                     {
-                        // ignored
+                        ErrorLoggerStatic.ReportSilentException(storedEx, $"ZipFs.Create: StoredEntryStream creation failed for '{normalizedPath}'", true);
                     }
                 }
 
@@ -568,6 +596,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                     fileNode = node;
                     fileDesc = storedStream;
                     fileInfo = EntryNodeToFileInfo(node);
+                    DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, $"stored entry, {entrySize / 1024.0 / 1024.0:F2} MB");
                     LogMessage($"Stored entry detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Using direct-read mode (no cache).");
                     LogMessage("");
                     return STATUS_SUCCESS;
@@ -632,9 +661,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                             {
                                 File.Delete(newTempFilePath);
                             }
-                            catch
+                            catch (Exception deleteEx)
                             {
-                                // ignored
+                                ErrorLoggerStatic.ReportSilentException(deleteEx, $"ZipFs.Create: Failed to delete duplicate temp file for large file '{normalizedPath}'", true);
                             }
                         }
                         else
@@ -657,16 +686,19 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                         fileNode = node;
                         fileDesc = new FileStream(cachedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                         fileInfo = EntryNodeToFileInfo(node);
+                        DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, $"large file (disk cached), {entrySize / 1024.0 / 1024.0:F2} MB");
                         return STATUS_SUCCESS;
                     }
                     catch (Exception fsEx)
                     {
+                        DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"large file cache open failed: {fsEx.Message}");
                         _logErrorAction(fsEx, $"ZipFs.Create: Failed to open cached temp file '{cachedPath}' for reading.");
                         return STATUS_UNSUCCESSFUL;
                     }
                 }
                 else
                 {
+                    DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "large file: cachedPath is null");
                     _logErrorAction(new InvalidOperationException($"ZipFs.Create: cachedPath is null/empty for large file '{normalizedPath}' after caching attempt."), "ZipFs.Create: Large file caching failed silently.");
                     return STATUS_UNSUCCESSFUL;
                 }
@@ -706,9 +738,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                                 {
                                     File.Delete(newTempFilePath);
                                 }
-                                catch
+                                catch (Exception deleteEx)
                                 {
-                                    // ignored
+                                    ErrorLoggerStatic.ReportSilentException(deleteEx, $"ZipFs.Create: Failed to delete duplicate disk-cache temp file for '{normalizedPath}'", true);
                                 }
                             }
                             else
@@ -729,10 +761,12 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                             fileNode = node;
                             fileDesc = new FileStream(cachedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                             fileInfo = EntryNodeToFileInfo(node);
+                            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, $"small file (disk cached), {entrySize / 1024.0 / 1024.0:F2} MB");
                             return STATUS_SUCCESS;
                         }
                         catch (Exception fsEx)
                         {
+                            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"disk cache open failed: {fsEx.Message}");
                             _logErrorAction(fsEx, $"ZipFs.Create: Failed to open disk-cached temp file '{cachedPath}' for reading.");
                             return STATUS_UNSUCCESSFUL;
                         }
@@ -758,9 +792,11 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                     fileNode = node;
                     fileDesc = new TrackedMemoryStream(entryBytes, this);
                     fileInfo = EntryNodeToFileInfo(node);
+                    DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, $"small file (memory), {entrySize / 1024.0 / 1024.0:F2} MB, cache usage {_currentMemoryUsage / 1024.0 / 1024.0:F2} MB");
                     return STATUS_SUCCESS;
                 }
 
+                DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "no caching path matched");
                 fileNode = null!;
                 fileDesc = null!;
                 return STATUS_UNSUCCESSFUL;
@@ -768,6 +804,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         catch (CryptographicException cryptoEx)
         {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"CryptographicException: {cryptoEx.Message}");
             var contextMessage = $"ZipFs.Create: Password error for '{normalizedPath}'. The provided password may be incorrect or missing.";
             LogMessage($"{AppTheme.Warning} Password Error: Could not decrypt '{normalizedPath}'.");
             _logErrorAction(cryptoEx, contextMessage);
@@ -777,6 +814,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         catch (IOException ioEx) when ((uint)ioEx.HResult == 0x80070015)
         {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_DEVICE_NOT_READY, "IOException: source drive not ready (0x80070015)");
             var msg = $"CRITICAL ERROR: The source drive containing the archive file is no longer ready. " +
                       $"Please check the connection to drive '{Path.GetPathRoot(_tempDirectoryPath)}'.";
             LogMessage($"{AppTheme.Critical} {msg}");
@@ -786,6 +824,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         catch (IOException ioEx) when ((uint)ioEx.HResult == 0x800703EE || (uint)ioEx.HResult == 0x80070037)
         {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"IOException: source file inaccessible (0x{ioEx.HResult:X8})");
             LogMessage($"{AppTheme.Section("SOURCE FILE ACCESS ERROR")}");
             LogMessage("Error: The source archive file is no longer accessible.");
             LogMessage($"Details: {ioEx.Message}");
@@ -801,6 +840,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         catch (ZlibException zlibEx)
         {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"ZlibException: {zlibEx.Message}");
             var contextMessage = $"ZipFs.Create: Deflate decompression error for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB).";
             LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
             _logErrorAction(zlibEx, contextMessage);
@@ -815,6 +855,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         catch (ArgumentOutOfRangeException argEx)
         {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"ArgumentOutOfRangeException: {argEx.Message}");
             LogMessage($"{AppTheme.Warning} Corruption Error: Cannot read '{normalizedPath}'. The archive file may be damaged or incomplete.");
             _logErrorAction(argEx, $"ZipFs.Create: Invalid data offset for '{normalizedPath}'.");
             lock (_archiveLock)
@@ -828,6 +869,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         catch (NullReferenceException nre)
         {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"NullReferenceException: {nre.Message}");
             lock (_archiveLock)
             {
                 _failedEntries.Add(normalizedPath);
@@ -841,6 +883,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         catch (Exception ex) when (IsDataErrorException(ex))
         {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"DataError: {ex.Message}");
             lock (_archiveLock)
             {
                 _failedEntries.Add(normalizedPath);
@@ -854,6 +897,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         catch (Exception ex)
         {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"Exception: {ex.GetType().Name}: {ex.Message}");
             _logErrorAction(ex, $"ZipFs.Create: EXCEPTION caching entry '{normalizedPath}'.");
             fileNode = null!;
             fileDesc = null!;
@@ -924,6 +968,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         catch (Exception ex)
         {
+            DiagnosticLogger.LogOperation("Read", $"Offset={Offset}, Length={Length}", STATUS_UNSUCCESSFUL, $"{ex.GetType().Name}: {ex.Message}");
             _logErrorAction(ex, $"ZipFs.Read: EXCEPTION reading from stream, Offset={Offset}.");
             return STATUS_UNSUCCESSFUL;
         }
@@ -940,6 +985,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             return STATUS_SUCCESS;
         }
 
+        DiagnosticLogger.LogOperation("GetFileInfo", "?", STATUS_UNSUCCESSFUL, "FileNode is not EntryNode");
         FileInfo = default;
         return STATUS_UNSUCCESSFUL;
     }
@@ -950,6 +996,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         VolumeInfo.TotalSize = (ulong)(_sourceArchiveStream.CanSeek ? _sourceArchiveStream.Length : 0);
         VolumeInfo.FreeSize = 0;
         VolumeInfo.SetVolumeLabel(VolumeLabelText);
+        DiagnosticLogger.Log($"  GetVolumeInfo: label={VolumeLabelText}, size={VolumeInfo.TotalSize / 1024.0 / 1024.0:F2} MB");
         return STATUS_SUCCESS;
     }
 
@@ -991,9 +1038,11 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         if (normalizedPath == "/" || normalizedPath.Equals("\\", StringComparison.OrdinalIgnoreCase))
         {
             FileAttributes = (uint)System.IO.FileAttributes.Directory;
+            DiagnosticLogger.LogOperation("GetSecurityByName", FileName, STATUS_SUCCESS, "root dir");
             return STATUS_SUCCESS;
         }
 
+        DiagnosticLogger.LogOperation("GetSecurityByName", FileName, STATUS_OBJECT_NAME_NOT_FOUND, "not found");
         return STATUS_OBJECT_NAME_NOT_FOUND;
     }
 
@@ -1013,6 +1062,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         else
         {
+            DiagnosticLogger.LogOperation("ReadDirectoryEntry", "?", false, "FileNode is not EntryNode");
             FileName = null!;
             FileInfo = default;
             return false;
@@ -1031,6 +1081,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
             if (!isExplicitDirEntry && !isImplicitDir)
             {
+                DiagnosticLogger.LogOperation("ReadDirectoryEntry", normalizedPath, false, "not a directory");
                 FileName = null!;
                 FileInfo = default;
                 return false;
@@ -1133,10 +1184,12 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             }
 
             Context = (entries, currentIndex);
+            DiagnosticLogger.LogOperation("ReadDirectoryEntry", normalizedPath, true, $"initialized: {entries.Count} entries, marker=\"{Marker}\", pattern=\"{Pattern}\"");
         }
 
         if (currentIndex >= entries.Count)
         {
+            DiagnosticLogger.LogOperation("ReadDirectoryEntry", normalizedPath, false, $"done (returned {currentIndex} of {entries.Count})");
             FileName = null!;
             FileInfo = default;
             return false;
@@ -1191,12 +1244,15 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         string FileName,
         uint Flags)
     {
+        DiagnosticLogger.LogOperation("Cleanup", FileName, STATUS_SUCCESS);
     }
 
     public override void Close(
         object FileNode,
         object FileDesc)
     {
+        var nodePath = (FileNode as EntryNode)?.NormalizedPath ?? "?";
+        DiagnosticLogger.LogOperation("Close", nodePath, STATUS_SUCCESS);
         if (FileDesc is IDisposable disposableContext)
         {
             disposableContext.Dispose();
@@ -1304,11 +1360,13 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
             fileInfo.SetAccessControl(fileSecurity);
         }
-        catch (PlatformNotSupportedException)
+        catch (PlatformNotSupportedException ex)
         {
+            ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.CreateSecureTempFile: Platform not supported for ACL on '{tempFilePath}'", true);
         }
-        catch (InvalidOperationException)
+        catch (InvalidOperationException ex)
         {
+            ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.CreateSecureTempFile: Invalid operation setting ACL on '{tempFilePath}'", true);
         }
 
         return tempFilePath;
@@ -1347,8 +1405,71 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return regex.IsMatch(input);
     }
 
+    public void DumpEntries(int maxEntries = 100)
+    {
+        try
+        {
+            DiagnosticLogger.LogHeader("ENTRY DUMP");
+            DiagnosticLogger.Log($"  Total entries: {_archiveEntries.Count}");
+            DiagnosticLogger.Log($"  Implicit directories: {_directoryCreationTimes.Count}");
+            DiagnosticLogger.Log($"  Failed entries: {_failedEntries.Count}");
+
+            var count = 0;
+            lock (_archiveLock)
+            {
+                foreach (var kvp in _archiveEntries.OrderBy(static k => k.Key))
+                {
+                    if (count >= maxEntries)
+                    {
+                        DiagnosticLogger.Log($"  ... ({_archiveEntries.Count - maxEntries} more entries)");
+                        break;
+                    }
+
+                    var entry = kvp.Value;
+                    var isDir = IsDirectory(entry);
+                    var typeLabel = isDir ? "DIR" : "FILE";
+                    var sizeStr = isDir ? "" : $" ({entry.Size / 1024.0:F1} KB)";
+                    DiagnosticLogger.Log($"  [{typeLabel}] {kvp.Key}{sizeStr}");
+                    count++;
+                }
+            }
+
+            if (_directoryCreationTimes.Count > 0)
+            {
+                DiagnosticLogger.Log("  --- Implicit directories ---");
+                count = 0;
+                lock (_archiveLock)
+                {
+                    foreach (var kvp in _directoryCreationTimes.OrderBy(static k => k.Key))
+                    {
+                        if (count >= maxEntries) break;
+
+                        DiagnosticLogger.Log($"  [IMPLICIT] {kvp.Key}");
+                        count++;
+                    }
+                }
+            }
+
+            if (_failedEntries.Count > 0)
+            {
+                DiagnosticLogger.Log("  --- Failed entries ---");
+                foreach (var failed in _failedEntries)
+                {
+                    DiagnosticLogger.Log($"  [FAILED] {failed}");
+                }
+            }
+
+            DiagnosticLogger.LogHeader("END ENTRY DUMP");
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Log(ex, "DumpEntries failed");
+        }
+    }
+
     public void Dispose()
     {
+        DiagnosticLogger.LogHeader("ZipFs DISPOSE");
         if (_disposed)
             return;
 
@@ -1396,6 +1517,8 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         {
             _currentMemoryUsage = 0;
         }
+
+        DiagnosticLogger.LogHeader("ZipFs DISPOSE complete");
     }
 
     private class TrackedMemoryStream : MemoryStream

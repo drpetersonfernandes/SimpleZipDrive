@@ -8,9 +8,19 @@
         <AssemblyVersion>2.2.0</AssemblyVersion>
         <FileVersion>2.2.0</FileVersion>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <ApplicationManifest>app.manifest</ApplicationManifest>
+        <DebugType>embedded</DebugType>
+        <DebugSymbols>true</DebugSymbols>
+        <ApplicationIcon>icon\zip.ico</ApplicationIcon>
+        <IsPackable>false</IsPackable>
+        <Company>PureLogicCode.com</Company>
+        <NeutralLanguage>en</NeutralLanguage>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="SharpCompress" Version="0.49.1" />
-        <PackageReference Include="winfsp.net" Version="2.2.26112" />
+        <PackageReference Include="winfsp.net" Version="2.1.25156" />
+    </ItemGroup>
+    <ItemGroup>
+        <ExcludeFromSingleFile Include="winfsp-msil.dll" />
     </ItemGroup>
 </Project>

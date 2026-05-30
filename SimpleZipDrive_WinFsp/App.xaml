@@ -614,7 +614,7 @@
                     <TextBlock Text="&#xE8C9;" FontFamily="Segoe MDL2 Assets" FontSize="14" VerticalAlignment="Center" />
                 </MenuItem.Icon>
             </MenuItem>
-            <Separator />
+            <Separator ToolTip="Separator between copy and clear actions" />
             <MenuItem Header="Clear Log" ToolTip="Remove all log entries">
                 <MenuItem.Icon>
                     <TextBlock Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="14" VerticalAlignment="Center" />

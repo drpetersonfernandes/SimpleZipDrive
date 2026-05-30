@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using Fsp;
+using Microsoft.Win32;
 using SimpleZipDrive_WinFsp.Views;
 
 namespace SimpleZipDrive_WinFsp.Services;
@@ -83,6 +84,7 @@ public class MountService : IDisposable, IMountService
 
     public async Task UnmountAsync()
     {
+        DiagnosticLogger.LogSection($"UNMOUNT REQUESTED: {CurrentMountPoint}");
         if (!IsMounted)
         {
             return;
@@ -117,7 +119,6 @@ public class MountService : IDisposable, IMountService
         }
         catch (OperationCanceledException)
         {
-            throw;
         }
         catch (Exception ex)
         {
@@ -151,15 +152,73 @@ public class MountService : IDisposable, IMountService
 
     private static bool IsWinFspInstalled()
     {
+        if (!EnsureWinFspOnPath())
+            return false;
+
+        return true;
+    }
+
+    private static bool EnsureWinFspOnPath()
+    {
         try
         {
-            var version = FileSystemHost.Version();
-            return version != null;
+            var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            if (currentPath.Contains("WinFsp", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            string? binDir = null;
+
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\WinFsp");
+            var sxsDir = key?.GetValue("SxsDir") as string;
+            if (!string.IsNullOrEmpty(sxsDir))
+            {
+                var sxsBin = Path.Combine(sxsDir, "bin");
+                if (Directory.Exists(sxsBin))
+                {
+                    binDir = sxsBin;
+                }
+            }
+
+            if (binDir == null)
+            {
+                var installDir = key?.GetValue("InstallDir") as string;
+                if (!string.IsNullOrEmpty(installDir))
+                {
+                    var installBin = Path.Combine(installDir, "bin");
+                    if (Directory.Exists(installBin))
+                    {
+                        binDir = installBin;
+                    }
+                }
+            }
+
+            if (binDir == null)
+                return false;
+
+            var dllName = Environment.Is64BitProcess ? "winfsp-x64.dll" : "winfsp-x86.dll";
+            var dllPath = Path.Combine(binDir, dllName);
+            if (!File.Exists(dllPath))
+                return false;
+
+            Environment.SetEnvironmentVariable("PATH", binDir + ";" + currentPath, EnvironmentVariableTarget.Process);
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
+            ErrorLoggerStatic.ReportSilentException(ex, "MountService.EnsureWinFspOnPath: Failed", true);
             return false;
         }
+    }
+
+    private static string GetDeepestMessage(Exception ex)
+    {
+        var current = ex;
+        while (current.InnerException != null)
+        {
+            current = current.InnerException;
+        }
+
+        return current.Message;
     }
 
     private static void ShowWinFspNotInstalledDialog()
@@ -206,18 +265,21 @@ public class MountService : IDisposable, IMountService
 
     private async Task MountWithAutoDriveLetterAsync(string archivePath, string archiveType)
     {
+        DiagnosticLogger.Log("  Auto-mount: trying drive letters...");
         char[] preferredDriveLetters = ['M', 'N', 'O', 'P', 'Q'];
         var existingDrives = DriveInfo.GetDrives().Select(static d => d.Name).ToList();
 
         foreach (var letter in preferredDriveLetters)
         {
-            var currentMountPoint = letter + @":\";
+            var driveCheck = letter + @":\";
 
-            if (existingDrives.Any(d => string.Equals(d, currentMountPoint, StringComparison.OrdinalIgnoreCase)))
+            if (existingDrives.Any(d => string.Equals(d, driveCheck, StringComparison.OrdinalIgnoreCase)))
             {
-                _loggingService.Log($"Skipping '{currentMountPoint}' (already in use).");
+                _loggingService.Log($"Skipping '{driveCheck}' (already in use).");
                 continue;
             }
+
+            var currentMountPoint = letter + ":";
 
             _loggingService.Log($"Attempting to mount on '{currentMountPoint}'...");
 
@@ -234,7 +296,7 @@ public class MountService : IDisposable, IMountService
     {
         if (mountPoint.Length == 1 && char.IsLetter(mountPoint[0]))
         {
-            mountPoint = mountPoint.ToUpperInvariant() + @":\";
+            mountPoint = mountPoint.ToUpperInvariant() + ":";
         }
 
         if (!await AttemptMountLifecycleAsync(archivePath, mountPoint, archiveType))
@@ -245,6 +307,8 @@ public class MountService : IDisposable, IMountService
 
     private async Task<bool> AttemptMountLifecycleAsync(string archivePath, string mountPoint, string archiveType)
     {
+        DiagnosticLogger.LogSection($"MOUNT START: {archivePath} -> {mountPoint}");
+        DiagnosticLogger.Log($"  Archive type: {archiveType}");
         _mountCancellation = new CancellationTokenSource();
 
         try
@@ -263,6 +327,7 @@ public class MountService : IDisposable, IMountService
 
             try
             {
+                DiagnosticLogger.Log("  Creating ZipFs instance...");
                 _currentZipFs = new ZipFs(
                     fileStream,
                     mountPoint,
@@ -270,6 +335,7 @@ public class MountService : IDisposable, IMountService
                     () => PromptForPassword(archivePath, archiveType),
                     archiveType,
                     effectiveMaxMemoryBytes);
+                DiagnosticLogger.Log("  ZipFs created successfully.");
             }
             catch
             {
@@ -281,10 +347,12 @@ public class MountService : IDisposable, IMountService
 
             try
             {
+                DiagnosticLogger.Log($"  Calling host.Mount(\"{mountPoint}\")...");
                 var status = host.Mount(mountPoint);
 
                 if (status != 0)
                 {
+                    DiagnosticLogger.Log($"  host.Mount FAILED: 0x{status:X8}");
                     _currentZipFs?.Dispose();
                     _currentZipFs = null;
                     host.Dispose();
@@ -295,16 +363,21 @@ public class MountService : IDisposable, IMountService
             }
             catch (Exception ex)
             {
+                DiagnosticLogger.Log(ex, "Mount exception");
                 _currentZipFs?.Dispose();
                 _currentZipFs = null;
                 host.Dispose();
-                _loggingService.LogError($"WinFsp mount error: {ex.Message}");
-                ShowWinFspDriverErrorDialog(ex.Message);
+                var detail = GetDeepestMessage(ex);
+                _loggingService.LogError($"WinFsp mount error: {detail}");
+                ShowWinFspDriverErrorDialog(detail);
                 ErrorLoggerStatic.ReportSilentException(ex, $"MountService.AttemptMountLifecycleAsync: Error mounting '{archivePath}' to '{mountPoint}'", true);
                 return false;
             }
 
             _currentHost = host;
+
+            DiagnosticLogger.Log($"  Mounted successfully on '{mountPoint}'.");
+            DiagnosticLogger.LogSection($"MOUNT SUCCESS: {mountPoint}");
 
             _loggingService.Log($"Successfully mounted on '{mountPoint}'.");
             _loggingService.Log("");
@@ -325,6 +398,7 @@ public class MountService : IDisposable, IMountService
             }
 
             _loggingService.Log($"Unmounting '{mountPoint}'...");
+            DiagnosticLogger.LogSection($"UNMOUNT: {mountPoint}");
             if (_currentHost == host)
             {
                 host.Unmount();
@@ -335,12 +409,14 @@ public class MountService : IDisposable, IMountService
         catch (Exception ex) when (ex.Message.Contains("drive", StringComparison.OrdinalIgnoreCase) ||
                                    ex.Message.Contains("mount", StringComparison.OrdinalIgnoreCase))
         {
+            DiagnosticLogger.Log(ex, "Mount error (drive/mount)");
             _loggingService.LogError($"Mount error: {ex.Message}");
             ErrorLoggerStatic.ReportSilentException(ex, $"MountService.AttemptMountLifecycleAsync: Drive/mount error for '{archivePath}' to '{mountPoint}'", true);
             return false;
         }
         catch (Exception ex)
         {
+            DiagnosticLogger.Log(ex, "Mount error (general)");
             _loggingService.LogError($"Mount error: {ex.Message}");
             ErrorLoggerStatic.LogErrorSync(ex, $"MountService.AttemptMountLifecycleAsync: Error mounting archive '{archivePath}' to '{mountPoint}'");
             return false;

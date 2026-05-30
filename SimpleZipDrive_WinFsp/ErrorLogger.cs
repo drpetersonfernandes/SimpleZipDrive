@@ -11,10 +11,16 @@ public class ErrorLogger : IDisposable
     private const string ApiKey = "hjh7yu6t56tyr540o9u8767676r5674534453235264c75b6t7ggghgg76trf564e";
     private const string BugReportApiUrl = "https://www.purelogiccode.com/bugreport/api/send-bug-report";
 
-    private const string ApplicationName = "SimpleZipDrive";
+    private const string ApplicationName = "SimpleZipDrive_WinFsp";
     private readonly HttpClient _httpClient;
 
     private readonly string _baseDirectory;
+
+    /// <summary>
+    /// When true, all API calls for bug reports are suppressed (no HTTP requests are made).
+    /// Use this in test environments to prevent sending test-generated errors to the bug report API.
+    /// </summary>
+    public static bool SuppressApiCalls { get; set; }
 
     internal string ErrorLogFilePath { get; set; }
 
@@ -60,6 +66,7 @@ public class ErrorLogger : IDisposable
 
     public void ReportSilentException(Exception ex, string context, bool silent = false)
     {
+        DiagnosticLogger.Log(ex, $"[SILENT] {context}");
         try
         {
             var logContent = FormatErrorMessage(ex, $"[SILENT CATCH] {context}");
@@ -116,6 +123,9 @@ public class ErrorLogger : IDisposable
         }
 
         contextMessage ??= "No additional context provided.";
+
+        DiagnosticLogger.LogSection("ERROR (SYNC)");
+        DiagnosticLogger.Log(ex, contextMessage);
 
         Console.Error.WriteLine($"\n{AppTheme.Section("ERROR (SYNC)")}");
         Console.Error.WriteLine($"Timestamp: {DateTime.Now}");
@@ -397,6 +407,9 @@ public class ErrorLogger : IDisposable
 
     private async Task<bool> SendLogToApiAsync(Exception ex, string contextMessage, CancellationToken cancellationToken = default)
     {
+        if (SuppressApiCalls)
+            return false;
+
         try
         {
             var (version, _, _) = GetBasicEnvironmentInfo();

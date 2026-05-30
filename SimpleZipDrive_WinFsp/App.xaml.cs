@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Runtime.Loader;
 using System.Text;
 using System.Threading.Channels;
 using System.Windows;
@@ -22,6 +24,17 @@ public partial class App
         {
             StartupArgs = e.Args;
 
+            DiagnosticLogger.Initialize();
+            DiagnosticLogger.LogSection("APPLICATION STARTUP");
+            DiagnosticLogger.Log($"  Version: {Assembly.GetExecutingAssembly().GetName().Version}");
+            DiagnosticLogger.Log($"  Arguments: [{string.Join(", ", StartupArgs)}]");
+            DiagnosticLogger.Log($"  Base directory: {AppContext.BaseDirectory}");
+            DiagnosticLogger.Log($"  OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
+            DiagnosticLogger.Log($"  Framework: {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}");
+            DiagnosticLogger.Log($"  Working directory: {Environment.CurrentDirectory}");
+
+            PreloadFspAssembly();
+
             RegisterServices();
 
             _originalConsoleOut = Console.Out;
@@ -36,6 +49,12 @@ public partial class App
             loggingService.Log("Archive Drive using WinFsp (Streaming Access with In-Memory Entry Cache)");
             loggingService.Log("Supports: ZIP, 7Z, and RAR archives");
             loggingService.Log("");
+            if (DiagnosticLogger.LogFilePath != null)
+            {
+                loggingService.Log($"Debug log: {DiagnosticLogger.LogFilePath}");
+                loggingService.Log("");
+            }
+
             loggingService.Log("Usage 1 (Explicit Mount): SimpleZipDrive_WinFsp.exe <PathToArchiveFile> <MountPoint>");
             loggingService.Log("Example: SimpleZipDrive_WinFsp.exe \"C:\\path\\to\\archive.zip\" M");
             loggingService.Log("Example: SimpleZipDrive_WinFsp.exe \"C:\\path\\to\\archive.7z\" N");
@@ -78,6 +97,24 @@ public partial class App
             }
 
             throw;
+        }
+    }
+
+    private static void PreloadFspAssembly()
+    {
+        try
+        {
+            var fspAssemblyPath = Path.Combine(
+                AppContext.BaseDirectory, "winfsp-msil.dll");
+
+            if (File.Exists(fspAssemblyPath))
+            {
+                AssemblyLoadContext.Default.LoadFromAssemblyPath(fspAssemblyPath);
+            }
+        }
+        catch
+        {
+            // ignored
         }
     }
 
@@ -136,6 +173,7 @@ public partial class App
 
     protected override void OnExit(ExitEventArgs e)
     {
+        DiagnosticLogger.LogSection("APPLICATION SHUTDOWN");
         try
         {
             try
@@ -295,6 +333,8 @@ internal class LogTextWriter : TextWriter
 
         var message = buffer.ToString().TrimEnd('\r', '\n');
         if (string.IsNullOrWhiteSpace(message)) return;
+
+        DiagnosticLogger.Log($"[Console] {message}");
 
         var loggingService = ServiceProvider.TryGet<ILoggingService>();
         if (loggingService != null)

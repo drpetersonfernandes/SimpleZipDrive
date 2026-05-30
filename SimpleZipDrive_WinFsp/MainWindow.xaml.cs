@@ -311,7 +311,13 @@ public partial class MainWindow : IDisposable
                     return;
                 }
 
-                await unmountTask;
+                try
+                {
+                    await unmountTask;
+                }
+                catch (OperationCanceledException)
+                {
+                }
             }
 
             App.ShutdownCts.Cancel();

@@ -21,6 +21,12 @@ public class ErrorLogger : IDisposable
     private readonly string _baseDirectory;
 
     /// <summary>
+    /// When true, all API calls for bug reports are suppressed (no HTTP requests are made).
+    /// Use this in test environments to prevent sending test-generated errors to the bug report API.
+    /// </summary>
+    public static bool SuppressApiCalls { get; set; }
+
+    /// <summary>
     /// Gets or sets the error log file path. Used for testing.
     /// </summary>
     internal string ErrorLogFilePath { get; set; }
@@ -477,6 +483,9 @@ public class ErrorLogger : IDisposable
 
     private async Task<bool> SendLogToApiAsync(Exception ex, string contextMessage, CancellationToken cancellationToken = default)
     {
+        if (SuppressApiCalls)
+            return false;
+
         try
         {
             var (version, _, _) = GetBasicEnvironmentInfo();
