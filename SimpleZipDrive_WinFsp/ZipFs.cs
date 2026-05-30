@@ -325,13 +325,45 @@ public sealed class ZipFs : FileSystemBase, IDisposable
     {
         if (string.IsNullOrEmpty(path)) return "/";
 
+        if (path is "\\" or "/") return "/";
+
         path = path.Replace('\\', '/');
+        if (path is "//") return "/";
+
         if (!path.StartsWith('/'))
         {
             path = "/" + path;
         }
 
         return path;
+    }
+
+    private static string ResolveSpecialPaths(string normalizedPath)
+    {
+        if (normalizedPath == "/")
+            return "/";
+
+        var parts = normalizedPath.Split(Separator, StringSplitOptions.RemoveEmptyEntries);
+        var resolved = new List<string>(parts.Length);
+        foreach (var part in parts)
+        {
+            switch (part)
+            {
+                case ".":
+                    continue;
+                case "..":
+                {
+                    if (resolved.Count > 0)
+                        resolved.RemoveAt(resolved.Count - 1);
+                    continue;
+                }
+                default:
+                    resolved.Add(part);
+                    break;
+            }
+        }
+
+        return resolved.Count == 0 ? "/" : "/" + string.Join("/", resolved);
     }
 
     private static void LogMessage(string message)
@@ -468,7 +500,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         out Fsp.Interop.FileInfo FileInfo,
         out string NormalizedName)
     {
-        return OpenOrCreateFile(FileName, out FileNode, out FileDesc, out FileInfo, out NormalizedName);
+        var result = OpenOrCreateFile(FileName, out FileNode, out FileDesc, out FileInfo, out NormalizedName);
+        DiagnosticLogger.LogOperation("Create", FileName, result, $"options=0x{CreateOptions:X8}, access=0x{GrantedAccess:X8}, attrs=0x{FileAttributes:X8}, node={FileNode.GetType().Name}, desc={FileDesc.GetType().Name}");
+        return result;
     }
 
     public override int Open(
@@ -480,7 +514,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         out Fsp.Interop.FileInfo FileInfo,
         out string NormalizedName)
     {
-        return OpenOrCreateFile(FileName, out FileNode, out FileDesc, out FileInfo, out NormalizedName);
+        var result = OpenOrCreateFile(FileName, out FileNode, out FileDesc, out FileInfo, out NormalizedName);
+        DiagnosticLogger.LogOperation("Open", FileName, result, $"options=0x{CreateOptions:X8}, access=0x{GrantedAccess:X8}, node={FileNode.GetType().Name}, desc={FileDesc.GetType().Name}");
+        return result;
     }
 
     public override int Overwrite(
@@ -521,6 +557,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
 
         var normalizedPath = NormalizePath(fileName);
+        normalizedPath = ResolveSpecialPaths(normalizedPath);
         normalizedName = normalizedPath;
 
         var node = GetEntryNode(normalizedPath);
@@ -974,6 +1011,31 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
     }
 
+    public override int ReadDirectory(
+        object FileNode,
+        object FileDesc,
+        string Pattern,
+        string Marker,
+        IntPtr Buffer,
+        uint Length,
+        out uint BytesTransferred)
+    {
+        DiagnosticLogger.Log($"  ReadDirectory: ENTER Pattern=\"{Pattern}\" Marker=\"{Marker}\" Length={Length}");
+        try
+        {
+            var result = base.ReadDirectory(FileNode, FileDesc, Pattern, Marker, Buffer, Length, out BytesTransferred);
+            DiagnosticLogger.LogOperation("ReadDirectory", $"Pattern=\"{Pattern}\" Marker=\"{Marker}\"", result, $"bytes={BytesTransferred}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.LogOperation("ReadDirectory", $"Pattern=\"{Pattern}\" Marker=\"{Marker}\"", STATUS_UNSUCCESSFUL, $"EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+            _logErrorAction(ex, "ZipFs.ReadDirectory: EXCEPTION.");
+            BytesTransferred = 0;
+            return STATUS_UNSUCCESSFUL;
+        }
+    }
+
     public override int GetFileInfo(
         object FileNode,
         object FileDesc,
@@ -982,12 +1044,47 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         if (FileNode is EntryNode node)
         {
             FileInfo = EntryNodeToFileInfo(node);
+            DiagnosticLogger.LogOperation("GetFileInfo", node.NormalizedPath, STATUS_SUCCESS, $"IsDir={node.IsDir}, Size={node.FileSize}");
             return STATUS_SUCCESS;
         }
 
         DiagnosticLogger.LogOperation("GetFileInfo", "?", STATUS_UNSUCCESSFUL, "FileNode is not EntryNode");
         FileInfo = default;
         return STATUS_UNSUCCESSFUL;
+    }
+
+    public override int GetDirInfoByName(
+        object FileNode,
+        object FileDesc,
+        string FileName,
+        out string NormalizedName,
+        out Fsp.Interop.FileInfo FileInfo)
+    {
+        NormalizedName = FileName;
+        FileInfo = default;
+
+        if (FileNode is not EntryNode { IsDir: true } dirNode)
+        {
+            DiagnosticLogger.LogOperation("GetDirInfoByName", FileName, STATUS_NOT_A_DIRECTORY, "parent is not a directory");
+            return STATUS_NOT_A_DIRECTORY;
+        }
+
+        var parentPath = dirNode.NormalizedPath;
+        var searchPrefix = parentPath == "/" ? "/" : parentPath + "/";
+        var childPath = searchPrefix + FileName;
+        childPath = ResolveSpecialPaths(childPath);
+
+        var childNode = GetEntryNode(childPath);
+        if (childNode == null)
+        {
+            DiagnosticLogger.LogOperation("GetDirInfoByName", FileName, STATUS_OBJECT_NAME_NOT_FOUND, "not found");
+            return STATUS_OBJECT_NAME_NOT_FOUND;
+        }
+
+        NormalizedName = childNode.NormalizedPath.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s)) ?? FileName;
+        FileInfo = EntryNodeToFileInfo(childNode);
+        DiagnosticLogger.LogOperation("GetDirInfoByName", FileName, STATUS_SUCCESS, $"resolved to {childNode.NormalizedPath}");
+        return STATUS_SUCCESS;
     }
 
     public override int GetVolumeInfo(out VolumeInfo VolumeInfo)
@@ -1019,6 +1116,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             return pathValidationResult;
 
         var normalizedPath = NormalizePath(FileName);
+        normalizedPath = ResolveSpecialPaths(normalizedPath);
         var node = GetEntryNode(normalizedPath);
 
         if (node != null)
@@ -1055,152 +1153,197 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         out string FileName,
         out Fsp.Interop.FileInfo FileInfo)
     {
-        string normalizedPath;
-        if (FileNode is EntryNode node)
-        {
-            normalizedPath = node.NormalizedPath;
-        }
-        else
-        {
-            DiagnosticLogger.LogOperation("ReadDirectoryEntry", "?", false, "FileNode is not EntryNode");
-            FileName = null!;
-            FileInfo = default;
-            return false;
-        }
+        FileName = null!;
+        FileInfo = default;
+        DiagnosticLogger.Log($"  ReadDirectoryEntry: ENTER Pattern=\"{Pattern}\" Marker=\"{Marker}\" ContextIsNull={Context == null}");
 
-        var searchPrefix = normalizedPath.TrimEnd('/') + (normalizedPath == "/" ? "" : "/");
-        if (normalizedPath == "/")
+        try
         {
-            searchPrefix = "/";
-        }
-
-        if (Context is not (List<(string Name, Fsp.Interop.FileInfo Info)> entries, int currentIndex))
-        {
-            var isExplicitDirEntry = _archiveEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectory(dirEntry);
-            var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
-
-            if (!isExplicitDirEntry && !isImplicitDir)
+            string normalizedPath;
+            if (FileNode is EntryNode node)
             {
-                DiagnosticLogger.LogOperation("ReadDirectoryEntry", normalizedPath, false, "not a directory");
-                FileName = null!;
-                FileInfo = default;
+                normalizedPath = node.NormalizedPath;
+            }
+            else
+            {
+                DiagnosticLogger.LogOperation("ReadDirectoryEntry", "?", false, "FileNode is not EntryNode");
                 return false;
             }
 
-            var seenFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            entries = new List<(string, Fsp.Interop.FileInfo)>();
-
-            foreach (var kvp in _archiveEntries)
+            var searchPrefix = normalizedPath.TrimEnd('/') + (normalizedPath == "/" ? "" : "/");
+            if (normalizedPath == "/")
             {
-                var path = kvp.Key;
-                if (path.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-                if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                searchPrefix = "/";
+            }
 
-                var remainder = path.Substring(searchPrefix.Length);
-                var slashIndex = remainder.IndexOf('/');
-                if (slashIndex != -1 && slashIndex != remainder.Length - 1)
-                    continue;
+            if (Context is not (List<(string Name, Fsp.Interop.FileInfo Info)> entries, int currentIndex))
+            {
+                var isExplicitDirEntry = _archiveEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectory(dirEntry);
+                var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
 
-                var entry = kvp.Value;
-                string? fileNameOnly;
-                var isDir = IsDirectory(entry);
-
-                if (isDir)
+                if (!isExplicitDirEntry && !isImplicitDir)
                 {
-                    if (entry.Key != null)
+                    DiagnosticLogger.LogOperation("ReadDirectoryEntry", normalizedPath, false, "not a directory");
+                    return false;
+                }
+
+                var seenFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                entries = new List<(string, Fsp.Interop.FileInfo)>();
+
+                // Add dot entries for all directories (including root)
+                var dotNode = GetEntryNode(normalizedPath);
+                if (dotNode != null)
+                {
+                    if (string.IsNullOrEmpty(Marker))
                     {
-                        var tempFullName = entry.Key.TrimEnd('/', '\\');
-                        fileNameOnly = Path.GetFileName(tempFullName);
+                        entries.Add((".", EntryNodeToFileInfo(dotNode)));
+                        seenFileNames.Add(".");
+                    }
+
+                    var parentPath = normalizedPath == "/" ? "/" : GetParentPath(normalizedPath);
+                    if (parentPath != null)
+                    {
+                        var dotdotNode = GetEntryNode(parentPath);
+                        if (dotdotNode != null &&
+                            (string.IsNullOrEmpty(Marker) || string.Equals(Marker, ".", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            entries.Add(("..", EntryNodeToFileInfo(dotdotNode)));
+                            seenFileNames.Add("..");
+                        }
+                    }
+                }
+
+                foreach (var kvp in _archiveEntries)
+                {
+                    var path = kvp.Key;
+                    if (path.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    var remainder = path.Substring(searchPrefix.Length);
+                    var slashIndex = remainder.IndexOf('/');
+                    if (slashIndex != -1 && slashIndex != remainder.Length - 1)
+                        continue;
+
+                    var entry = kvp.Value;
+                    string? fileNameOnly;
+                    var isDir = IsDirectory(entry);
+
+                    if (isDir)
+                    {
+                        if (entry.Key != null)
+                        {
+                            var tempFullName = entry.Key.TrimEnd('/', '\\');
+                            fileNameOnly = Path.GetFileName(tempFullName);
+                        }
+                        else
+                        {
+                            fileNameOnly = null;
+                        }
                     }
                     else
                     {
-                        fileNameOnly = null;
+                        fileNameOnly = Path.GetFileName(entry.Key);
+                    }
+
+                    if (!string.IsNullOrEmpty(fileNameOnly) && seenFileNames.Add(fileNameOnly))
+                    {
+                        if (!IsNameMatch(fileNameOnly, Pattern))
+                            continue;
+
+                        var fileSize = isDir ? 0ul : (ulong)entry.Size;
+                        entries.Add((fileNameOnly, new Fsp.Interop.FileInfo
+                        {
+                            FileAttributes = isDir ? (uint)FileAttributes.Directory : (uint)(FileAttributes.Archive | FileAttributes.ReadOnly),
+                            FileSize = fileSize,
+                            AllocationSize = isDir ? 0ul : (ulong)((entry.Size + 4095) / 4096 * 4096),
+                            CreationTime = DateTimeToFileTimeUtc(entry.CreatedTime ?? DateTime.Now),
+                            LastAccessTime = DateTimeToFileTimeUtc(DateTime.Now),
+                            LastWriteTime = DateTimeToFileTimeUtc(entry.LastModifiedTime ?? DateTime.Now),
+                            ChangeTime = DateTimeToFileTimeUtc(entry.LastModifiedTime ?? DateTime.Now)
+                        }));
                     }
                 }
-                else
-                {
-                    fileNameOnly = Path.GetFileName(entry.Key);
-                }
 
-                if (!string.IsNullOrEmpty(fileNameOnly) && seenFileNames.Add(fileNameOnly))
+                foreach (var dirPathKey in _directoryCreationTimes.Keys)
                 {
-                    if (!IsNameMatch(fileNameOnly, Pattern))
-                        continue;
+                    if (dirPathKey.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!dirPathKey.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
 
-                    entries.Add((fileNameOnly, new Fsp.Interop.FileInfo
+                    var remainder = dirPathKey.Substring(searchPrefix.Length);
+                    if (remainder.Contains('/') || string.IsNullOrEmpty(remainder)) continue;
+
+                    var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
+                    if (!string.IsNullOrEmpty(name) && seenFileNames.Add(name))
                     {
-                        FileAttributes = isDir ? (uint)FileAttributes.Directory : (uint)(FileAttributes.Archive | FileAttributes.ReadOnly),
-                        FileSize = isDir ? 0ul : (ulong)entry.Size,
-                        CreationTime = DateTimeToFileTimeUtc(entry.CreatedTime ?? DateTime.Now),
-                        LastAccessTime = DateTimeToFileTimeUtc(DateTime.Now),
-                        LastWriteTime = DateTimeToFileTimeUtc(entry.LastModifiedTime ?? DateTime.Now),
-                        ChangeTime = DateTimeToFileTimeUtc(entry.LastModifiedTime ?? DateTime.Now)
-                    }));
-                }
-            }
+                        if (!IsNameMatch(name, Pattern))
+                            continue;
 
-            foreach (var dirPathKey in _directoryCreationTimes.Keys)
-            {
-                if (dirPathKey.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-                if (!dirPathKey.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                        _directoryCreationTimes.TryGetValue(dirPathKey, out var ct);
+                        _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
+                        _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
 
-                var remainder = dirPathKey.Substring(searchPrefix.Length);
-                if (remainder.Contains('/') || string.IsNullOrEmpty(remainder)) continue;
-
-                var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
-                if (!string.IsNullOrEmpty(name) && seenFileNames.Add(name))
-                {
-                    if (!IsNameMatch(name, Pattern))
-                        continue;
-
-                    _directoryCreationTimes.TryGetValue(dirPathKey, out var ct);
-                    _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
-                    _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
-
-                    entries.Add((name, new Fsp.Interop.FileInfo
-                    {
-                        FileAttributes = (uint)FileAttributes.Directory,
-                        FileSize = 0,
-                        CreationTime = DateTimeToFileTimeUtc(ct),
-                        LastAccessTime = DateTimeToFileTimeUtc(lat),
-                        LastWriteTime = DateTimeToFileTimeUtc(lwt),
-                        ChangeTime = DateTimeToFileTimeUtc(lwt)
-                    }));
-                }
-            }
-
-            currentIndex = 0;
-
-            if (!string.IsNullOrEmpty(Marker))
-            {
-                for (var i = 0; i < entries.Count; i++)
-                {
-                    if (string.Equals(entries[i].Name, Marker, StringComparison.OrdinalIgnoreCase))
-                    {
-                        currentIndex = i + 1;
-                        break;
+                        entries.Add((name, new Fsp.Interop.FileInfo
+                        {
+                            FileAttributes = (uint)FileAttributes.Directory,
+                            FileSize = 0,
+                            AllocationSize = 0,
+                            CreationTime = DateTimeToFileTimeUtc(ct),
+                            LastAccessTime = DateTimeToFileTimeUtc(lat),
+                            LastWriteTime = DateTimeToFileTimeUtc(lwt),
+                            ChangeTime = DateTimeToFileTimeUtc(lwt)
+                        }));
                     }
                 }
+
+                currentIndex = 0;
+
+                if (!string.IsNullOrEmpty(Marker))
+                {
+                    for (var i = 0; i < entries.Count; i++)
+                    {
+                        if (string.Equals(entries[i].Name, Marker, StringComparison.OrdinalIgnoreCase))
+                        {
+                            currentIndex = i + 1;
+                            break;
+                        }
+                    }
+                }
+
+                Context = (entries, currentIndex);
+                DiagnosticLogger.LogOperation("ReadDirectoryEntry", normalizedPath, true, $"initialized: {entries.Count} entries, marker=\"{Marker}\", pattern=\"{Pattern}\"");
             }
 
-            Context = (entries, currentIndex);
-            DiagnosticLogger.LogOperation("ReadDirectoryEntry", normalizedPath, true, $"initialized: {entries.Count} entries, marker=\"{Marker}\", pattern=\"{Pattern}\"");
+            if (currentIndex >= entries.Count)
+            {
+                DiagnosticLogger.LogOperation("ReadDirectoryEntry", normalizedPath, false, $"done (returned {currentIndex} of {entries.Count})");
+                return false;
+            }
+
+            var entry2 = entries[currentIndex];
+            Context = (entries, currentIndex + 1);
+
+            FileName = entry2.Name;
+            FileInfo = entry2.Info;
+            return true;
         }
-
-        if (currentIndex >= entries.Count)
+        catch (Exception ex)
         {
-            DiagnosticLogger.LogOperation("ReadDirectoryEntry", normalizedPath, false, $"done (returned {currentIndex} of {entries.Count})");
-            FileName = null!;
-            FileInfo = default;
+            DiagnosticLogger.LogOperation("ReadDirectoryEntry", "?", false, $"EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+            _logErrorAction(ex, "ZipFs.ReadDirectoryEntry: EXCEPTION during directory enumeration.");
             return false;
         }
+    }
 
-        var entry2 = entries[currentIndex];
-        Context = (entries, currentIndex + 1);
+    private static string? GetParentPath(string normalizedPath)
+    {
+        if (normalizedPath == "/")
+            return null;
 
-        FileName = entry2.Name;
-        FileInfo = entry2.Info;
-        return true;
+        var lastSlash = normalizedPath.LastIndexOf('/');
+        if (lastSlash <= 0)
+            return "/";
+
+        return normalizedPath.Substring(0, lastSlash);
     }
 
     private static bool IsNameMatch(string name, string pattern)
