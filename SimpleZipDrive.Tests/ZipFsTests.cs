@@ -5,6 +5,8 @@ using System.Security.AccessControl;
 using System.Text;
 using DokanNet;
 using FileAccess = DokanNet.FileAccess;
+using SharpCompress.Common;
+using SharpCompress.Writers;
 using SimpleZipDrive.Tests.Fakes;
 
 namespace SimpleZipDrive.Tests;
@@ -1773,5 +1775,249 @@ public class ZipFsTests : IDisposable
         {
             File.Delete(tempZip);
         }
+    }
+
+    // 7z archive type tests
+
+    private static MemoryStream CreateSevenZipStream()
+    {
+        var ms = new MemoryStream();
+        using (var writer = WriterFactory.OpenWriter(ms, ArchiveType.SevenZip,
+                   new SharpCompress.Writers.SevenZip.SevenZipWriterOptions(CompressionType.LZMA)))
+        {
+            var contentBytes = "Hello from 7z archive"u8.ToArray();
+            using var stream = new MemoryStream(contentBytes);
+            writer.Write("readme.txt", stream, null);
+        }
+
+        ms.Position = 0;
+        return ms;
+    }
+
+    [Fact]
+    public void SevenZip_Constructor_Succeeds()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        Assert.NotNull(zipFs);
+    }
+
+    [Fact]
+    public void SevenZip_GetVolumeInformation_ReturnsExpectedValues()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.GetVolumeInformation(out var label, out _, out var fsName, out _, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal("SimpleZipDrive", label);
+        Assert.Equal("ZipFS", fsName);
+    }
+
+    [Fact]
+    public void SevenZip_GetFileInformation_ReturnsFile()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.GetFileInformation("\\readme.txt", out var fileInfo, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal("readme.txt", fileInfo.FileName);
+        Assert.False(info.IsDirectory);
+    }
+
+    [Fact]
+    public void SevenZip_GetFileInformation_RootReturnsDirectory()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.GetFileInformation("\\", out var fileInfo, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal(FileAttributes.Directory, fileInfo.Attributes);
+        Assert.True(info.IsDirectory);
+    }
+
+    [Fact]
+    public void SevenZip_FindFiles_RootReturnsChildren()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.FindFiles("\\", out var files, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.NotEmpty(files);
+        Assert.Contains(files, static f => f.FileName == "readme.txt");
+    }
+
+    [Fact]
+    public void SevenZip_CreateFile_ReturnsSuccess()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.CreateFile("\\readme.txt", FileAccess.ReadData, FileShare.Read,
+            FileMode.Open, FileOptions.None, FileAttributes.Normal, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.NotNull(info.Context);
+    }
+
+    [Fact]
+    public void SevenZip_ReadFile_ReadsContent()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        zipFs.CreateFile("\\readme.txt", FileAccess.ReadData, FileShare.Read,
+            FileMode.Open, FileOptions.None, FileAttributes.Normal, info);
+
+        var buffer = new byte[100];
+        var result = zipFs.ReadFile("\\readme.txt", buffer, out var bytesRead, 0, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal("Hello from 7z archive", Encoding.UTF8.GetString(buffer, 0, bytesRead));
+
+        zipFs.CloseFile("\\readme.txt", info);
+    }
+
+    [Fact]
+    public void SevenZip_NonExistentFile_ReturnsPathNotFound()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.GetFileInformation("\\nope.txt", out _, info);
+
+        Assert.Equal(DokanResult.PathNotFound, result);
+    }
+
+    [Fact]
+    public void SevenZip_WriteFile_ReturnsAccessDenied()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.WriteFile("\\readme.txt", [], out _, 0, info);
+
+        Assert.Equal(DokanResult.AccessDenied, result);
+    }
+
+    [Fact]
+    public void SevenZip_DeleteFile_ReturnsAccessDenied()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.DeleteFile("\\readme.txt", info);
+
+        Assert.Equal(DokanResult.AccessDenied, result);
+    }
+
+    [Fact]
+    public void SevenZip_Mounted_ReturnsSuccess()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.Mounted("M:\\", info);
+
+        Assert.Equal(DokanResult.Success, result);
+    }
+
+    [Fact]
+    public void SevenZip_Unmounted_ReturnsSuccess()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.Unmounted(info);
+
+        Assert.Equal(DokanResult.Success, result);
+    }
+
+    [Fact]
+    public void SevenZip_GetDiskFreeSpace_ReturnsArchiveLength()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.GetDiskFreeSpace(out var free, out var total, out var totalFree, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal(stream.Length, total);
+        Assert.Equal(0, free);
+        Assert.Equal(0, totalFree);
+    }
+
+    [Fact]
+    public void SevenZip_LockUnlockFile_ReturnsSuccess()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var lockResult = zipFs.LockFile("\\readme.txt", 0, 0, info);
+        var unlockResult = zipFs.UnlockFile("\\readme.txt", 0, 0, info);
+
+        Assert.Equal(DokanResult.Success, lockResult);
+        Assert.Equal(DokanResult.Success, unlockResult);
+    }
+
+    [Fact]
+    public void SevenZip_FindStreams_ReturnsNotImplemented()
+    {
+        using var stream = CreateSevenZipStream();
+        using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
+
+        var info = new FakeDokanFileInfo();
+        var result = zipFs.FindStreams("\\readme.txt", out _, info);
+
+        Assert.Equal(DokanResult.NotImplemented, result);
+    }
+
+    // Archive type error tests
+
+    [Fact]
+    public void Constructor_UnsupportedArchiveType_ThrowsNotSupportedException()
+    {
+        using var zipStream = CreateZipStream();
+        Assert.Throws<NotSupportedException>(() =>
+            new ZipFs(zipStream, "M:\\", static (_, _) => { }, static () => null, "tar"));
+    }
+
+    [Fact]
+    public void Constructor_WrongArchiveTypeForFormat_Throws()
+    {
+        using var zipStream = CreateZipStream();
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            using var _ = new ZipFs(zipStream, "M:\\", static (_, _) => { }, static () => null, "7z");
+        });
+    }
+
+    [Fact]
+    public void Constructor_EmptyArchiveType_ThrowsNotSupportedException()
+    {
+        using var zipStream = CreateZipStream();
+        Assert.Throws<NotSupportedException>(() =>
+            new ZipFs(zipStream, "M:\\", static (_, _) => { }, static () => null, ""));
     }
 }
