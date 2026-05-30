@@ -11,6 +11,7 @@ public partial class MainWindow : IDisposable
     private readonly IMountService _mountService;
     private readonly ILoggingService _loggingService;
     private int _isShuttingDown;
+    private static volatile bool _shutdownCompleted;
 
     public MainWindow()
     {
@@ -316,11 +317,15 @@ public partial class MainWindow : IDisposable
             App.ShutdownCts.Cancel();
 
             Closing -= MainWindow_Closing;
+            Application.Current.Exit += static (_, _) => { _shutdownCompleted = true; };
             Application.Current.Shutdown();
 
             _ = Task.Run(static async () =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(3));
+                if (_shutdownCompleted)
+                    return;
+
                 ForceExit();
             });
         }

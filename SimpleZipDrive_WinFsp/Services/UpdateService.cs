@@ -97,15 +97,6 @@ public partial class UpdateService : IUpdateService, IDisposable
     {
         if (_disposed) return;
 
-        lock (HttpClientLock)
-        {
-            if (_httpClient != null)
-            {
-                _httpClient.Dispose();
-                _httpClient = null;
-            }
-        }
-
         _disposed = true;
         GC.SuppressFinalize(this);
     }

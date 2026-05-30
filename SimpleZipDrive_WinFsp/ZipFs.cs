@@ -19,6 +19,7 @@ namespace SimpleZipDrive_WinFsp;
 public sealed class ZipFs : FileSystemBase, IDisposable
 {
     private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
+    private static readonly object RegexCacheLock = new();
     private const int MaxRegexCacheSize = 100;
 
     private readonly Stream _sourceArchiveStream;
@@ -1025,10 +1026,6 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         if (Context is not (List<(string Name, Fsp.Interop.FileInfo Info)> entries, int currentIndex))
         {
-            lock (_archiveLock)
-            {
-            }
-
             var isExplicitDirEntry = _archiveEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectory(dirEntry);
             var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
 
@@ -1050,11 +1047,8 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
                 var remainder = path.Substring(searchPrefix.Length);
                 var slashIndex = remainder.IndexOf('/');
-                if (slashIndex != -1)
-                {
-                    if (!(remainder.EndsWith('/') && slashIndex == remainder.Length - 1))
-                        continue;
-                }
+                if (slashIndex != -1 && slashIndex != remainder.Length - 1)
+                    continue;
 
                 var entry = kvp.Value;
                 string? fileNameOnly;
@@ -1329,8 +1323,14 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
 
-        var regex = RegexCache.GetOrAdd(regexPattern, static p =>
+        if (RegexCache.TryGetValue(regexPattern, out var regex))
+            return regex.IsMatch(input);
+
+        lock (RegexCacheLock)
         {
+            if (RegexCache.TryGetValue(regexPattern, out regex))
+                return regex.IsMatch(input);
+
             if (RegexCache.Count >= MaxRegexCacheSize)
             {
                 var oldestKey = RegexCache.Keys.FirstOrDefault();
@@ -1340,8 +1340,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                 }
             }
 
-            return new Regex(p, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-        });
+            regex = new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+            RegexCache.TryAdd(regexPattern, regex);
+        }
 
         return regex.IsMatch(input);
     }
@@ -1444,11 +1445,15 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         public StoredEntryStream(Stream sourceStream, long dataOffset, long dataLength, object sourceLock)
         {
+            if (dataOffset < 0 || dataOffset > sourceStream.Length)
+                throw new ArgumentOutOfRangeException(nameof(dataOffset));
+
             _sourceStream = sourceStream;
             _dataOffset = dataOffset;
             Length = dataLength;
             _sourceLock = sourceLock;
             _fileHandle = (sourceStream as FileStream)?.SafeFileHandle;
+            _position = 0;
             _sourceStream.Position = dataOffset;
         }
 

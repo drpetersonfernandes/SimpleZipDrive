@@ -185,8 +185,6 @@ public partial class App
                 System.Diagnostics.Debug.WriteLine($"Failed to dispose ErrorLogger: {ex.Message}");
             }
 
-            ShutdownCts.Dispose();
-
             if (_originalConsoleOut != null)
                 Console.SetOut(_originalConsoleOut);
             if (_originalConsoleError != null)
@@ -244,18 +242,19 @@ internal class LogTextWriter : TextWriter
 
     public override void WriteLine()
     {
+        _channel.Writer.TryWrite(CoreNewLine.ToString() ?? Environment.NewLine);
         _channel.Writer.TryWrite(string.Empty);
     }
 
     public override void WriteLine(string? value)
     {
-        _channel.Writer.TryWrite(value ?? string.Empty);
+        _channel.Writer.TryWrite(string.Concat(value, CoreNewLine));
         _channel.Writer.TryWrite(string.Empty);
     }
 
     public override void WriteLine(ReadOnlySpan<char> value)
     {
-        _channel.Writer.TryWrite(value.ToString());
+        _channel.Writer.TryWrite(string.Concat(value, CoreNewLine));
         _channel.Writer.TryWrite(string.Empty);
     }
 
@@ -279,6 +278,9 @@ internal class LogTextWriter : TextWriter
             }
         }
         catch (OperationCanceledException)
+        {
+        }
+        finally
         {
             if (buffer.Length > 0)
             {

@@ -34,7 +34,7 @@ public class AppSettings
         }
     }
 
-    public long MaxMemoryPerFileBytes => MaxMemoryPerFileMb * 1024 * 1024;
+    public long MaxMemoryPerFileBytes => MaxMemoryPerFileMb * 1024L * 1024L;
 
     public static AppSettings Load()
     {
@@ -60,6 +60,14 @@ public class AppSettings
         catch (JsonException ex)
         {
             ErrorLoggerStatic.ReportSilentException(ex, "AppSettings.Load: Failed to parse settings file (corrupted JSON)", true);
+            try
+            {
+                File.Delete(SettingsFilePath);
+            }
+            catch
+            {
+                // ignored
+            }
         }
         catch (Exception ex)
         {

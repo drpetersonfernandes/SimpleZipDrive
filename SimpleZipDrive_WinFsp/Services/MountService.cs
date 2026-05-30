@@ -325,7 +325,10 @@ public class MountService : IDisposable, IMountService
             }
 
             _loggingService.Log($"Unmounting '{mountPoint}'...");
-            host.Unmount();
+            if (_currentHost == host)
+            {
+                host.Unmount();
+            }
 
             return true;
         }

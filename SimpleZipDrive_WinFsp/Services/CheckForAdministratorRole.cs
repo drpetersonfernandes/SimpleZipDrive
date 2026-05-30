@@ -2,7 +2,7 @@ using System.Security.Principal;
 
 namespace SimpleZipDrive_WinFsp.Services;
 
-public class CheckForAdministratorRole
+public static class CheckForAdministratorRole
 {
     public static bool IsAdministrator()
     {
