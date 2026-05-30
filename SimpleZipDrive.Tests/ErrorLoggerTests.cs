@@ -158,7 +158,7 @@ public class ErrorLoggerTests : IDisposable
 #pragma warning disable CA2201 // Do not raise reserved exception types
     public void IsUserErrorGenericExceptionReturnsFalse()
     {
-        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new Exception("generic error")]) ?? throw new InvalidOperationException());
+        var result = IsUserErrorMethod != null && (bool)(IsUserErrorMethod.Invoke(null, [new InvalidOperationException("generic error")]) ?? throw new InvalidOperationException());
         Assert.False(result);
     }
 #pragma warning restore CA2201

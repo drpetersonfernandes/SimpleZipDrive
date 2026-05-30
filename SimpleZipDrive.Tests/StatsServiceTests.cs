@@ -15,7 +15,7 @@ public class StatsServiceTests
     }
 
     [Fact]
-    public async Task ReportStatsAsync_Disposed_ReturnsWithoutCall()
+    public async Task ReportStatsAsync_Disposed_ReturnsWithoutCallAsync()
     {
         var handler = new TestHandler();
         using var client = new HttpClient(handler);
@@ -29,7 +29,7 @@ public class StatsServiceTests
     }
 
     [Fact]
-    public async Task ReportStatsAsync_CancellationToken_CancelsBeforeCall()
+    public async Task ReportStatsAsync_CancellationToken_CancelsBeforeCallAsync()
     {
         var handler = new TestHandler { Delay = TimeSpan.FromMilliseconds(500) };
         using var client = new HttpClient(handler);
@@ -45,7 +45,7 @@ public class StatsServiceTests
     }
 
     [Fact]
-    public async Task ReportStatsAsync_SendsCorrectMethodAndHeaders()
+    public async Task ReportStatsAsync_SendsCorrectMethodAndHeadersAsync()
     {
         var handler = new TestHandler();
         using var client = new HttpClient(handler);
@@ -65,7 +65,7 @@ public class StatsServiceTests
     }
 
     [Fact]
-    public async Task ReportStatsAsync_SuccessResponse_Completes()
+    public async Task ReportStatsAsync_SuccessResponse_CompletesAsync()
     {
         var handler = new TestHandler
         {
@@ -85,7 +85,7 @@ public class StatsServiceTests
     }
 
     [Fact]
-    public async Task ReportStatsAsync_TooManyRequests_CompletesSilently()
+    public async Task ReportStatsAsync_TooManyRequests_CompletesSilentlyAsync()
     {
         var handler = new TestHandler
         {
@@ -104,7 +104,7 @@ public class StatsServiceTests
     }
 
     [Fact]
-    public async Task ReportStatsAsync_ServerError_CompletesSilently()
+    public async Task ReportStatsAsync_ServerError_CompletesSilentlyAsync()
     {
         var handler = new TestHandler
         {
@@ -123,7 +123,7 @@ public class StatsServiceTests
     }
 
     [Fact]
-    public async Task ReportStatsAsync_NetworkError_CompletesWithoutThrow()
+    public async Task ReportStatsAsync_NetworkError_CompletesWithoutThrowAsync()
     {
         var handler = new TestHandler { ThrowException = true };
         using var client = new HttpClient(handler);
@@ -148,7 +148,7 @@ public class StatsServiceTests
     }
 
     [Fact]
-    public async Task ReportStatsAsync_AfterDispose_DoesNotCallHandler()
+    public async Task ReportStatsAsync_AfterDispose_DoesNotCallHandlerAsync()
     {
         var handler = new TestHandler();
         using var client = new HttpClient(handler);
@@ -163,7 +163,7 @@ public class StatsServiceTests
     }
 
     [Fact]
-    public async Task ReportStatsAsync_IncludesApplicationId()
+    public async Task ReportStatsAsync_IncludesApplicationIdAsync()
     {
         var handler = new TestHandler();
         using var client = new HttpClient(handler);

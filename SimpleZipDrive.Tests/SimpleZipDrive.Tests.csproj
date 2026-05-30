@@ -30,6 +30,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SimpleZipDrive\SimpleZipDrive.csproj" />
+    <ProjectReference Include="..\SimpleZipDrive_WinFsp\SimpleZipDrive_WinFsp.csproj" />
   </ItemGroup>
 
 </Project>

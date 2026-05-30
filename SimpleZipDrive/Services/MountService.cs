@@ -120,8 +120,6 @@ public class MountService : IDisposable, IMountService
 
             IsMounted = false;
 
-            // Allow time for ongoing Dokan operations to acknowledge cancellation
-            // before disposing the ZipFs instance to avoid race conditions
             if (cts != null) await Task.Delay(500, cts.Token);
 
             _currentZipFs?.Dispose();
@@ -135,8 +133,6 @@ public class MountService : IDisposable, IMountService
         }
         catch (OperationCanceledException)
         {
-            // Expected during unmount - no need to report
-            throw;
         }
         catch (Exception ex)
         {

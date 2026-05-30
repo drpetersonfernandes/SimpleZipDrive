@@ -52,7 +52,7 @@ public class ErrorLoggerStaticTests
     }
 
     [Fact]
-    public async Task LogErrorAsyncDelegatesToInstance()
+    public async Task LogErrorAsyncDelegatesToInstanceAsync()
     {
         var ex = new InvalidOperationException("test async log");
 
@@ -62,7 +62,7 @@ public class ErrorLoggerStaticTests
     }
 
     [Fact]
-    public async Task LogErrorAsyncDelegatesToInstanceWithNullException()
+    public async Task LogErrorAsyncDelegatesToInstanceWithNullExceptionAsync()
     {
         var thrownEx = await Record.ExceptionAsync(static () => ErrorLoggerStatic.LogErrorAsync(null, "test async null"));
 

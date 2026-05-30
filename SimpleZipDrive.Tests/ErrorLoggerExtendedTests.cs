@@ -84,7 +84,7 @@ public class ErrorLoggerExtendedTests : IDisposable
     }
 
     [Fact]
-    public async Task GetExceptionDetails_IncludesStackTrace()
+    public async Task GetExceptionDetails_IncludesStackTraceAsync()
     {
         var ex = await Record.ExceptionAsync(static () => Task.Run(static () => throw new InvalidOperationException("stack trace test")));
         var result = GetExceptionDetailsMethod?.Invoke(null, [ex]) as string;
