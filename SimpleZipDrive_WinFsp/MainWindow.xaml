@@ -18,7 +18,7 @@
         <Menu Grid.Row="0">
             <MenuItem Header="File" ToolTip="File operations">
                 <MenuItem Header="Mount Archive..." Click="Mount_ClickAsync" InputGestureText="Ctrl+M" ToolTip="Select a ZIP, 7Z, or RAR archive to mount as a virtual drive" />
-                <Separator />
+                <Separator ToolTip="Separates mount and exit actions" />
                 <MenuItem Header="Exit" Click="Exit_Click" InputGestureText="Alt+F4" ToolTip="Close the application" />
             </MenuItem>
             <MenuItem Header="Settings" ToolTip="Application tools and settings">
@@ -87,12 +87,12 @@
         </Grid>
 
         <!-- Status Bar -->
-        <StatusBar Grid.Row="2">
-            <StatusBarItem>
+        <StatusBar Grid.Row="2" ToolTip="Application status bar">
+            <StatusBarItem ToolTip="Current application status">
                 <TextBlock x:Name="StatusText" Text="Ready" ToolTip="Current application status" />
             </StatusBarItem>
             <Separator ToolTip="Separates status text from mount information" />
-            <StatusBarItem HorizontalAlignment="Right">
+            <StatusBarItem HorizontalAlignment="Right" ToolTip="Mount status and drive letter">
                 <TextBlock x:Name="MountStatusText" Text="" ToolTip="Current mount status and drive letter" />
             </StatusBarItem>
         </StatusBar>

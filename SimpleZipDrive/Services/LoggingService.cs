@@ -65,7 +65,13 @@ public class LoggingService : ILoggingService
 
         if (dispatcher != null && !dispatcher.CheckAccess())
         {
-            dispatcher.BeginInvoke(() => AddEntryCore(entry), DispatcherPriority.Normal);
+            dispatcher.BeginInvoke(() =>
+            {
+                lock (_lock)
+                {
+                    AddEntryCore(entry);
+                }
+            }, DispatcherPriority.Normal);
         }
         else
         {

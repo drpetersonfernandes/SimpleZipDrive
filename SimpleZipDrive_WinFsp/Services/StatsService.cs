@@ -24,7 +24,7 @@ public class StatsService : IStatsService, IDisposable
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", StatsApiKey);
             request.Content = JsonContent.Create(new
             {
-                applicationId = "SimpleZipDrive",
+                applicationId = "SimpleZipDrive_WinFsp",
                 version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "Unknown"
             });
 

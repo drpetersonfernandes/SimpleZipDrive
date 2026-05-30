@@ -1,4 +1,3 @@
-using System.Reflection;
 using WinFspErrorLogger = SimpleZipDrive_WinFsp.ErrorLogger;
 using WinFspErrorLoggerStatic = SimpleZipDrive_WinFsp.ErrorLoggerStatic;
 
@@ -19,10 +18,7 @@ public class WinFspErrorLoggerTests : IDisposable
     [Fact]
     public void Constructor_SetsLogFilePath()
     {
-        var prop = typeof(WinFspErrorLogger).GetProperty("ErrorLogFilePath", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(prop);
-
-        var value = prop.GetValue(_logger) as string;
+        var value = _logger.ErrorLogFilePath;
         Assert.Equal(_logFilePath, value);
     }
 
@@ -74,100 +70,73 @@ public class WinFspErrorLoggerTests : IDisposable
     [Fact]
     public void IsUserError_OperationCanceledException_ReturnsTrue()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspErrorLogger.IsUserError(new OperationCanceledException());
 
-        var result = method.Invoke(null, [new OperationCanceledException()]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsUserError_TaskCanceledException_ReturnsTrue()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspErrorLogger.IsUserError(new TaskCanceledException());
 
-        var result = method.Invoke(null, [new TaskCanceledException()]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsUserError_FileNotFoundException_ReturnsTrue()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspErrorLogger.IsUserError(new FileNotFoundException());
 
-        var result = method.Invoke(null, [new FileNotFoundException()]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsUserError_DirectoryNotFoundException_ReturnsTrue()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspErrorLogger.IsUserError(new DirectoryNotFoundException());
 
-        var result = method.Invoke(null, [new DirectoryNotFoundException()]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsUserError_UnauthorizedAccessException_ReturnsTrue()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspErrorLogger.IsUserError(new UnauthorizedAccessException());
 
-        var result = method.Invoke(null, [new UnauthorizedAccessException()]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsUserError_NullException_ReturnsFalse()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspErrorLogger.IsUserError(null);
 
-        var result = method.Invoke(null, [null]);
-
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     [Fact]
     public void IsUserError_GenericException_ReturnsFalse()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspErrorLogger.IsUserError(new InvalidOperationException("Not a user error"));
 
-        var result = method.Invoke(null, [new InvalidOperationException("Not a user error")]);
-
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     [Fact]
     public void IsUserError_PasswordMessage_ReturnsTrue()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspErrorLogger.IsUserError(new InvalidOperationException("archive requires a password"));
 
-        var result = method.Invoke(null, [new InvalidOperationException("archive requires a password")]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsUserError_EncryptedMessage_ReturnsTrue()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspErrorLogger.IsUserError(new InvalidOperationException("file is encrypted"));
 
-        var result = method.Invoke(null, [new InvalidOperationException("file is encrypted")]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Theory]
@@ -175,26 +144,63 @@ public class WinFspErrorLoggerTests : IDisposable
     [InlineData("invalid archive")]
     [InlineData("unknown format")]
     [InlineData("not a valid")]
-    [InlineData("corrupt")]
+    [InlineData("archive is corrupt")]
     public void IsUserError_ArchiveErrorMessage_ReturnsTrue(string message)
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspErrorLogger.IsUserError(new InvalidOperationException(message));
 
-        var result = method.Invoke(null, [new InvalidOperationException(message)]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsUserError_DriveLetterMessage_ReturnsTrue()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("IsUserError", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspErrorLogger.IsUserError(new InvalidOperationException("can't assign a drive letter"));
 
-        var result = method.Invoke(null, [new InvalidOperationException("can't assign a drive letter")]);
+        Assert.True(result);
+    }
 
-        Assert.True((bool)(result ?? false));
+    [Fact]
+    public void IsUserError_DriveLetterInUseMessage_ReturnsTrue()
+    {
+        var result = WinFspErrorLogger.IsUserError(new InvalidOperationException("drive letter is in use by another device"));
+
+        Assert.True(result);
+    }
+
+    [Theory]
+    [InlineData("canceled")]
+    [InlineData("cancelled")]
+    public void IsUserError_CancellationMessages_ReturnsTrue(string message)
+    {
+        var result = WinFspErrorLogger.IsUserError(new InvalidOperationException(message));
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserError_MountPointInvalidMessage_ReturnsTrue()
+    {
+        var result = WinFspErrorLogger.IsUserError(new InvalidOperationException("mount point is invalid"));
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserError_HeaderAndInvalidMessage_ReturnsTrue()
+    {
+        var result = WinFspErrorLogger.IsUserError(new InvalidOperationException("archive header is invalid"));
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsUserError_HttpRequestExceptionWithCanceled_ReturnsTrue()
+    {
+        var ex = new HttpRequestException("request failed", new OperationCanceledException());
+        var result = WinFspErrorLogger.IsUserError(ex);
+
+        Assert.True(result);
     }
 
     // ─── GetEnvironmentDetails tests (private, via reflection) ───
@@ -202,10 +208,7 @@ public class WinFspErrorLoggerTests : IDisposable
     [Fact]
     public void GetEnvironmentDetails_ReturnsNonEmptyString()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("GetEnvironmentDetails", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(_logger, null) as string;
+        var result = _logger.GetEnvironmentDetails();
 
         Assert.NotNull(result);
         Assert.NotEmpty(result);
@@ -217,10 +220,7 @@ public class WinFspErrorLoggerTests : IDisposable
     [Fact]
     public void FormatErrorMessage_ReturnsFormattedString()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("FormatErrorMessage", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [new InvalidOperationException("Format test"), "Test context"]) as string;
+        var result = WinFspErrorLogger.FormatErrorMessage(new InvalidOperationException("Format test"), "Test context");
 
         Assert.NotNull(result);
         Assert.Contains("Exception Type:", result);
@@ -231,17 +231,26 @@ public class WinFspErrorLoggerTests : IDisposable
     [Fact]
     public void FormatErrorMessage_WithInnerException_IncludesInnerDetails()
     {
-        var method = typeof(WinFspErrorLogger).GetMethod("FormatErrorMessage", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
         var inner = new ArgumentException("Inner exception");
         var ex = new InvalidOperationException("Outer", inner);
-        var result = method.Invoke(null, [ex, "Inner exception test"]) as string;
+        var result = WinFspErrorLogger.FormatErrorMessage(ex, "Inner exception test");
 
         Assert.NotNull(result);
         Assert.Contains("Inner Exception", result);
         Assert.Contains("ArgumentException", result);
         Assert.Contains("Inner exception", result);
+    }
+
+    [Fact]
+    public void Dispose_DoubleDispose_DoesNotThrow()
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"WinFsp_DoubleDispose_{Guid.NewGuid():N}.log");
+        var logger = new WinFspErrorLogger(tempPath);
+
+        logger.Dispose();
+
+        var ex = Record.Exception(() => logger.Dispose());
+        Assert.Null(ex);
     }
 
     public void Dispose()

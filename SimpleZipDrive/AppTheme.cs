@@ -19,6 +19,9 @@ public static class AppTheme
     // DokanNet log prefix
     public const string DokanLogPrefix = "[DokanNet] ";
 
+    // WinFsp log prefix
+    public const string WinFspLogPrefix = "[WinFsp] ";
+
     public static string Section(string title)
     {
         return $"{SectionPrefix}{title}{SectionSuffix}";

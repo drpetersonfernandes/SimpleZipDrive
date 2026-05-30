@@ -23,14 +23,8 @@ public class AppSettings
             var availableMemoryMb = availableMemoryBytes / 1024 / 1024;
             var maxAllowedMb = (long)(availableMemoryMb * 0.9);
 
-            if (value > maxAllowedMb)
-            {
-                _maxMemoryPerFileMb = maxAllowedMb;
-            }
-            else
-            {
-                _maxMemoryPerFileMb = value;
-            }
+            // Clamp to valid range: minimum 1 MB, maximum 90% of available memory
+            _maxMemoryPerFileMb = value < 1 ? 1 : value > maxAllowedMb ? maxAllowedMb : value;
         }
     }
 
@@ -49,9 +43,11 @@ public class AppSettings
         }
         catch (FileNotFoundException)
         {
+            // Expected when settings file doesn't exist - use defaults
         }
         catch (DirectoryNotFoundException)
         {
+            // Expected when settings directory doesn't exist - use defaults
         }
         catch (UnauthorizedAccessException ex)
         {
@@ -64,9 +60,9 @@ public class AppSettings
             {
                 File.Delete(SettingsFilePath);
             }
-            catch
+            catch (Exception deleteEx)
             {
-                // ignored
+                ErrorLoggerStatic.ReportSilentException(deleteEx, "AppSettings.Load: Failed to delete corrupted settings file", true);
             }
         }
         catch (Exception ex)
@@ -83,6 +79,10 @@ public class AppSettings
         if (settings.MaxMemoryPerFileMb > maxAllowedMb)
         {
             settings.MaxMemoryPerFileMb = maxAllowedMb;
+        }
+        else if (settings.MaxMemoryPerFileMb < 1)
+        {
+            settings.MaxMemoryPerFileMb = 1;
         }
 
         return settings;

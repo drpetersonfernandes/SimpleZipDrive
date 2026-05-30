@@ -59,4 +59,24 @@ public class AppSettingsTests
 
         Assert.Equal(0, settings.MaxMemoryPerFileBytes);
     }
+
+    [Fact]
+    public void MaxMemoryPerFileMbClampedByAvailableMemory()
+    {
+        var settings = new AppSettings();
+        var availableMemoryMb = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 1024 / 1024;
+        var maxAllowedMb = (long)(availableMemoryMb * 0.9);
+
+        settings.MaxMemoryPerFileMb = long.MaxValue;
+
+        Assert.True(settings.MaxMemoryPerFileMb <= maxAllowedMb);
+    }
+
+    [Fact]
+    public void MaxMemoryPerFileMbSmallValueNotClamped()
+    {
+        var settings = new AppSettings { MaxMemoryPerFileMb = 100 };
+
+        Assert.Equal(100, settings.MaxMemoryPerFileMb);
+    }
 }

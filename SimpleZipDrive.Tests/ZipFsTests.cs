@@ -1,10 +1,10 @@
 using System.IO.Compression;
 using System.Collections.Concurrent;
-using System.Reflection;
 using System.Security.AccessControl;
 using System.Text;
 using DokanNet;
 using FileAccess = DokanNet.FileAccess;
+using SharpCompress.Archives;
 using SharpCompress.Common;
 using SharpCompress.Writers;
 using SimpleZipDrive.Tests.Fakes;
@@ -810,13 +810,8 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void MemoryThrottlingFallsBackToDiskCache()
     {
-        var memoryUsageField = typeof(ZipFs).GetField("_currentMemoryUsage", BindingFlags.NonPublic | BindingFlags.Instance);
-        var maxTotalCacheField = typeof(ZipFs).GetField("_maxTotalMemoryCache", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(memoryUsageField);
-        Assert.NotNull(maxTotalCacheField);
-
-        var maxTotalMemoryCache = (long)(maxTotalCacheField.GetValue(_zipFs) ?? 1073741824L);
-        memoryUsageField.SetValue(_zipFs, maxTotalMemoryCache - 5);
+        var maxTotalMemoryCache = _zipFs._maxTotalMemoryCache;
+        _zipFs._currentMemoryUsage = maxTotalMemoryCache - 5;
 
         var info = new FakeDokanFileInfo();
         var result = _zipFs.CreateFile(
@@ -835,17 +830,14 @@ public class ZipFsTests : IDisposable
         ((IDisposable)info.Context).Dispose();
         info.Context = null;
 
-        memoryUsageField.SetValue(_zipFs, 0L);
+        _zipFs._currentMemoryUsage = 0L;
     }
 
     [Fact]
     public void TrackedMemoryStreamDisposalDecrementsMemoryUsage()
     {
-        var memoryUsageField = typeof(ZipFs).GetField("_currentMemoryUsage", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(memoryUsageField);
-
-        memoryUsageField.SetValue(_zipFs, 0L);
-        var before = (long)(memoryUsageField.GetValue(_zipFs) ?? throw new InvalidOperationException());
+        _zipFs._currentMemoryUsage = 0L;
+        var before = _zipFs._currentMemoryUsage;
         Assert.Equal(0, before);
 
         var info = new FakeDokanFileInfo();
@@ -858,22 +850,19 @@ public class ZipFsTests : IDisposable
             FileAttributes.Normal,
             info);
 
-        var afterOpen = (long)(memoryUsageField.GetValue(_zipFs) ?? throw new InvalidOperationException());
+        var afterOpen = _zipFs._currentMemoryUsage;
         Assert.True(afterOpen > 0);
 
         _zipFs.CloseFile("\\readme.txt", info);
 
-        var afterClose = (long)(memoryUsageField.GetValue(_zipFs) ?? throw new InvalidOperationException());
+        var afterClose = _zipFs._currentMemoryUsage;
         Assert.Equal(0, afterClose);
     }
 
     [Fact]
     public void MemoryUsageClampedToZeroOnNegative()
     {
-        var memoryUsageField = typeof(ZipFs).GetField("_currentMemoryUsage", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(memoryUsageField);
-
-        memoryUsageField.SetValue(_zipFs, 100L);
+        _zipFs._currentMemoryUsage = 100L;
 
         var info = new FakeDokanFileInfo();
         _zipFs.CreateFile(
@@ -885,11 +874,11 @@ public class ZipFsTests : IDisposable
             FileAttributes.Normal,
             info);
 
-        memoryUsageField.SetValue(_zipFs, -50L);
+        _zipFs._currentMemoryUsage = -50L;
 
         _zipFs.CloseFile("\\readme.txt", info);
 
-        var afterClose = (long)(memoryUsageField.GetValue(_zipFs) ?? throw new InvalidOperationException());
+        var afterClose = _zipFs._currentMemoryUsage;
         Assert.Equal(0, afterClose);
     }
 
@@ -928,12 +917,7 @@ public class ZipFsTests : IDisposable
         // Create an exception with the specified message
         var exception = new InvalidDataException(message);
 
-        // Invoke the private IsDataErrorException method using reflection
-        var method = typeof(ZipFs).GetMethod("IsDataErrorException", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [exception]);
-        Assert.NotNull(result);
+        var result = ZipFs.IsDataErrorException(exception);
         Assert.Equal(expectedResult, result);
     }
 
@@ -943,13 +927,8 @@ public class ZipFsTests : IDisposable
         // Create a custom exception type with "DataError" in the name
         var exception = new TestDataErrorException("some message");
 
-        // Invoke the private IsDataErrorException method using reflection
-        var method = typeof(ZipFs).GetMethod("IsDataErrorException", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [exception]);
-        Assert.NotNull(result);
-        Assert.True((bool)result);
+        var result = ZipFs.IsDataErrorException(exception);
+        Assert.True(result);
     }
 
     /// <summary>
@@ -967,10 +946,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void NormalizePathNullReturnsRoot()
     {
-        var method = typeof(ZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [null]);
+        var result = ZipFs.NormalizePath(null);
 
         Assert.Equal("/", result);
     }
@@ -978,10 +954,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void NormalizePathEmptyReturnsRoot()
     {
-        var method = typeof(ZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [""]);
+        var result = ZipFs.NormalizePath("");
 
         Assert.Equal("/", result);
     }
@@ -989,10 +962,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void NormalizePathConvertsBackslashes()
     {
-        var method = typeof(ZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [@"foo\bar\baz.txt"]);
+        var result = ZipFs.NormalizePath(@"foo\\bar\\baz.txt");
 
         Assert.Equal("/foo/bar/baz.txt", result);
     }
@@ -1000,10 +970,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void NormalizePathAddsLeadingSlash()
     {
-        var method = typeof(ZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, ["data/info.txt"]);
+        var result = ZipFs.NormalizePath("data/info.txt");
 
         Assert.Equal("/data/info.txt", result);
     }
@@ -1011,10 +978,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void NormalizePathPreservesExistingLeadingSlash()
     {
-        var method = typeof(ZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, ["/already/normalized"]);
+        var result = ZipFs.NormalizePath("/already/normalized");
 
         Assert.Equal("/already/normalized", result);
     }
@@ -1024,45 +988,33 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsPasswordRequiredExceptionMessageContainsPasswordReturnsTrue()
     {
-        var method = typeof(ZipFs).GetMethod("IsPasswordRequiredException", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = ZipFs.IsPasswordRequiredException(new InvalidOperationException("archive requires a password"));
 
-        var result = method.Invoke(null, [new InvalidOperationException("archive requires a password")]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsPasswordRequiredExceptionMessageContainsEncryptedReturnsTrue()
     {
-        var method = typeof(ZipFs).GetMethod("IsPasswordRequiredException", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = ZipFs.IsPasswordRequiredException(new InvalidOperationException("file is encrypted"));
 
-        var result = method.Invoke(null, [new InvalidOperationException("file is encrypted")]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsPasswordRequiredExceptionMessageContainsRarAndHeaderReturnsTrue()
     {
-        var method = typeof(ZipFs).GetMethod("IsPasswordRequiredException", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = ZipFs.IsPasswordRequiredException(new InvalidOperationException("RAR header is encrypted"));
 
-        var result = method.Invoke(null, [new InvalidOperationException("RAR header is encrypted")]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsPasswordRequiredExceptionNonMatchingMessageReturnsFalse()
     {
-        var method = typeof(ZipFs).GetMethod("IsPasswordRequiredException", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = ZipFs.IsPasswordRequiredException(new InvalidOperationException("file not found"));
 
-        var result = method.Invoke(null, [new InvalidOperationException("file not found")]);
-
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     // ─── IsDirectory tests ───
@@ -1073,17 +1025,12 @@ public class ZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var method = typeof(ZipFs).GetMethod("IsDirectory", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var entriesField = typeof(ZipFs).GetField("_archiveEntries", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(entriesField);
-        var entries = entriesField.GetValue(zipFs) as System.Collections.IDictionary;
+        var entries = zipFs._archiveEntries as System.Collections.IDictionary;
         Assert.NotNull(entries);
 
-        var result = method.Invoke(null, [entries["/empty/"]]);
+        var result = ZipFs.IsDirectory((IArchiveEntry)entries["/empty/"]);
 
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
@@ -1092,17 +1039,12 @@ public class ZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var method = typeof(ZipFs).GetMethod("IsDirectory", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var entriesField = typeof(ZipFs).GetField("_archiveEntries", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(entriesField);
-        var entries = entriesField.GetValue(zipFs) as System.Collections.IDictionary;
+        var entries = zipFs._archiveEntries as System.Collections.IDictionary;
         Assert.NotNull(entries);
 
-        var result = method.Invoke(null, [entries["/readme.txt"]]);
+        var result = ZipFs.IsDirectory((IArchiveEntry)entries["/readme.txt"]);
 
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     // ─── IsPathLengthValid tests ───
@@ -1110,59 +1052,44 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsPathLengthValidNullReturnsTrue()
     {
-        var method = typeof(ZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = ZipFs.IsPathLengthValid(null);
 
-        var result = method.Invoke(null, [null]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsPathLengthValidEmptyReturnsTrue()
     {
-        var method = typeof(ZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = ZipFs.IsPathLengthValid("");
 
-        var result = method.Invoke(null, [""]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsPathLengthValidExactlyMaxPathReturnsTrue()
     {
-        var method = typeof(ZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
         var path = "\\" + new string('a', 259);
-        var result = method.Invoke(null, [path]);
+        var result = ZipFs.IsPathLengthValid(path);
 
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsPathLengthValidExceedsMaxPathReturnsFalse()
     {
-        var method = typeof(ZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
         var path = "\\" + new string('a', 260);
-        var result = method.Invoke(null, [path]);
+        var result = ZipFs.IsPathLengthValid(path);
 
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     [Fact]
     public void IsPathLengthValidExtendedPathPrefixWithinLimitReturnsTrue()
     {
-        var method = typeof(ZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
         var path = @"\\?\" + new string('a', 260);
-        var result = method.Invoke(null, [path]);
+        var result = ZipFs.IsPathLengthValid(path);
 
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     // ─── IsMatchSimple tests ───
@@ -1170,57 +1097,42 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsMatchSimpleWildcardQuestionMarkMatchesSingleChar()
     {
-        var method = typeof(ZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = ZipFs.IsMatchSimple("abc.txt", "abc.tx?");
 
-        var result = method.Invoke(null, ["abc.txt", "abc.tx?"]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsMatchSimpleWildcardQuestionMarkDoesNotMatchDifferentLength()
     {
-        var method = typeof(ZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = ZipFs.IsMatchSimple("abcd.txt", "abc.tx?");
 
-        var result = method.Invoke(null, ["abcd.txt", "abc.tx?"]);
-
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     [Fact]
     public void IsMatchSimplePatternTooLongReturnsFalse()
     {
-        var method = typeof(ZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
         var pattern = new string('a', 261);
-        var result = method.Invoke(null, ["anything", pattern]);
+        var result = ZipFs.IsMatchSimple("anything", pattern);
 
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     [Fact]
     public void IsMatchSimpleStarStarPattern()
     {
-        var method = typeof(ZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = ZipFs.IsMatchSimple("readme.txt", "*");
 
-        var result = method.Invoke(null, ["readme.txt", "*"]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsMatchSimpleDotStarPattern()
     {
-        var method = typeof(ZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = ZipFs.IsMatchSimple("test.txt", "*.*");
 
-        var result = method.Invoke(null, ["test.txt", "*.*"]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     // ─── CreateFile after Dispose test ───
@@ -1424,11 +1336,7 @@ public class ZipFsTests : IDisposable
         zipFs.CreateFile("\\stored.txt", FileAccess.ReadData, FileShare.Read,
             FileMode.Open, FileOptions.None, FileAttributes.Normal, info);
 
-        var cacheField = typeof(ZipFs).GetField("_largeFileCache",
-            BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(cacheField);
-        var cache = cacheField.GetValue(zipFs) as Dictionary<string, string>;
-        Assert.NotNull(cache);
+        var cache = zipFs._largeFileCache;
         Assert.DoesNotContain(cache, static kvp => kvp.Key.Contains("stored.txt", StringComparison.OrdinalIgnoreCase));
 
         zipFs.CloseFile("\\stored.txt", info);
@@ -1497,18 +1405,12 @@ public class ZipFsTests : IDisposable
         using var stream = CreateStoredZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var method = typeof(ZipFs).GetMethod("IsStoredEntry", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var entriesField = typeof(ZipFs).GetField("_archiveEntries", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(entriesField);
-
-        var entries = entriesField.GetValue(zipFs) as System.Collections.IDictionary;
+        var entries = zipFs._archiveEntries;
         Assert.NotNull(entries);
-        Assert.True(entries.Contains("/stored.txt"));
+        Assert.True(entries.ContainsKey("/stored.txt"));
 
         var storedEntry = entries["/stored.txt"];
-        Assert.True((bool)(method.Invoke(zipFs, [storedEntry]) ?? false));
+        Assert.True(zipFs.IsStoredEntry((IArchiveEntry)storedEntry));
     }
 
     private static string CreateTempStoredZipFile(string entryName, byte[] data)

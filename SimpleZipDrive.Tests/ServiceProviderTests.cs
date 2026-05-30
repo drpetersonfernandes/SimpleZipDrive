@@ -2,6 +2,7 @@ using SimpleZipDrive.Services;
 
 namespace SimpleZipDrive.Tests;
 
+[Collection("ServiceProvider")]
 public class ServiceProviderTests : IDisposable
 {
     public ServiceProviderTests()

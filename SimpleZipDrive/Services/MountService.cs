@@ -450,7 +450,9 @@ public class MountService : IDisposable, IMountService
             };
 
             var result = passwordWindow.ShowDialog();
-            return result == true ? passwordWindow.Password : null;
+            var password = result == true ? passwordWindow.Password : null;
+            passwordWindow.ClearPassword();
+            return password;
         });
     }
 }

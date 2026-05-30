@@ -8,7 +8,7 @@ namespace SimpleZipDrive.Services;
 /// </summary>
 public class StatsService : IStatsService, IDisposable
 {
-    private readonly HttpClient _httpClient = new()
+    internal HttpClient _httpClient = new()
     {
         Timeout = TimeSpan.FromSeconds(10)
     };

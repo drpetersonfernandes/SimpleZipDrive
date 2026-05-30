@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text;
 using System.Threading.Channels;
 using System.Windows;
@@ -20,6 +21,15 @@ public partial class App
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        DiagnosticLogger.Initialize();
+        DiagnosticLogger.LogSection("APPLICATION STARTUP");
+        DiagnosticLogger.Log($"  Version: {Assembly.GetExecutingAssembly().GetName().Version}");
+        DiagnosticLogger.Log($"  Arguments: [{string.Join(", ", e.Args)}]");
+        DiagnosticLogger.Log($"  Base directory: {AppContext.BaseDirectory}");
+        DiagnosticLogger.Log($"  OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
+        DiagnosticLogger.Log($"  Framework: {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}");
+        DiagnosticLogger.Log($"  Working directory: {Environment.CurrentDirectory}");
 
         try
         {

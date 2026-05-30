@@ -1,8 +1,8 @@
 using System.Collections;
 using System.IO.Compression;
-using System.Reflection;
 using System.Security.AccessControl;
 using System.Text;
+using SharpCompress.Archives;
 using SharpCompress.Common;
 using SharpCompress.Writers;
 using WinFspZipFs = SimpleZipDrive_WinFsp.ZipFs;
@@ -52,25 +52,12 @@ public class WinFspZipFsTests : IDisposable
     private int InvokeOpenOrCreateFile(string fileName, out object fileNode, out object fileDesc,
         out Fsp.Interop.FileInfo fileInfo, out string normalizedName)
     {
-        var method = typeof(WinFspZipFs).GetMethod("OpenOrCreateFile", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var args = new object?[] { fileName, null!, null!, default(Fsp.Interop.FileInfo), fileName };
-        var result = (int)(method.Invoke(_zipFs, args) ?? StatusUnsuccessful);
-
-        fileNode = args[1] ?? null!;
-        fileDesc = args[2] ?? null!;
-        fileInfo = args[3] is Fsp.Interop.FileInfo fi ? fi : default;
-        normalizedName = (string)(args[4] ?? fileName);
-
-        return result;
+        return _zipFs.OpenOrCreateFile(fileName, out fileNode, out fileDesc, out fileInfo, out normalizedName);
     }
 
     private void InvokeClose(object fileNode, object fileDesc)
     {
-        var method = typeof(WinFspZipFs).GetMethod("Close", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-        method.Invoke(_zipFs, [fileNode, fileDesc]);
+        _zipFs.Close(fileNode, fileDesc);
     }
 
     [Fact]
@@ -172,10 +159,7 @@ public class WinFspZipFsTests : IDisposable
         var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
         zipFs.Dispose();
 
-        var method = typeof(WinFspZipFs).GetMethod("OpenOrCreateFile", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(method);
-        var args = new object?[] { "\\readme.txt", null!, null!, default(Fsp.Interop.FileInfo), "" };
-        var result = (int)(method.Invoke(zipFs, args) ?? StatusUnsuccessful);
+        var result = zipFs.OpenOrCreateFile("\\readme.txt", out _, out _, out _, out _);
 
         Assert.NotEqual(StatusSuccess, result);
         Assert.True(result < 0, $"Expected negative NTSTATUS error code, got: {result}");
@@ -206,10 +190,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void NormalizePath_Null_ReturnsRoot()
     {
-        var method = typeof(WinFspZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [null]);
+        var result = WinFspZipFs.NormalizePath((string?)null);
 
         Assert.Equal("/", result);
     }
@@ -217,10 +198,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void NormalizePath_Empty_ReturnsRoot()
     {
-        var method = typeof(WinFspZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [""]);
+        var result = WinFspZipFs.NormalizePath("");
 
         Assert.Equal("/", result);
     }
@@ -228,10 +206,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void NormalizePath_ConvertsBackslashes()
     {
-        var method = typeof(WinFspZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [@"foo\bar\baz.txt"]);
+        var result = WinFspZipFs.NormalizePath(@"foo\bar\baz.txt");
 
         Assert.Equal("/foo/bar/baz.txt", result);
     }
@@ -239,10 +214,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void NormalizePath_AddsLeadingSlash()
     {
-        var method = typeof(WinFspZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, ["data/info.txt"]);
+        var result = WinFspZipFs.NormalizePath("data/info.txt");
 
         Assert.Equal("/data/info.txt", result);
     }
@@ -250,10 +222,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void NormalizePath_PreservesExistingLeadingSlash()
     {
-        var method = typeof(WinFspZipFs).GetMethod("NormalizePath", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, ["/already/normalized"]);
+        var result = WinFspZipFs.NormalizePath("/already/normalized");
 
         Assert.Equal("/already/normalized", result);
     }
@@ -263,34 +232,25 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void IsPasswordRequiredException_MessageContainsPassword_ReturnsTrue()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsPasswordRequiredException", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsPasswordRequiredException(new InvalidOperationException("archive requires a password"));
 
-        var result = method.Invoke(null, [new InvalidOperationException("archive requires a password")]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsPasswordRequiredException_MessageContainsEncrypted_ReturnsTrue()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsPasswordRequiredException", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsPasswordRequiredException(new InvalidOperationException("file is encrypted"));
 
-        var result = method.Invoke(null, [new InvalidOperationException("file is encrypted")]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsPasswordRequiredException_NonMatchingMessage_ReturnsFalse()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsPasswordRequiredException", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsPasswordRequiredException(new InvalidOperationException("file not found"));
 
-        var result = method.Invoke(null, [new InvalidOperationException("file not found")]);
-
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     // ─── IsDataErrorException tests ───
@@ -302,10 +262,7 @@ public class WinFspZipFsTests : IDisposable
     [InlineData("Some random error", false)]
     public void IsDataErrorException_DetectsByMessageContent(string message, bool expected)
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsDataErrorException", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [new InvalidDataException(message)]);
+        var result = WinFspZipFs.IsDataErrorException(new InvalidDataException(message));
 
         Assert.Equal(expected, result);
     }
@@ -313,12 +270,9 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void IsDataErrorException_DetectsByTypeName()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsDataErrorException", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsDataErrorException(new TestDataErrorException("some message"));
 
-        var result = method.Invoke(null, [new TestDataErrorException("some message")]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     private class TestDataErrorException : Exception
@@ -333,59 +287,44 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void IsPathLengthValid_Null_ReturnsTrue()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsPathLengthValid((string?)null);
 
-        var result = method.Invoke(null, [null]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsPathLengthValid_Empty_ReturnsTrue()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsPathLengthValid("");
 
-        var result = method.Invoke(null, [""]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsPathLengthValid_ExactlyMaxPath_ReturnsTrue()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
         var path = "\\" + new string('a', 259);
-        var result = method.Invoke(null, [path]);
+        var result = WinFspZipFs.IsPathLengthValid(path);
 
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsPathLengthValid_ExceedsMaxPath_ReturnsFalse()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
         var path = "\\" + new string('a', 260);
-        var result = method.Invoke(null, [path]);
+        var result = WinFspZipFs.IsPathLengthValid(path);
 
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     [Fact]
     public void IsPathLengthValid_ExtendedPathPrefix_WithinLimit_ReturnsTrue()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsPathLengthValid", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
         var path = @"\\?\" + new string('a', 260);
-        var result = method.Invoke(null, [path]);
+        var result = WinFspZipFs.IsPathLengthValid(path);
 
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     // ─── IsMatchSimple tests ───
@@ -393,79 +332,58 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void IsMatchSimple_WildcardQuestionMark_MatchesSingleChar()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsMatchSimple("abc.txt", "abc.tx?");
 
-        var result = method.Invoke(null, ["abc.txt", "abc.tx?"]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsMatchSimple_QuestionMark_DoesNotMatchDifferentLength()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsMatchSimple("abcd.txt", "abc.tx?");
 
-        var result = method.Invoke(null, ["abcd.txt", "abc.tx?"]);
-
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     [Fact]
     public void IsMatchSimple_PatternTooLong_ReturnsFalse()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
         var pattern = new string('a', 261);
-        var result = method.Invoke(null, ["anything", pattern]);
+        var result = WinFspZipFs.IsMatchSimple("anything", pattern);
 
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     [Fact]
     public void IsMatchSimple_StarPattern_ReturnsTrue()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsMatchSimple("readme.txt", "*");
 
-        var result = method.Invoke(null, ["readme.txt", "*"]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsMatchSimple_StarDotStarPattern_ReturnsTrue()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsMatchSimple("test.txt", "*.*");
 
-        var result = method.Invoke(null, ["test.txt", "*.*"]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsMatchSimple_ExactMatch_ReturnsTrue()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsMatchSimple("readme.txt", "readme.txt");
 
-        var result = method.Invoke(null, ["readme.txt", "readme.txt"]);
-
-        Assert.True((bool)(result ?? false));
+        Assert.True(result);
     }
 
     [Fact]
     public void IsMatchSimple_NoMatch_ReturnsFalse()
     {
-        var method = typeof(WinFspZipFs).GetMethod("IsMatchSimple", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.IsMatchSimple("readme.txt", "other*");
 
-        var result = method.Invoke(null, ["readme.txt", "other*"]);
-
-        Assert.False((bool)(result ?? true));
+        Assert.False(result);
     }
 
     // ─── DateTimeToFileTimeUtc tests ───
@@ -473,12 +391,8 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void DateTimeToFileTimeUtc_MinValue_ReturnsFileTimeForEpoch()
     {
-        var method = typeof(WinFspZipFs).GetMethod("DateTimeToFileTimeUtc", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.DateTimeToFileTimeUtc(DateTime.MinValue);
 
-        var result = method.Invoke(null, [DateTime.MinValue]);
-
-        Assert.NotNull(result);
         Assert.IsType<ulong>(result);
         Assert.Equal(0ul, (ulong)result);
     }
@@ -486,12 +400,8 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void DateTimeToFileTimeUtc_Now_ReturnsValidFileTime()
     {
-        var method = typeof(WinFspZipFs).GetMethod("DateTimeToFileTimeUtc", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
+        var result = WinFspZipFs.DateTimeToFileTimeUtc(DateTime.Now);
 
-        var result = method.Invoke(null, [DateTime.Now]);
-
-        Assert.NotNull(result);
         Assert.IsType<ulong>(result);
         Assert.True((ulong)result > 0);
     }
@@ -501,24 +411,17 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void EntryNodeToFileInfo_File_ReturnsCorrectInfo()
     {
-        var entryNodeType = typeof(WinFspZipFs).GetNestedType("EntryNode", BindingFlags.NonPublic);
-        Assert.NotNull(entryNodeType);
+        var node = new WinFspZipFs.EntryNode
+        {
+            NormalizedPath = "/test.txt",
+            IsDir = false,
+            FileSize = 1024L,
+            CreationTime = new DateTime(2024, 1, 1),
+            LastWriteTime = new DateTime(2024, 2, 1),
+            LastAccessTime = new DateTime(2024, 3, 1)
+        };
 
-        var node = Activator.CreateInstance(entryNodeType);
-        Assert.NotNull(node);
-
-        node.GetType().GetField("NormalizedPath")!.SetValue(node, "/test.txt");
-        node.GetType().GetField("IsDir")!.SetValue(node, false);
-        node.GetType().GetField("FileSize")!.SetValue(node, 1024L);
-        node.GetType().GetField("CreationTime")!.SetValue(node, new DateTime(2024, 1, 1));
-        node.GetType().GetField("LastWriteTime")!.SetValue(node, new DateTime(2024, 2, 1));
-        node.GetType().GetField("LastAccessTime")!.SetValue(node, new DateTime(2024, 3, 1));
-
-        var method = typeof(WinFspZipFs).GetMethod("EntryNodeToFileInfo", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [node]);
-        Assert.NotNull(result);
+        var result = WinFspZipFs.EntryNodeToFileInfo(node);
 
         var fi = (Fsp.Interop.FileInfo)result;
         Assert.Equal(1024ul, fi.FileSize);
@@ -529,24 +432,17 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void EntryNodeToFileInfo_Directory_ReturnsDirectoryInfo()
     {
-        var entryNodeType = typeof(WinFspZipFs).GetNestedType("EntryNode", BindingFlags.NonPublic);
-        Assert.NotNull(entryNodeType);
+        var node = new WinFspZipFs.EntryNode
+        {
+            NormalizedPath = "/testdir",
+            IsDir = true,
+            FileSize = 0L,
+            CreationTime = new DateTime(2024, 1, 1),
+            LastWriteTime = new DateTime(2024, 2, 1),
+            LastAccessTime = new DateTime(2024, 3, 1)
+        };
 
-        var node = Activator.CreateInstance(entryNodeType);
-        Assert.NotNull(node);
-
-        node.GetType().GetField("NormalizedPath")!.SetValue(node, "/testdir");
-        node.GetType().GetField("IsDir")!.SetValue(node, true);
-        node.GetType().GetField("FileSize")!.SetValue(node, 0L);
-        node.GetType().GetField("CreationTime")!.SetValue(node, new DateTime(2024, 1, 1));
-        node.GetType().GetField("LastWriteTime")!.SetValue(node, new DateTime(2024, 2, 1));
-        node.GetType().GetField("LastAccessTime")!.SetValue(node, new DateTime(2024, 3, 1));
-
-        var method = typeof(WinFspZipFs).GetMethod("EntryNodeToFileInfo", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var result = method.Invoke(null, [node]);
-        Assert.NotNull(result);
+        var result = WinFspZipFs.EntryNodeToFileInfo(node);
 
         var fi = (Fsp.Interop.FileInfo)result;
         Assert.Equal(0ul, fi.FileSize);
@@ -562,34 +458,22 @@ public class WinFspZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var method = typeof(WinFspZipFs).GetMethod("IsDirectory", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var entriesField = typeof(WinFspZipFs).GetField("_archiveEntries", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(entriesField);
-        var entries = entriesField.GetValue(zipFs);
+        var entries = zipFs._archiveEntries;
         Assert.NotNull(entries);
 
-        var dictType = entries.GetType();
-        var valuesProp = dictType.GetProperty("Values");
-        Assert.NotNull(valuesProp);
-        var values = valuesProp.GetValue(entries) as IEnumerable;
-        Assert.NotNull(values);
-
-        object? dirEntry = null;
-        foreach (var e in values)
+        IArchiveEntry? dirEntry = null;
+        foreach (var kvp in entries)
         {
-            var keyProp = e.GetType().GetProperty("Key");
-            if (keyProp?.GetValue(e) is string key && key.EndsWith('/'))
+            if (kvp.Key.EndsWith('/'))
             {
-                dirEntry = e;
+                dirEntry = kvp.Value;
                 break;
             }
         }
 
         Assert.NotNull(dirEntry);
-        var result = method.Invoke(null, [dirEntry]);
-        Assert.True((bool)(result ?? false));
+        var result = WinFspZipFs.IsDirectory(dirEntry!);
+        Assert.True(result);
     }
 
     [Fact]
@@ -598,34 +482,22 @@ public class WinFspZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var method = typeof(WinFspZipFs).GetMethod("IsDirectory", BindingFlags.NonPublic | BindingFlags.Static);
-        Assert.NotNull(method);
-
-        var entriesField = typeof(WinFspZipFs).GetField("_archiveEntries", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(entriesField);
-        var entries = entriesField.GetValue(zipFs);
+        var entries = zipFs._archiveEntries;
         Assert.NotNull(entries);
 
-        var dictType = entries.GetType();
-        var valuesProp = dictType.GetProperty("Values");
-        Assert.NotNull(valuesProp);
-        var values = valuesProp.GetValue(entries) as IEnumerable;
-        Assert.NotNull(values);
-
-        object? fileEntry = null;
-        foreach (var e in values)
+        IArchiveEntry? fileEntry = null;
+        foreach (var kvp in entries)
         {
-            var keyProp = e.GetType().GetProperty("Key");
-            if (keyProp?.GetValue(e) is string key && key.Contains("readme.txt"))
+            if (kvp.Key.Contains("readme.txt"))
             {
-                fileEntry = e;
+                fileEntry = kvp.Value;
                 break;
             }
         }
 
         Assert.NotNull(fileEntry);
-        var result = method.Invoke(null, [fileEntry]);
-        Assert.False((bool)(result ?? true));
+        var result = WinFspZipFs.IsDirectory(fileEntry!);
+        Assert.False(result);
     }
 
     // ─── Stored entry tests ───
@@ -725,24 +597,18 @@ public class WinFspZipFsTests : IDisposable
         using var stream = CreateStoredZipStream();
         using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip", 1);
 
-        var method = zipFs.GetType().GetMethod("OpenOrCreateFile", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var args = new object?[] { "\\stored.txt", null!, null!, default(Fsp.Interop.FileInfo), "" };
-        var result = (int)(method.Invoke(zipFs, args) ?? StatusUnsuccessful);
+        var result = zipFs.OpenOrCreateFile("\\stored.txt", out var fileNode, out var fileDesc, out _, out _);
 
         Assert.Equal(StatusSuccess, result);
-        Assert.NotNull(args[1]);
-        Assert.NotNull(args[2]);
+        Assert.NotNull(fileNode);
+        Assert.NotNull(fileDesc);
 
-        InvokeCloseReflect(zipFs, args[1]!, args[2]!);
+        InvokeCloseReflect(zipFs, fileNode!, fileDesc!);
     }
 
     private static void InvokeCloseReflect(WinFspZipFs zipFs, object fileNode, object fileDesc)
     {
-        var method = zipFs.GetType().GetMethod("Close", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-        method.Invoke(zipFs, [fileNode, fileDesc]);
+        zipFs.Close(fileNode, fileDesc);
     }
 
     [Fact]
@@ -751,34 +617,14 @@ public class WinFspZipFsTests : IDisposable
         using var stream = CreateStoredZipStream();
         using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var method = typeof(WinFspZipFs).GetMethod("IsStoredEntry", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var entriesField = typeof(WinFspZipFs).GetField("_archiveEntries", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(entriesField);
-        var entries = entriesField.GetValue(zipFs);
+        var entries = zipFs._archiveEntries;
         Assert.NotNull(entries);
 
-        var dictType = entries.GetType();
-        var keysAndValues = new Dictionary<string, object>();
-        var keysProp = dictType.GetProperty("Keys");
-        var indexProp = dictType.GetProperty("Item");
-        if (keysProp != null && indexProp != null)
-        {
-            if (keysProp.GetValue(entries) is IEnumerable keys)
-            {
-                foreach (var key in keys)
-                {
-                    keysAndValues[(string)key] = indexProp.GetValue(entries, [key])!;
-                }
-            }
-        }
-
-        var storedKey = keysAndValues.Keys.FirstOrDefault(static k => k.Contains("stored.txt"));
+        var storedKey = entries.Keys.FirstOrDefault(static k => k.Contains("stored.txt"));
         Assert.NotNull(storedKey);
 
-        var result = method.Invoke(zipFs, [keysAndValues[storedKey]]);
-        Assert.True((bool)(result ?? false));
+        var result = zipFs.IsStoredEntry(entries[storedKey!]);
+        Assert.True(result);
     }
 
     [Fact]
@@ -787,34 +633,14 @@ public class WinFspZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var method = typeof(WinFspZipFs).GetMethod("IsStoredEntry", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var entriesField = typeof(WinFspZipFs).GetField("_archiveEntries", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(entriesField);
-        var entries = entriesField.GetValue(zipFs);
+        var entries = zipFs._archiveEntries;
         Assert.NotNull(entries);
 
-        var dictType = entries.GetType();
-        var keysProp = dictType.GetProperty("Keys");
-        var indexProp = dictType.GetProperty("Item");
-        var keysAndValues = new Dictionary<string, object>();
-        if (keysProp != null && indexProp != null)
-        {
-            if (keysProp.GetValue(entries) is IEnumerable keys)
-            {
-                foreach (var key in keys)
-                {
-                    keysAndValues[(string)key] = indexProp.GetValue(entries, [key])!;
-                }
-            }
-        }
-
-        var readmeKey = keysAndValues.Keys.FirstOrDefault(static k => k.Contains("readme.txt"));
+        var readmeKey = entries.Keys.FirstOrDefault(static k => k.Contains("readme.txt"));
         Assert.NotNull(readmeKey);
 
-        var result = method.Invoke(zipFs, [keysAndValues[readmeKey]]);
-        Assert.False((bool)(result ?? true));
+        var result = zipFs.IsStoredEntry(entries[readmeKey!]);
+        Assert.False(result);
     }
 
     // ─── 7z archive type tests ───
@@ -840,17 +666,13 @@ public class WinFspZipFsTests : IDisposable
         using var stream = CreateSevenZipStream();
         using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
 
-        var method = typeof(WinFspZipFs).GetMethod("OpenOrCreateFile", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var args = new object?[] { "\\readme.txt", null!, null!, default(Fsp.Interop.FileInfo), "" };
-        var result = (int)(method.Invoke(zipFs, args) ?? StatusUnsuccessful);
+        var result = zipFs.OpenOrCreateFile("\\readme.txt", out var fileNode, out var fileDesc, out _, out _);
 
         Assert.Equal(StatusSuccess, result);
-        Assert.NotNull(args[1]);
-        Assert.NotNull(args[2]);
+        Assert.NotNull(fileNode);
+        Assert.NotNull(fileDesc);
 
-        InvokeCloseReflect(zipFs, args[1]!, args[2]!);
+        InvokeCloseReflect(zipFs, fileNode!, fileDesc!);
     }
 
     [Fact]
@@ -859,11 +681,7 @@ public class WinFspZipFsTests : IDisposable
         using var stream = CreateSevenZipStream();
         using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
 
-        var method = typeof(WinFspZipFs).GetMethod("OpenOrCreateFile", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var args = new object?[] { "\\nope.txt", null!, null!, default(Fsp.Interop.FileInfo), "" };
-        var result = (int)(method.Invoke(zipFs, args) ?? StatusSuccess);
+        var result = zipFs.OpenOrCreateFile("\\nope.txt", out _, out _, out _, out _);
 
         Assert.Equal(StatusObjectNameNotFound, result);
     }
@@ -873,19 +691,16 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void OpenOrCreateFile_Close_DecrementsMemoryUsage()
     {
-        var memoryUsageField = typeof(WinFspZipFs).GetField("_currentMemoryUsage", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(memoryUsageField);
-
-        memoryUsageField.SetValue(_zipFs, 0L);
+        _zipFs._currentMemoryUsage = 0L;
 
         InvokeOpenOrCreateFile("\\readme.txt", out var fileNode, out var fileDesc, out _, out _);
 
-        var afterOpen = (long)(memoryUsageField.GetValue(_zipFs) ?? throw new InvalidOperationException());
+        var afterOpen = _zipFs._currentMemoryUsage;
         Assert.True(afterOpen > 0);
 
         InvokeClose(fileNode, fileDesc);
 
-        var afterClose = (long)(memoryUsageField.GetValue(_zipFs) ?? throw new InvalidOperationException());
+        var afterClose = _zipFs._currentMemoryUsage;
         Assert.Equal(0, afterClose);
     }
 
@@ -894,13 +709,8 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void OpenOrCreateFile_MemoryThrottling_FallsBackToDiskCache()
     {
-        var memoryUsageField = typeof(WinFspZipFs).GetField("_currentMemoryUsage", BindingFlags.NonPublic | BindingFlags.Instance);
-        var maxTotalCacheField = typeof(WinFspZipFs).GetField("_maxTotalMemoryCache", BindingFlags.NonPublic | BindingFlags.Instance);
-        Assert.NotNull(memoryUsageField);
-        Assert.NotNull(maxTotalCacheField);
-
-        var maxTotal = (long)(maxTotalCacheField.GetValue(_zipFs) ?? 1073741824L);
-        memoryUsageField.SetValue(_zipFs, maxTotal - 5);
+        var maxTotal = _zipFs._maxTotalMemoryCache;
+        _zipFs._currentMemoryUsage = maxTotal - 5;
 
         InvokeOpenOrCreateFile("\\readme.txt", out _, out var fileDesc, out _, out _);
 
@@ -908,7 +718,7 @@ public class WinFspZipFsTests : IDisposable
         Assert.IsType<FileStream>(fileDesc);
 
         ((IDisposable)fileDesc).Dispose();
-        memoryUsageField.SetValue(_zipFs, 0L);
+        _zipFs._currentMemoryUsage = 0L;
     }
 
     // ─── Read via reflection ───
@@ -918,13 +728,10 @@ public class WinFspZipFsTests : IDisposable
     {
         InvokeOpenOrCreateFile("\\readme.txt", out var fileNode, out var fileDesc, out _, out _);
 
-        var readMethod = typeof(WinFspZipFs).GetMethod("Read", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(readMethod);
-
         var buffer = System.Runtime.InteropServices.Marshal.AllocHGlobal(100);
         try
         {
-            var result = (int)(readMethod.Invoke(_zipFs, [fileNode, fileDesc, buffer, 0ul, 100u, 0u]) ?? StatusUnsuccessful);
+            var result = _zipFs.Read(fileNode, fileDesc, buffer, 0ul, 100u, out var _);
 
             Assert.Equal(StatusSuccess, result);
         }
@@ -941,10 +748,7 @@ public class WinFspZipFsTests : IDisposable
     {
         InvokeOpenOrCreateFile("\\readme.txt", out var fileNode, out var fileDesc, out _, out _);
 
-        var method = typeof(WinFspZipFs).GetMethod("GetFileInfo", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var result = (int)(method.Invoke(_zipFs, [fileNode, fileDesc, default(Fsp.Interop.FileInfo)]) ?? StatusUnsuccessful);
+        var result = _zipFs.GetFileInfo(fileNode, fileDesc, out var _);
 
         Assert.Equal(StatusSuccess, result);
 
@@ -954,10 +758,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void GetVolumeInfo_ReturnsExpectedValues()
     {
-        var method = typeof(WinFspZipFs).GetMethod("GetVolumeInfo", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var result = (int)(method.Invoke(_zipFs, [default(Fsp.Interop.VolumeInfo)]) ?? StatusUnsuccessful);
+        var result = _zipFs.GetVolumeInfo(out var _);
 
         Assert.Equal(StatusSuccess, result);
     }
@@ -965,10 +766,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void SetVolumeLabel_ReturnsAccessDenied()
     {
-        var method = typeof(WinFspZipFs).GetMethod("SetVolumeLabel", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var result = (int)(method.Invoke(_zipFs, ["NewLabel", default(Fsp.Interop.VolumeInfo)]) ?? StatusSuccess);
+        var result = _zipFs.SetVolumeLabel("NewLabel", out var _);
 
         Assert.Equal(StatusAccessDenied, result);
     }
@@ -976,10 +774,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void CanDelete_ReturnsAccessDenied()
     {
-        var method = typeof(WinFspZipFs).GetMethod("CanDelete", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var result = (int)(method.Invoke(_zipFs, [null!, null!, "\\test.txt"]) ?? StatusSuccess);
+        var result = _zipFs.CanDelete(null!, null!, "\\test.txt");
 
         Assert.Equal(StatusAccessDenied, result);
     }
@@ -987,10 +782,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void Rename_ReturnsAccessDenied()
     {
-        var method = typeof(WinFspZipFs).GetMethod("Rename", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var result = (int)(method.Invoke(_zipFs, [null!, null!, "\\old.txt", "\\new.txt", false]) ?? StatusSuccess);
+        var result = _zipFs.Rename(null!, null!, "\\old.txt", "\\new.txt", false);
 
         Assert.Equal(StatusAccessDenied, result);
     }
@@ -998,10 +790,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void SetFileSize_ReturnsAccessDenied()
     {
-        var method = typeof(WinFspZipFs).GetMethod("SetFileSize", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var result = (int)(method.Invoke(_zipFs, [null!, null!, 100ul, false, default(Fsp.Interop.FileInfo)]) ?? StatusSuccess);
+        var result = _zipFs.SetFileSize(null!, null!, 100ul, false, out var _);
 
         Assert.Equal(StatusAccessDenied, result);
     }
@@ -1009,10 +798,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void SetBasicInfo_ReturnsAccessDenied()
     {
-        var method = typeof(WinFspZipFs).GetMethod("SetBasicInfo", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var result = (int)(method.Invoke(_zipFs, [null!, null!, 0u, 0ul, 0ul, 0ul, 0ul, default(Fsp.Interop.FileInfo)]) ?? StatusSuccess);
+        var result = _zipFs.SetBasicInfo(null!, null!, 0u, 0ul, 0ul, 0ul, 0ul, out var _);
 
         Assert.Equal(StatusAccessDenied, result);
     }
@@ -1020,10 +806,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void Flush_ReturnsAccessDenied()
     {
-        var method = typeof(WinFspZipFs).GetMethod("Flush", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var result = (int)(method.Invoke(_zipFs, [null!, null!, default(Fsp.Interop.FileInfo)]) ?? StatusSuccess);
+        var result = _zipFs.Flush(null!, null!, out var _);
 
         Assert.Equal(StatusAccessDenied, result);
     }
@@ -1031,10 +814,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void Overwrite_ReturnsAccessDenied()
     {
-        var method = typeof(WinFspZipFs).GetMethod("Overwrite", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var result = (int)(method.Invoke(_zipFs, [null!, null!, 0u, false, 0ul, default(Fsp.Interop.FileInfo)]) ?? StatusSuccess);
+        var result = _zipFs.Overwrite(null!, null!, 0u, false, 0ul, out var _);
 
         Assert.Equal(StatusAccessDenied, result);
     }
@@ -1042,12 +822,8 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void GetSecurity_ReturnsSuccess()
     {
-        var method = typeof(WinFspZipFs).GetMethod("GetSecurity", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
         var securityDescriptor = Array.Empty<byte>();
-        var args = new object?[] { null!, null!, securityDescriptor };
-        var result = (int)(method.Invoke(_zipFs, args) ?? StatusUnsuccessful);
+        var result = _zipFs.GetSecurity(null!, null!, ref securityDescriptor);
 
         Assert.Equal(StatusSuccess, result);
     }
@@ -1055,10 +831,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void SetSecurity_ReturnsAccessDenied()
     {
-        var method = typeof(WinFspZipFs).GetMethod("SetSecurity", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var result = (int)(method.Invoke(_zipFs, [null!, null!, AccessControlSections.All, Array.Empty<byte>()]) ?? StatusSuccess);
+        var result = _zipFs.SetSecurity(null!, null!, AccessControlSections.All, Array.Empty<byte>());
 
         Assert.Equal(StatusAccessDenied, result);
     }
@@ -1066,40 +839,31 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void GetSecurityByName_Root_ReturnsDirectory()
     {
-        var method = typeof(WinFspZipFs).GetMethod("GetSecurityByName", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
         var securityDescriptor = Array.Empty<byte>();
-        var args = new object?[] { "\\", 0u, securityDescriptor };
-        var result = (int)(method.Invoke(_zipFs, args) ?? StatusUnsuccessful);
+        uint fileAttributes = 0;
+        var result = _zipFs.GetSecurityByName("\\", out fileAttributes, ref securityDescriptor);
 
         Assert.Equal(StatusSuccess, result);
-        Assert.Equal((uint)FileAttributes.Directory, args[1]);
+        Assert.Equal((uint)FileAttributes.Directory, fileAttributes);
     }
 
     [Fact]
     public void GetSecurityByName_File_ReturnsReadOnlyArchive()
     {
-        var method = typeof(WinFspZipFs).GetMethod("GetSecurityByName", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
         var securityDescriptor = Array.Empty<byte>();
-        var args = new object?[] { "\\readme.txt", 0u, securityDescriptor };
-        var result = (int)(method.Invoke(_zipFs, args) ?? StatusUnsuccessful);
+        uint fileAttributes = 0;
+        var result = _zipFs.GetSecurityByName("\\readme.txt", out fileAttributes, ref securityDescriptor);
 
         Assert.Equal(StatusSuccess, result);
-        Assert.Equal((uint)(FileAttributes.Archive | FileAttributes.ReadOnly), (uint?)args[1]);
+        Assert.Equal((uint)(FileAttributes.Archive | FileAttributes.ReadOnly), fileAttributes);
     }
 
     [Fact]
     public void GetSecurityByName_Unknown_ReturnsObjectNameNotFound()
     {
-        var method = typeof(WinFspZipFs).GetMethod("GetSecurityByName", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
         var securityDescriptor = Array.Empty<byte>();
-        var args = new object?[] { "\\unknown.txt", 0u, securityDescriptor };
-        var result = (int)(method.Invoke(_zipFs, args) ?? StatusSuccess);
+        uint fileAttributes = 0;
+        var result = _zipFs.GetSecurityByName("\\unknown.txt", out fileAttributes, ref securityDescriptor);
 
         Assert.Equal(StatusObjectNameNotFound, result);
     }
@@ -1107,13 +871,10 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void GetSecurityByName_PathTooLong_ReturnsUnsuccessful()
     {
-        var method = typeof(WinFspZipFs).GetMethod("GetSecurityByName", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
         var longPath = "\\" + new string('a', 260);
         var securityDescriptor = Array.Empty<byte>();
-        var args = new object?[] { longPath, 0u, securityDescriptor };
-        var result = (int)(method.Invoke(_zipFs, args) ?? StatusSuccess);
+        uint fileAttributes = 0;
+        var result = _zipFs.GetSecurityByName(longPath, out fileAttributes, ref securityDescriptor);
 
         Assert.Equal(StatusUnsuccessful, result);
     }
@@ -1125,16 +886,13 @@ public class WinFspZipFsTests : IDisposable
     {
         InvokeOpenOrCreateFile("\\", out var fileNode, out _, out _, out _);
 
-        var method = typeof(WinFspZipFs).GetMethod("ReadDirectoryEntry", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
         object context = null!;
         var names = new List<string>();
-
-        var args = new[] { fileNode, null!, "*", "", context, null!, default(Fsp.Interop.FileInfo) };
-        while ((bool)(method.Invoke(_zipFs, args) ?? false))
+        string fileName;
+        Fsp.Interop.FileInfo fileInfo;
+        while (_zipFs.ReadDirectoryEntry(fileNode, null!, "*", "", ref context, out fileName, out fileInfo))
         {
-            names.Add((string)args[5]);
+            names.Add(fileName);
         }
 
         Assert.Contains("readme.txt", names);
@@ -1147,16 +905,13 @@ public class WinFspZipFsTests : IDisposable
     {
         InvokeOpenOrCreateFile("\\data", out var fileNode, out _, out _, out _);
 
-        var method = typeof(WinFspZipFs).GetMethod("ReadDirectoryEntry", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
         object context = null!;
         var names = new List<string>();
-
-        var args = new[] { fileNode, null!, "*", "", context, null!, default(Fsp.Interop.FileInfo) };
-        while ((bool)(method.Invoke(_zipFs, args) ?? false))
+        string fileName;
+        Fsp.Interop.FileInfo fileInfo;
+        while (_zipFs.ReadDirectoryEntry(fileNode, null!, "*", "", ref context, out fileName, out fileInfo))
         {
-            names.Add((string)args[5]);
+            names.Add(fileName);
         }
 
         Assert.Equal(3, names.Count);
@@ -1170,16 +925,13 @@ public class WinFspZipFsTests : IDisposable
     {
         InvokeOpenOrCreateFile("\\", out var fileNode, out _, out _, out _);
 
-        var method = typeof(WinFspZipFs).GetMethod("ReadDirectoryEntry", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
         object context = null!;
         var names = new List<string>();
-
-        var args = new[] { fileNode, null!, "*", "", context, null!, default(Fsp.Interop.FileInfo) };
-        while ((bool)(method.Invoke(_zipFs, args) ?? false))
+        string fileName;
+        Fsp.Interop.FileInfo fileInfo;
+        while (_zipFs.ReadDirectoryEntry(fileNode, null!, "*", "", ref context, out fileName, out fileInfo))
         {
-            names.Add((string)args[5]);
+            names.Add(fileName);
         }
 
         Assert.Contains("readme.txt", names);
@@ -1192,20 +944,156 @@ public class WinFspZipFsTests : IDisposable
     {
         InvokeOpenOrCreateFile("\\", out var fileNode, out _, out _, out _);
 
-        var method = typeof(WinFspZipFs).GetMethod("ReadDirectoryEntry", BindingFlags.Public | BindingFlags.Instance);
-        Assert.NotNull(method);
-
-        var args = new[] { fileNode, null!, "*.xyz", "", null!, null!, default(Fsp.Interop.FileInfo) };
+        object context = null!;
         var names = new List<string>();
-        while ((bool)(method.Invoke(_zipFs, args) ?? false))
+        string fileName;
+        Fsp.Interop.FileInfo fileInfo;
+        while (_zipFs.ReadDirectoryEntry(fileNode, null!, "*.xyz", "", ref context, out fileName, out fileInfo))
         {
-            names.Add((string)args[5]);
+            names.Add(fileName);
         }
 
         Assert.Contains(".", names);
         Assert.Contains("..", names);
         Assert.DoesNotContain("readme.txt", names);
         Assert.DoesNotContain("data", names);
+    }
+
+    // ─── ResolveSpecialPaths tests ───
+
+    [Fact]
+    public void ResolveSpecialPaths_Root_ReturnsRoot()
+    {
+        var result = WinFspZipFs.ResolveSpecialPaths("/");
+
+        Assert.Equal("/", result);
+    }
+
+    [Fact]
+    public void ResolveSpecialPaths_DotPath_RemovesDot()
+    {
+        var result = WinFspZipFs.ResolveSpecialPaths("/data/./file.txt");
+
+        Assert.Equal("/data/file.txt", result);
+    }
+
+    [Fact]
+    public void ResolveSpecialPaths_DoubleDotPath_RemovesParent()
+    {
+        var result = WinFspZipFs.ResolveSpecialPaths("/data/../other/file.txt");
+
+        Assert.Equal("/other/file.txt", result);
+    }
+
+    [Fact]
+    public void ResolveSpecialPaths_NestedDotDot_ResolvesCorrectly()
+    {
+        var result = WinFspZipFs.ResolveSpecialPaths("/a/b/c/../../d");
+
+        Assert.Equal("/a/d", result);
+    }
+
+    [Fact]
+    public void ResolveSpecialPaths_DoubleDotAtRoot_StaysAtRoot()
+    {
+        var result = WinFspZipFs.ResolveSpecialPaths("/../something");
+
+        Assert.Equal("/something", result);
+    }
+
+    [Fact]
+    public void ResolveSpecialPaths_MultipleDots_RemovesAll()
+    {
+        var result = WinFspZipFs.ResolveSpecialPaths("/./a/./b/.");
+
+        Assert.Equal("/a/b", result);
+    }
+
+    [Fact]
+    public void ResolveSpecialPaths_OnlyDots_ResolvesToRoot()
+    {
+        var result = WinFspZipFs.ResolveSpecialPaths("/./..");
+
+        Assert.Equal("/", result);
+    }
+
+    // ─── GetDirInfoByName tests ───
+
+    [Fact]
+    public void GetDirInfoByName_ExistingChild_ReturnsSuccess()
+    {
+        InvokeOpenOrCreateFile("\\", out var fileNode, out _, out _, out _);
+
+        var result = _zipFs.GetDirInfoByName(fileNode, null!, "readme.txt", out var normalizedName, out var _);
+
+        Assert.Equal(StatusSuccess, result);
+    }
+
+    [Fact]
+    public void GetDirInfoByName_NonExistentChild_ReturnsObjectNameNotFound()
+    {
+        InvokeOpenOrCreateFile("\\", out var fileNode, out _, out _, out _);
+
+        var result = _zipFs.GetDirInfoByName(fileNode, null!, "nonexistent.txt", out var normalizedName, out var _);
+
+        Assert.Equal(StatusObjectNameNotFound, result);
+    }
+
+    [Fact]
+    public void GetDirInfoByName_ExistingDirectory_ReturnsSuccess()
+    {
+        InvokeOpenOrCreateFile("\\", out var fileNode, out _, out _, out _);
+
+        var result = _zipFs.GetDirInfoByName(fileNode, null!, "data", out var normalizedName, out var _);
+
+        Assert.Equal(StatusSuccess, result);
+    }
+
+    [Fact]
+    public void GetDirInfoByName_ParentNotDirectory_ReturnsNotADirectory()
+    {
+        InvokeOpenOrCreateFile("\\readme.txt", out var fileNode, out var fileDesc, out _, out _);
+
+        var result = _zipFs.GetDirInfoByName(fileNode, null!, "child.txt", out var normalizedName, out var _);
+
+        // A file node used as parent should return NOT_A_DIRECTORY
+        Assert.Equal(unchecked((int)0xC0000103), result); // STATUS_NOT_A_DIRECTORY
+
+        InvokeClose(fileNode, fileDesc);
+    }
+
+    // ─── StoredEntry stream tests ───
+
+    [Fact]
+    public void Read_StoredEntry_ReadsContent()
+    {
+        using var stream = CreateStoredZipStream();
+        using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip", 1);
+
+        zipFs.OpenOrCreateFile("\\stored.txt", out var fileNode, out var fileDesc, out _, out _);
+
+        var buffer = System.Runtime.InteropServices.Marshal.AllocHGlobal(200);
+        try
+        {
+            var readResult = zipFs.Read(fileNode, fileDesc, buffer, 0ul, 200u, out var _);
+            Assert.Equal(StatusSuccess, readResult);
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer);
+        }
+
+        InvokeCloseReflect(zipFs, fileNode, fileDesc);
+    }
+
+    // ─── Init tests ───
+
+    [Fact]
+    public void Init_ReturnsSuccess()
+    {
+        var result = _zipFs.Init(null!);
+
+        Assert.Equal(StatusSuccess, result);
     }
 
     public void Dispose()

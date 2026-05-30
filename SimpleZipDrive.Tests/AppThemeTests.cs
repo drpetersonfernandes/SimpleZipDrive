@@ -61,4 +61,10 @@ public class AppThemeTests
     {
         Assert.Equal("[DokanNet] ", AppTheme.DokanLogPrefix);
     }
+
+    [Fact]
+    public void WinFspLogPrefixConstantIsCorrect()
+    {
+        Assert.Equal("[WinFsp] ", AppTheme.WinFspLogPrefix);
+    }
 }

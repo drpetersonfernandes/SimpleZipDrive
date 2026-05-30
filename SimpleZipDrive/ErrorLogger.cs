@@ -20,11 +20,17 @@ public class ErrorLogger : IDisposable
 
     private readonly string _baseDirectory;
 
+    private static volatile bool _suppressApiCalls;
+
     /// <summary>
     /// When true, all API calls for bug reports are suppressed (no HTTP requests are made).
     /// Use this in test environments to prevent sending test-generated errors to the bug report API.
     /// </summary>
-    public static bool SuppressApiCalls { get; set; }
+    public static bool SuppressApiCalls
+    {
+        get => _suppressApiCalls;
+        set => _suppressApiCalls = value;
+    }
 
     /// <summary>
     /// Gets or sets the error log file path. Used for testing.
@@ -51,14 +57,18 @@ public class ErrorLogger : IDisposable
     /// </summary>
     public void InitializeGlobalExceptionHandlers()
     {
-        // Catch UI thread exceptions (WPF)
-        // Use async logging to avoid blocking the UI thread for up to 30 seconds
-        System.Windows.Application.Current.DispatcherUnhandledException += (_, args) =>
+        // Catch UI thread exceptions (WPF) only when running in a WPF context
+        var wpfApp = System.Windows.Application.Current;
+        if (wpfApp != null)
         {
-            const string context = "Unhandled exception in UI thread (Dispatcher)";
-            FireAndForgetAsync(LogErrorAsync(args.Exception, context));
-            args.Handled = true; // Prevent application crash
-        };
+            // Use async logging to avoid blocking the UI thread for up to 30 seconds
+            wpfApp.DispatcherUnhandledException += (_, args) =>
+            {
+                const string context = "Unhandled exception in UI thread (Dispatcher)";
+                FireAndForgetAsync(LogErrorAsync(args.Exception, context));
+                args.Handled = true; // Prevent application crash
+            };
+        }
 
         // Catch non-UI thread exceptions
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
@@ -92,6 +102,7 @@ public class ErrorLogger : IDisposable
     /// <param name="silent">If true, only logs to file without showing console output.</param>
     public void ReportSilentException(Exception ex, string context, bool silent = false)
     {
+        DiagnosticLogger.Log(ex, $"[SILENT] {context}");
         try
         {
             var logContent = FormatErrorMessage(ex, $"[SILENT CATCH] {context}");
@@ -117,19 +128,14 @@ public class ErrorLogger : IDisposable
             {
                 FireAndForgetAsync(Task.Run(async () =>
                 {
-                    CancellationTokenSource? cts = null;
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                     try
                     {
-                        cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                         await SendLogToApiAsync(ex, $"[SILENT CATCH] {context}", cts.Token);
                     }
                     catch
                     {
                         // Ignore API failures for silent exceptions
-                    }
-                    finally
-                    {
-                        cts?.Dispose();
                     }
                 }));
             }
@@ -156,6 +162,9 @@ public class ErrorLogger : IDisposable
         }
 
         contextMessage ??= "No additional context provided.";
+
+        DiagnosticLogger.LogSection("ERROR (SYNC)");
+        DiagnosticLogger.Log(ex, contextMessage);
 
         // Log to console immediately (synchronously)
         Console.Error.WriteLine($"\n{AppTheme.Section("ERROR (SYNC)")}");
@@ -191,15 +200,8 @@ public class ErrorLogger : IDisposable
                 // Offload to thread pool to avoid blocking the current synchronization context
                 // ReSharper disable once AccessToDisposedClosure
                 var apiTask = Task.Run(async () => await SendLogToApiAsync(ex, contextMessage, cts.Token), cts.Token);
-                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30), cts.Token);
 
-                var completedTask = Task.WhenAny(apiTask, timeoutTask).GetAwaiter().GetResult();
-
-                if (completedTask == timeoutTask)
-                {
-                    Console.Error.WriteLine("Timeout: Failed to send error details to remote logging service (from sync path). Error is saved locally.");
-                }
-                else
+                try
                 {
                     // Await the API task to get the result and propagate any exceptions
                     var result = apiTask.GetAwaiter().GetResult();
@@ -211,6 +213,10 @@ public class ErrorLogger : IDisposable
                     {
                         Console.Error.WriteLine("Failed to send error details to remote logging service (from sync path). Error is saved locally.");
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    Console.Error.WriteLine("Timeout: Failed to send error details to remote logging service (from sync path). Error is saved locally.");
                 }
             }
             catch (Exception apiEx)
@@ -279,7 +285,7 @@ public class ErrorLogger : IDisposable
     /// <summary>
     /// Fire-and-forget a task without suppressing the compiler warning. Handles any unobserved exceptions.
     /// </summary>
-    private static async void FireAndForgetAsync(Task task)
+    internal static async void FireAndForgetAsync(Task task)
     {
         try
         {
@@ -315,7 +321,7 @@ public class ErrorLogger : IDisposable
         return (version, osDescription, osArchitecture);
     }
 
-    private static string FormatErrorMessage(Exception ex, string contextMessage)
+    internal static string FormatErrorMessage(Exception ex, string contextMessage)
     {
         var (version, osDescription, osArchitecture) = GetBasicEnvironmentInfo();
         var frameworkDescription = RuntimeInformation.FrameworkDescription;
@@ -344,7 +350,7 @@ public class ErrorLogger : IDisposable
         return fullErrorMessage.ToString();
     }
 
-    private string GetEnvironmentDetails()
+    internal string GetEnvironmentDetails()
     {
         var (version, osDescription, osArchitecture) = GetBasicEnvironmentInfo();
         var processorCount = Environment.ProcessorCount;
@@ -370,7 +376,7 @@ public class ErrorLogger : IDisposable
         return envDetails.ToString();
     }
 
-    private static string GetErrorDetails(Exception ex, string contextMessage)
+    internal static string GetErrorDetails(Exception ex, string contextMessage)
     {
         var errorDetails = new StringBuilder();
         errorDetails.AppendLine("=== Error Details ===");
@@ -379,7 +385,7 @@ public class ErrorLogger : IDisposable
         return errorDetails.ToString();
     }
 
-    private static string GetExceptionDetails(Exception ex)
+    internal static string GetExceptionDetails(Exception ex)
     {
         var exceptionDetails = new StringBuilder();
         exceptionDetails.AppendLine("=== Exception Details ===");
@@ -400,7 +406,7 @@ public class ErrorLogger : IDisposable
         return exceptionDetails.ToString();
     }
 
-    private static bool IsUserError(Exception? ex)
+    internal static bool IsUserError(Exception? ex)
     {
         switch (ex)
         {
@@ -458,7 +464,12 @@ public class ErrorLogger : IDisposable
             messageLower.Contains("invalid archive") ||
             messageLower.Contains("unknown format") ||
             messageLower.Contains("not a valid") ||
-            messageLower.Contains("corrupt") ||
+            (messageLower.Contains("corrupt") &&
+             (messageLower.Contains("archive") ||
+              messageLower.Contains("file") ||
+              messageLower.Contains("zip") ||
+              messageLower.Contains("format") ||
+              messageLower.Contains("header"))) ||
             (messageLower.Contains("header") && messageLower.Contains("invalid"));
 
         // Dokan drive-related errors
@@ -469,14 +480,24 @@ public class ErrorLogger : IDisposable
 
         // Password-related errors (user can retry with correct password)
         var isPasswordError =
-            messageLower.Contains("password") ||
-            messageLower.Contains("encrypted");
+            messageLower.Contains("password required") ||
+            messageLower.Contains("wrong password") ||
+            messageLower.Contains("incorrect password") ||
+            messageLower.Contains("invalid password") ||
+            messageLower.Contains("missing password") ||
+            messageLower.Contains("no password") ||
+            messageLower.Contains("password is") ||
+            messageLower.Contains("requires a password") ||
+            messageLower.Contains("need a password") ||
+            (messageLower.Contains("encrypted") &&
+             (messageLower.Contains("file") ||
+              messageLower.Contains("archive") ||
+              messageLower.Contains("entry")));
 
         // Cancellation-related messages
         var isCancellationError =
             messageLower.Contains("canceled") ||
-            messageLower.Contains("cancelled") ||
-            messageLower.Contains("timeout");
+            messageLower.Contains("cancelled");
 
         return isArchiveError || isDriveError || isPasswordError || isCancellationError;
     }
@@ -493,19 +514,14 @@ public class ErrorLogger : IDisposable
             var errorDetails = GetErrorDetails(ex, contextMessage);
             var exceptionDetails = GetExceptionDetails(ex);
 
-            // Combine all details into the message field
-            var fullMessage = new StringBuilder();
-            fullMessage.AppendLine(environmentDetails);
-            fullMessage.AppendLine(errorDetails);
-            fullMessage.AppendLine(exceptionDetails);
-
             var payload = new
             {
-                message = fullMessage.ToString(),
+                message = errorDetails,
                 applicationName = ApplicationName,
                 version,
                 userInfo = contextMessage,
                 environment = environmentDetails,
+                exception = exceptionDetails,
                 stackTrace = ex.StackTrace ?? "No stack trace available"
             };
             var jsonPayload = JsonSerializer.Serialize(payload);
@@ -537,7 +553,7 @@ public class ErrorLogger : IDisposable
         }
     }
 
-    private void WriteToCriticalLog(Exception ex, string contextMessage)
+    internal void WriteToCriticalLog(Exception ex, string contextMessage)
     {
         // Only write to console - do not attempt to write to file as it will fail
         // if the application is in a protected directory (e.g., C:\Program Files)
@@ -563,12 +579,24 @@ public class ErrorLogger : IDisposable
 /// </summary>
 public static class ErrorLoggerStatic
 {
-    private static readonly Lazy<ErrorLogger> Instance2 = new(static () => new ErrorLogger());
+    private static readonly Lazy<ErrorLogger> _lazyInstance = new(static () => new ErrorLogger());
 
     /// <summary>
     /// Gets the singleton ErrorLogger instance.
     /// </summary>
-    public static ErrorLogger Instance => Instance2.Value;
+    public static ErrorLogger Instance => _lazyInstance.Value;
+
+    /// <summary>
+    /// Disposes the singleton ErrorLogger instance if it has been created.
+    /// Call this during application shutdown to release the HttpClient.
+    /// </summary>
+    public static void DisposeInstance()
+    {
+        if (_lazyInstance.IsValueCreated)
+        {
+            _lazyInstance.Value.Dispose();
+        }
+    }
 
     /// <summary>
     /// Initializes global exception handlers to catch all unhandled exceptions.
@@ -576,7 +604,7 @@ public static class ErrorLoggerStatic
     /// </summary>
     public static void InitializeGlobalExceptionHandlers()
     {
-        Instance2.Value.InitializeGlobalExceptionHandlers();
+        _lazyInstance.Value.InitializeGlobalExceptionHandlers();
     }
 
     /// <summary>
@@ -588,7 +616,7 @@ public static class ErrorLoggerStatic
     /// <param name="silent">If true, only logs to file without showing console output.</param>
     public static void ReportSilentException(Exception ex, string context, bool silent = false)
     {
-        Instance2.Value.ReportSilentException(ex, context, silent);
+        _lazyInstance.Value.ReportSilentException(ex, context, silent);
     }
 
     /// <summary>
@@ -600,7 +628,7 @@ public static class ErrorLoggerStatic
     /// <param name="contextMessage">Additional context about where the error occurred.</param>
     public static void LogErrorSync(Exception? ex, string? contextMessage = null)
     {
-        Instance2.Value.LogErrorSync(ex, contextMessage);
+        _lazyInstance.Value.LogErrorSync(ex, contextMessage);
     }
 
     /// <summary>
@@ -612,6 +640,6 @@ public static class ErrorLoggerStatic
     /// <param name="cancellationToken">Cancellation token for the async operation.</param>
     public static Task LogErrorAsync(Exception? ex, string? contextMessage = null, CancellationToken cancellationToken = default)
     {
-        return Instance2.Value.LogErrorAsync(ex, contextMessage, cancellationToken);
+        return _lazyInstance.Value.LogErrorAsync(ex, contextMessage, cancellationToken);
     }
 }

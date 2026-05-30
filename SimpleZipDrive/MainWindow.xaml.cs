@@ -128,7 +128,9 @@ public partial class MainWindow : IDisposable
                 zipFilePath = args[0].Trim().Trim('"');
                 _loggingService.Log($"Drag-and-drop mode: Detected archive file '{zipFilePath}'.");
                 break;
-            case >= 2:
+            case >= 2 when
+                !string.IsNullOrWhiteSpace(args[0]) &&
+                !string.IsNullOrWhiteSpace(args[1]):
                 zipFilePath = args[0].Trim().Trim('"');
                 mountPointArg = args[1].Trim().Trim('"');
                 _loggingService.Log($"Standard mode: Archive file '{zipFilePath}', Mount point arg '{mountPointArg}'.");

@@ -1,17 +1,25 @@
 using System.Globalization;
 using System.Text;
 
-namespace SimpleZipDrive_WinFsp;
+namespace SimpleZipDrive;
 
+/// <summary>
+/// Provides structured debug logging with thread-safe file output.
+/// </summary>
 public static class DiagnosticLogger
 {
     private static readonly object Lock = new();
     internal static volatile bool _initialized;
 
-    public static bool IsEnabled { get; internal set; } = true;
+    public static bool IsEnabled { get; private set; } = true;
 
-    public static string? LogFilePath { get; internal set; }
+    public static string? LogFilePath { get; private set; }
 
+    /// <summary>
+    /// Initializes the diagnostic logger with an optional directory and enabled flag.
+    /// </summary>
+    /// <param name="logDir">Directory for the log file. Defaults to the application base directory.</param>
+    /// <param name="enabled">Whether logging is enabled.</param>
     public static void Initialize(string? logDir = null, bool enabled = true)
     {
         IsEnabled = enabled;
@@ -30,6 +38,10 @@ public static class DiagnosticLogger
         }
     }
 
+    /// <summary>
+    /// Writes a message to the diagnostic log.
+    /// </summary>
+    /// <param name="message">The message to log.</param>
     public static void Log(string message)
     {
         if (!_initialized || LogFilePath == null) return;
@@ -51,6 +63,11 @@ public static class DiagnosticLogger
         }
     }
 
+    /// <summary>
+    /// Logs an exception with context.
+    /// </summary>
+    /// <param name="ex">The exception to log.</param>
+    /// <param name="context">Contextual description of the exception.</param>
     public static void Log(Exception ex, string context)
     {
         Log($"{context}: {ex.GetType().Name}: {ex.Message}");
@@ -58,6 +75,13 @@ public static class DiagnosticLogger
             Log($"  Stack: {ex.StackTrace.Replace(Environment.NewLine, Environment.NewLine + "          ")}");
     }
 
+    /// <summary>
+    /// Logs the result of an operation with an integer status code.
+    /// </summary>
+    /// <param name="operation">The operation name.</param>
+    /// <param name="path">The path involved.</param>
+    /// <param name="status">The status code.</param>
+    /// <param name="detail">Optional detail string.</param>
     public static void LogOperation(string operation, string path, int status, string? detail = null)
     {
         var statusName = status == 0 ? "SUCCESS" : $"0x{status:X8}";
@@ -65,6 +89,13 @@ public static class DiagnosticLogger
         Log($"  {operation}: \"{path}\" → {statusName}{detailStr}");
     }
 
+    /// <summary>
+    /// Logs the result of an operation with a boolean result.
+    /// </summary>
+    /// <param name="operation">The operation name.</param>
+    /// <param name="path">The path involved.</param>
+    /// <param name="result">The boolean result.</param>
+    /// <param name="detail">Optional detail string.</param>
     public static void LogOperation(string operation, string path, bool result, string? detail = null)
     {
         var resultStr = result ? "true" : "false";
@@ -72,6 +103,10 @@ public static class DiagnosticLogger
         Log($"  {operation}: \"{path}\" → {resultStr}{detailStr}");
     }
 
+    /// <summary>
+    /// Logs a section header.
+    /// </summary>
+    /// <param name="title">The section title.</param>
     public static void LogSection(string title)
     {
         Log(new string('=', 80));
@@ -79,6 +114,10 @@ public static class DiagnosticLogger
         Log(new string('=', 80));
     }
 
+    /// <summary>
+    /// Logs a header line.
+    /// </summary>
+    /// <param name="text">The header text.</param>
     public static void LogHeader(string text)
     {
         Log($"--- {text} ---");

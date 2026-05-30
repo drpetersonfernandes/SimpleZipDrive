@@ -6,6 +6,10 @@ using System.Text.Json;
 
 namespace SimpleZipDrive_WinFsp;
 
+/// <summary>
+/// Centralized error logging and bug reporting service implementation.
+/// Sends all non-user errors to the remote bug report API with full environment and exception details.
+/// </summary>
 public class ErrorLogger : IDisposable
 {
     private const string ApiKey = "hjh7yu6t56tyr540o9u8767676r5674534453235264c75b6t7ggghgg76trf564e";
@@ -16,14 +20,27 @@ public class ErrorLogger : IDisposable
 
     private readonly string _baseDirectory;
 
+    private static volatile bool _suppressApiCalls;
+
     /// <summary>
     /// When true, all API calls for bug reports are suppressed (no HTTP requests are made).
     /// Use this in test environments to prevent sending test-generated errors to the bug report API.
     /// </summary>
-    public static bool SuppressApiCalls { get; set; }
+    public static bool SuppressApiCalls
+    {
+        get => _suppressApiCalls;
+        set => _suppressApiCalls = value;
+    }
 
+    /// <summary>
+    /// Gets or sets the error log file path. Used for testing.
+    /// </summary>
     internal string ErrorLogFilePath { get; set; }
 
+    /// <summary>
+    /// Creates a new instance of the ErrorLogger.
+    /// </summary>
+    /// <param name="logFilePath">Optional custom log file path. If not provided, uses default location.</param>
     public ErrorLogger(string? logFilePath = null)
     {
         _httpClient = new HttpClient
@@ -34,14 +51,22 @@ public class ErrorLogger : IDisposable
         ErrorLogFilePath = logFilePath ?? Path.Combine(_baseDirectory, "error.log");
     }
 
+    /// <summary>
+    /// Initializes global exception handlers to catch all unhandled exceptions.
+    /// Must be called once at application startup.
+    /// </summary>
     public void InitializeGlobalExceptionHandlers()
     {
-        System.Windows.Application.Current.DispatcherUnhandledException += (_, args) =>
+        var wpfApp = System.Windows.Application.Current;
+        if (wpfApp != null)
         {
-            const string context = "Unhandled exception in UI thread (Dispatcher)";
-            FireAndForgetAsync(LogErrorAsync(args.Exception, context));
-            args.Handled = true;
-        };
+            wpfApp.DispatcherUnhandledException += (_, args) =>
+            {
+                const string context = "Unhandled exception in UI thread (Dispatcher)";
+                FireAndForgetAsync(LogErrorAsync(args.Exception, context));
+                args.Handled = true;
+            };
+        }
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
@@ -64,6 +89,13 @@ public class ErrorLogger : IDisposable
         };
     }
 
+    /// <summary>
+    /// Reports an exception that was silently caught. Use this for exceptions that were
+    /// previously being ignored with empty catch blocks.
+    /// </summary>
+    /// <param name="ex">The exception that was caught.</param>
+    /// <param name="context">Description of where/why the exception occurred.</param>
+    /// <param name="silent">If true, only logs to file without showing console output.</param>
     public void ReportSilentException(Exception ex, string context, bool silent = false)
     {
         DiagnosticLogger.Log(ex, $"[SILENT] {context}");
@@ -91,19 +123,14 @@ public class ErrorLogger : IDisposable
             {
                 FireAndForgetAsync(Task.Run(async () =>
                 {
-                    CancellationTokenSource? cts = null;
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                     try
                     {
-                        cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                         await SendLogToApiAsync(ex, $"[SILENT CATCH] {context}", cts.Token);
                     }
                     catch
                     {
                         // ignored
-                    }
-                    finally
-                    {
-                        cts?.Dispose();
                     }
                 }));
             }
@@ -114,6 +141,13 @@ public class ErrorLogger : IDisposable
         }
     }
 
+    /// <summary>
+    /// Logs an error synchronously. This method blocks until logging is complete
+    /// and the API call has finished (or timed out after 30 seconds).
+    /// Use this when the application is about to exit or crash.
+    /// </summary>
+    /// <param name="ex">The exception to log.</param>
+    /// <param name="contextMessage">Additional context about where the error occurred.</param>
     public void LogErrorSync(Exception? ex, string? contextMessage = null)
     {
         var originalWasNull = ex == null;
@@ -155,15 +189,8 @@ public class ErrorLogger : IDisposable
                 cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 var token = cts.Token;
                 var apiTask = Task.Run(async () => await SendLogToApiAsync(ex, contextMessage, token), token);
-                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30), token);
 
-                var completedTask = Task.WhenAny(apiTask, timeoutTask).GetAwaiter().GetResult();
-
-                if (completedTask == timeoutTask)
-                {
-                    Console.Error.WriteLine("Timeout: Failed to send error details to remote logging service (from sync path). Error is saved locally.");
-                }
-                else
+                try
                 {
                     var result = apiTask.GetAwaiter().GetResult();
                     if (result)
@@ -174,6 +201,10 @@ public class ErrorLogger : IDisposable
                     {
                         Console.Error.WriteLine("Failed to send error details to remote logging service (from sync path). Error is saved locally.");
                     }
+                }
+                catch (OperationCanceledException)
+                {
+                    Console.Error.WriteLine("Timeout: Failed to send error details to remote logging service (from sync path). Error is saved locally.");
                 }
             }
             catch (Exception apiEx)
@@ -187,6 +218,13 @@ public class ErrorLogger : IDisposable
         }
     }
 
+    /// <summary>
+    /// Logs an error asynchronously. This method returns immediately and logs in the background.
+    /// Use this for normal error handling where the application continues running.
+    /// </summary>
+    /// <param name="ex">The exception to log.</param>
+    /// <param name="contextMessage">Additional context about where the error occurred.</param>
+    /// <param name="cancellationToken">Cancellation token for the async operation.</param>
     public async Task LogErrorAsync(Exception? ex, string? contextMessage = null, CancellationToken cancellationToken = default)
     {
         var originalWasNull = ex == null;
@@ -231,6 +269,9 @@ public class ErrorLogger : IDisposable
         }
     }
 
+    /// <summary>
+    /// Fire-and-forget a task without suppressing the compiler warning. Handles any unobserved exceptions.
+    /// </summary>
     private static async void FireAndForgetAsync(Task task)
     {
         try
@@ -243,6 +284,9 @@ public class ErrorLogger : IDisposable
         }
     }
 
+    /// <summary>
+    /// Logs a message to the logging service if available, otherwise falls back to console.
+    /// </summary>
     private static void LogToService(string message)
     {
         try
@@ -264,7 +308,7 @@ public class ErrorLogger : IDisposable
         return (version, osDescription, osArchitecture);
     }
 
-    private static string FormatErrorMessage(Exception ex, string contextMessage)
+    internal static string FormatErrorMessage(Exception ex, string contextMessage)
     {
         var (version, osDescription, osArchitecture) = GetBasicEnvironmentInfo();
         var frameworkDescription = RuntimeInformation.FrameworkDescription;
@@ -293,7 +337,7 @@ public class ErrorLogger : IDisposable
         return fullErrorMessage.ToString();
     }
 
-    private string GetEnvironmentDetails()
+    internal string GetEnvironmentDetails()
     {
         var (version, osDescription, osArchitecture) = GetBasicEnvironmentInfo();
         var processorCount = Environment.ProcessorCount;
@@ -348,7 +392,7 @@ public class ErrorLogger : IDisposable
         return exceptionDetails.ToString();
     }
 
-    private static bool IsUserError(Exception? ex)
+    internal static bool IsUserError(Exception? ex)
     {
         switch (ex)
         {
@@ -385,7 +429,12 @@ public class ErrorLogger : IDisposable
             messageLower.Contains("invalid archive") ||
             messageLower.Contains("unknown format") ||
             messageLower.Contains("not a valid") ||
-            messageLower.Contains("corrupt") ||
+            (messageLower.Contains("corrupt") &&
+             (messageLower.Contains("archive") ||
+              messageLower.Contains("file") ||
+              messageLower.Contains("zip") ||
+              messageLower.Contains("format") ||
+              messageLower.Contains("header"))) ||
             (messageLower.Contains("header") && messageLower.Contains("invalid"));
 
         var isDriveError =
@@ -394,13 +443,23 @@ public class ErrorLogger : IDisposable
             (messageLower.Contains("mount point") && messageLower.Contains("invalid"));
 
         var isPasswordError =
-            messageLower.Contains("password") ||
-            messageLower.Contains("encrypted");
+            messageLower.Contains("password required") ||
+            messageLower.Contains("wrong password") ||
+            messageLower.Contains("incorrect password") ||
+            messageLower.Contains("invalid password") ||
+            messageLower.Contains("missing password") ||
+            messageLower.Contains("no password") ||
+            messageLower.Contains("password is") ||
+            messageLower.Contains("requires a password") ||
+            messageLower.Contains("need a password") ||
+            (messageLower.Contains("encrypted") &&
+             (messageLower.Contains("file") ||
+              messageLower.Contains("archive") ||
+              messageLower.Contains("entry")));
 
         var isCancellationError =
             messageLower.Contains("canceled") ||
-            messageLower.Contains("cancelled") ||
-            messageLower.Contains("timeout");
+            messageLower.Contains("cancelled");
 
         return isArchiveError || isDriveError || isPasswordError || isCancellationError;
     }
@@ -417,18 +476,14 @@ public class ErrorLogger : IDisposable
             var errorDetails = GetErrorDetails(ex, contextMessage);
             var exceptionDetails = GetExceptionDetails(ex);
 
-            var fullMessage = new StringBuilder();
-            fullMessage.AppendLine(environmentDetails);
-            fullMessage.AppendLine(errorDetails);
-            fullMessage.AppendLine(exceptionDetails);
-
             var payload = new
             {
-                message = fullMessage.ToString(),
+                message = errorDetails,
                 applicationName = ApplicationName,
                 version,
                 userInfo = contextMessage,
                 environment = environmentDetails,
+                exception = exceptionDetails,
                 stackTrace = ex.StackTrace ?? "No stack trace available"
             };
             var jsonPayload = JsonSerializer.Serialize(payload);
@@ -467,6 +522,9 @@ public class ErrorLogger : IDisposable
         Console.Error.WriteLine($"Exception: {ex.GetType().Name} - {ex.Message}");
     }
 
+    /// <summary>
+    /// Disposes the HttpClient instance.
+    /// </summary>
     public void Dispose()
     {
         _httpClient.Dispose();
@@ -474,29 +532,70 @@ public class ErrorLogger : IDisposable
     }
 }
 
+/// <summary>
+/// Static wrapper for the ErrorLogger instance for backward compatibility.
+/// Provides global access to a singleton ErrorLogger instance.
+/// </summary>
 public static class ErrorLoggerStatic
 {
-    private static readonly Lazy<ErrorLogger> Instance2 = new(static () => new ErrorLogger());
+    private static readonly Lazy<ErrorLogger> _lazyInstance = new(static () => new ErrorLogger());
 
-    public static ErrorLogger Instance => Instance2.Value;
+    public static ErrorLogger Instance => _lazyInstance.Value;
 
+    /// <summary>
+    /// Disposes the singleton ErrorLogger instance if it has been created.
+    /// Call this during application shutdown to release the HttpClient.
+    /// </summary>
+    public static void DisposeInstance()
+    {
+        if (_lazyInstance.IsValueCreated)
+        {
+            _lazyInstance.Value.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Initializes global exception handlers to catch all unhandled exceptions.
+    /// Must be called once at application startup.
+    /// </summary>
     public static void InitializeGlobalExceptionHandlers()
     {
-        Instance2.Value.InitializeGlobalExceptionHandlers();
+        _lazyInstance.Value.InitializeGlobalExceptionHandlers();
     }
 
+    /// <summary>
+    /// Reports an exception that was silently caught. Use this for exceptions that were
+    /// previously being ignored with empty catch blocks.
+    /// </summary>
+    /// <param name="ex">The exception that was caught.</param>
+    /// <param name="context">Description of where/why the exception occurred.</param>
+    /// <param name="silent">If true, only logs to file without showing console output.</param>
     public static void ReportSilentException(Exception ex, string context, bool silent = false)
     {
-        Instance2.Value.ReportSilentException(ex, context, silent);
+        _lazyInstance.Value.ReportSilentException(ex, context, silent);
     }
 
+    /// <summary>
+    /// Logs an error synchronously. This method blocks until logging is complete
+    /// and the API call has finished (or timed out after 30 seconds).
+    /// Use this when the application is about to exit or crash.
+    /// </summary>
+    /// <param name="ex">The exception to log.</param>
+    /// <param name="contextMessage">Additional context about where the error occurred.</param>
     public static void LogErrorSync(Exception? ex, string? contextMessage = null)
     {
-        Instance2.Value.LogErrorSync(ex, contextMessage);
+        _lazyInstance.Value.LogErrorSync(ex, contextMessage);
     }
 
+    /// <summary>
+    /// Logs an error asynchronously. This method returns immediately and logs in the background.
+    /// Use this for normal error handling where the application continues running.
+    /// </summary>
+    /// <param name="ex">The exception to log.</param>
+    /// <param name="contextMessage">Additional context about where the error occurred.</param>
+    /// <param name="cancellationToken">Cancellation token for the async operation.</param>
     public static Task LogErrorAsync(Exception? ex, string? contextMessage = null, CancellationToken cancellationToken = default)
     {
-        return Instance2.Value.LogErrorAsync(ex, contextMessage, cancellationToken);
+        return _lazyInstance.Value.LogErrorAsync(ex, contextMessage, cancellationToken);
     }
 }

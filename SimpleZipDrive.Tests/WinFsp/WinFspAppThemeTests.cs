@@ -57,9 +57,4 @@ public class WinFspAppThemeTests
         Assert.Equal("  - ", WinFspAppTheme.Bullet);
     }
 
-    [Fact]
-    public void WinFspLogPrefixConstant_IsCorrect()
-    {
-        Assert.Equal("[WinFsp] ", WinFspAppTheme.WinFspLogPrefix);
-    }
 }

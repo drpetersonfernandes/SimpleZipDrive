@@ -24,7 +24,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
     private readonly Stream _sourceArchiveStream;
     private readonly IArchive _archive;
-    private readonly Dictionary<string, IArchiveEntry> _archiveEntries = new(StringComparer.OrdinalIgnoreCase);
+    internal readonly Dictionary<string, IArchiveEntry> _archiveEntries = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryCreationTimes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryLastWriteTimes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryLastAccessTimes = new(StringComparer.OrdinalIgnoreCase);
@@ -37,8 +37,8 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
     private readonly HashSet<string> _failedEntries = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly long _maxTotalMemoryCache;
-    private long _currentMemoryUsage;
+    internal readonly long _maxTotalMemoryCache;
+    internal long _currentMemoryUsage;
     private readonly object _memoryLock = new();
 
     private readonly string _tempDirectoryPath;
@@ -46,7 +46,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
     private readonly string _archiveType;
     private volatile bool _disposed;
 
-    private const string VolumeLabelText = "SimpleZipDrive";
+    private const string VolumeLabel = "SimpleZipDrive";
     private const long DefaultMaxMemorySize = 512L * 1024 * 1024;
     private static readonly char[] Separator = ['/'];
 
@@ -224,7 +224,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         };
     }
 
-    private static bool IsPasswordRequiredException(Exception ex)
+    internal static bool IsPasswordRequiredException(Exception ex)
     {
         var message = ex.Message.ToLowerInvariant();
         return message.Contains("password") ||
@@ -232,7 +232,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                (message.Contains("rar") && message.Contains("header"));
     }
 
-    private static bool IsDataErrorException(Exception ex)
+    internal static bool IsDataErrorException(Exception ex)
     {
         var exceptionTypeName = ex.GetType().Name;
         return exceptionTypeName.Contains("DataError", StringComparison.OrdinalIgnoreCase) ||
@@ -301,12 +301,12 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
     }
 
-    private static bool IsDirectory(IArchiveEntry entry)
+    internal static bool IsDirectory(IArchiveEntry entry)
     {
         return entry.IsDirectory || (entry.Key != null && (entry.Key.EndsWith('/') || entry.Key.EndsWith('\\')));
     }
 
-    private bool IsStoredEntry(IArchiveEntry entry)
+    internal bool IsStoredEntry(IArchiveEntry entry)
     {
         if (_archiveType != "zip")
             return false;
@@ -321,7 +321,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         };
     }
 
-    private static string NormalizePath(string path)
+    internal static string NormalizePath(string path)
     {
         if (string.IsNullOrEmpty(path)) return "/";
 
@@ -338,7 +338,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return path;
     }
 
-    private static string ResolveSpecialPaths(string normalizedPath)
+    internal static string ResolveSpecialPaths(string normalizedPath)
     {
         if (normalizedPath == "/")
             return "/";
@@ -379,7 +379,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
     }
 
-    private static bool IsPathLengthValid(string path)
+    internal static bool IsPathLengthValid(string path)
     {
         if (string.IsNullOrEmpty(path))
             return true;
@@ -410,7 +410,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_SUCCESS;
     }
 
-    private sealed class EntryNode
+    internal sealed class EntryNode
     {
         public string NormalizedPath = null!;
         public bool IsDir;
@@ -421,7 +421,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         public DateTime LastAccessTime;
     }
 
-    private EntryNode? GetEntryNode(string normalizedPath)
+    internal EntryNode? GetEntryNode(string normalizedPath)
     {
         IArchiveEntry? entry;
         bool isImplicitDir;
@@ -547,7 +547,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_ACCESS_DENIED;
     }
 
-    private int OpenOrCreateFile(
+    internal int OpenOrCreateFile(
         string fileName,
         out object fileNode,
         out object fileDesc,
@@ -871,6 +871,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             var msg = $"CRITICAL ERROR: The source drive containing the archive file is no longer ready. " +
                       $"Please check the connection to drive '{Path.GetPathRoot(_tempDirectoryPath)}'.";
             LogMessage($"{AppTheme.Critical} {msg}");
+            _logErrorAction(ioEx, $"ZipFs.OpenOrCreateFile: Source drive not ready for '{normalizedPath}'");
             fileNode = null!;
             fileDesc = null!;
             return STATUS_DEVICE_NOT_READY;
@@ -1109,8 +1110,8 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         VolumeInfo = default;
         VolumeInfo.TotalSize = (ulong)(_sourceArchiveStream.CanSeek ? _sourceArchiveStream.Length : 0);
         VolumeInfo.FreeSize = 0;
-        VolumeInfo.SetVolumeLabel(VolumeLabelText);
-        DiagnosticLogger.Log($"  GetVolumeInfo: label={VolumeLabelText}, size={VolumeInfo.TotalSize / 1024.0 / 1024.0:F2} MB");
+        VolumeInfo.SetVolumeLabel(VolumeLabel);
+        DiagnosticLogger.Log($"  GetVolumeInfo: label={VolumeLabel}, size={VolumeInfo.TotalSize / 1024.0 / 1024.0:F2} MB");
         return STATUS_SUCCESS;
     }
 
@@ -1351,7 +1352,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
     }
 
-    private static string? GetParentPath(string normalizedPath)
+    internal static string? GetParentPath(string normalizedPath)
     {
         if (normalizedPath == "/")
             return null;
@@ -1363,7 +1364,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return normalizedPath.Substring(0, lastSlash);
     }
 
-    private static bool IsNameMatch(string name, string pattern)
+    internal static bool IsNameMatch(string name, string pattern)
     {
         if (string.IsNullOrEmpty(pattern) || pattern == "*" || pattern == "*.*")
             return true;
@@ -1371,7 +1372,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return IsMatchSimple(name, pattern);
     }
 
-    private static ulong DateTimeToFileTimeUtc(DateTime dt)
+    internal static ulong DateTimeToFileTimeUtc(DateTime dt)
     {
         if (dt == DateTime.MinValue)
         {
@@ -1383,7 +1384,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return fileTime > 0 ? (ulong)fileTime : 0;
     }
 
-    private static Fsp.Interop.FileInfo EntryNodeToFileInfo(EntryNode node)
+    internal static Fsp.Interop.FileInfo EntryNodeToFileInfo(EntryNode node)
     {
         var fi = new Fsp.Interop.FileInfo
         {
@@ -1489,7 +1490,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_ACCESS_DENIED;
     }
 
-    private string CreateSecureTempFile()
+    internal string CreateSecureTempFile()
     {
         var tempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
 
@@ -1532,7 +1533,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return tempFilePath;
     }
 
-    private static bool IsMatchSimple(string input, string pattern)
+    internal static bool IsMatchSimple(string input, string pattern)
     {
         if (pattern.Length > 260)
             return false;
@@ -1624,6 +1625,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         catch (Exception ex)
         {
             DiagnosticLogger.Log(ex, "DumpEntries failed");
+            _logErrorAction(ex, "ZipFs.DumpEntries failed");
         }
     }
 
@@ -1730,6 +1732,8 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         {
             if (dataOffset < 0 || dataOffset > sourceStream.Length)
                 throw new ArgumentOutOfRangeException(nameof(dataOffset));
+            if (dataLength < 0)
+                throw new ArgumentOutOfRangeException(nameof(dataLength));
 
             _sourceStream = sourceStream;
             _dataOffset = dataOffset;
@@ -1852,7 +1856,11 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                 try
                 {
                     if (_sourceStream.Position == _dataOffset + fileOffset)
-                        return _sourceStream.Read(buffer, bufferOffset, maxBytes);
+                    {
+                        var bytesRead = _sourceStream.Read(buffer, bufferOffset, maxBytes);
+                        _position = fileOffset + bytesRead;
+                        return bytesRead;
+                    }
                 }
                 finally
                 {
@@ -1861,12 +1869,18 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             }
 
             if (_fileHandle != null)
-                return RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, maxBytes), _dataOffset + fileOffset);
+            {
+                var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, maxBytes), _dataOffset + fileOffset);
+                _position = fileOffset + bytesRead;
+                return bytesRead;
+            }
 
             lock (_sourceLock)
             {
                 _sourceStream.Position = _dataOffset + fileOffset;
-                return _sourceStream.Read(buffer, bufferOffset, maxBytes);
+                var bytesRead = _sourceStream.Read(buffer, bufferOffset, maxBytes);
+                _position = fileOffset + bytesRead;
+                return bytesRead;
             }
         }
 

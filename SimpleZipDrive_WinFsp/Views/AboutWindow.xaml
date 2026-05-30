@@ -53,13 +53,13 @@
                 <Hyperlink x:Name="WinFspLink" Click="WinFspLink_Click" ToolTip="Open WinFsp website (user-mode file system library)">WinFsp</Hyperlink>
                 <Run Text=" and " Foreground="{StaticResource TextMutedBrush}" ToolTip="SharpCompress is a multi-format compression library for .NET" />
                 <Hyperlink x:Name="SharpCompressLink" Click="SharpCompressLink_Click" ToolTip="Open SharpCompress website (archive compression library)">SharpCompress</Hyperlink>
-                <Run Text="." Foreground="{StaticResource TextMutedBrush}" />
+                <Run Text="." Foreground="{StaticResource TextMutedBrush}" ToolTip="End of library attribution" />
             </TextBlock>
             
             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">
                 <Run Text="Licensed under " Foreground="{StaticResource TextMutedBrush}" ToolTip="This project is licensed under the GNU General Public License v3" />
                 <Run Text="GPLv3" FontWeight="SemiBold" Foreground="{StaticResource TextSecondaryBrush}" ToolTip="GNU General Public License version 3" />
-                <Run Text="." Foreground="{StaticResource TextMutedBrush}" />
+                <Run Text="." Foreground="{StaticResource TextMutedBrush}" ToolTip="End of license information" />
             </TextBlock>
             
             <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">

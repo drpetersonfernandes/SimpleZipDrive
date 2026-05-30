@@ -70,10 +70,10 @@ public class ErrorLoggerStaticTests
     }
 
     [Fact]
-    public void InitializeGlobalExceptionHandlersThrowsWithoutWpfContext()
+    public void InitializeGlobalExceptionHandlersDoesNotThrowWithoutWpfContext()
     {
         var ex = Record.Exception(static () => ErrorLoggerStatic.InitializeGlobalExceptionHandlers());
 
-        Assert.IsType<NullReferenceException>(ex);
+        Assert.Null(ex);
     }
 }

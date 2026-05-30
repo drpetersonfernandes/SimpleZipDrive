@@ -43,6 +43,23 @@ public class WinFspLoggingServiceTests : IDisposable
     }
 
     [Fact]
+    public void Log_Null_ThrowsNullReferenceException()
+    {
+        // WinFsp LoggingService doesn't have a null guard (unlike Dokan variant)
+        Assert.ThrowsAny<NullReferenceException>(() => _service.Log(null!));
+    }
+
+    [Fact]
+    public void Log_EmptyString_AddsEmptyLineEntry()
+    {
+        _service.Log("");
+
+        Assert.Single(_service.LogEntries);
+        Assert.Equal(string.Empty, _service.LogEntries[0].Message);
+        Assert.False(_service.LogEntries[0].IsError);
+    }
+
+    [Fact]
     public void LogError_TrimsTrailingNewlines()
     {
         _service.LogError("Error with newline\n");
@@ -128,6 +145,32 @@ public class WinFspLoggingServiceTests : IDisposable
         _service.Log("Message A");
 
         Assert.Equal(3, _service.LogEntries.Count);
+    }
+
+    [Fact]
+    public void Log_MaxEntriesReached_RemovesOldestEntries()
+    {
+        for (var i = 0; i < 5010; i++)
+        {
+            _service.Log($"Message {i}");
+        }
+
+        Assert.True(_service.LogEntries.Count <= 5000,
+            $"Expected at most 5000 entries, but got {_service.LogEntries.Count}.");
+        Assert.Contains("Message 5009", _service.LogEntries[^1].Message);
+    }
+
+    [Fact]
+    public void LogError_MaxEntriesReached_RemovesOldestEntries()
+    {
+        for (var i = 0; i < 5005; i++)
+        {
+            _service.LogError($"Error {i}");
+        }
+
+        Assert.True(_service.LogEntries.Count <= 5000,
+            $"Expected at most 5000 entries, but got {_service.LogEntries.Count}.");
+        Assert.Contains("Error 5004", _service.LogEntries[^1].Message);
     }
 
     public void Dispose()

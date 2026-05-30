@@ -1,4 +1,3 @@
-using System.Reflection;
 using DokanNet.Logging;
 using SimpleZipDrive.Services;
 
@@ -16,13 +15,7 @@ public class DokanPrefixedLoggerTests : IDisposable
         _consoleOutCapture = new StringWriter();
         Console.SetOut(_consoleOutCapture);
 
-        var loggerType = typeof(MountService).Assembly
-            .GetType("SimpleZipDrive.Services.DokanPrefixedLogger");
-        if (loggerType != null)
-        {
-            _logger = (ILogger?)Activator.CreateInstance(
-                loggerType, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, ["[DRIVE] "], null);
-        }
+        _logger = new DokanPrefixedLogger("[DRIVE] ");
     }
 
     [Fact]
@@ -132,15 +125,10 @@ public class DokanPrefixedLoggerTests : IDisposable
     [Fact]
     public void CustomPrefix_IsApplied()
     {
-        var loggerType = typeof(MountService).Assembly
-            .GetType("SimpleZipDrive.Services.DokanPrefixedLogger");
-        if (loggerType == null) return;
-
         using var capture = new StringWriter();
         Console.SetOut(capture);
 
-        var logger = (ILogger)Activator.CreateInstance(
-            loggerType, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, ["[Custom] "], null)!;
+        var logger = new DokanPrefixedLogger("[Custom] ");
 
         logger.Info("hello");
         Assert.Contains("[Custom] hello", capture.ToString());

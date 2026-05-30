@@ -149,6 +149,36 @@ public class LoggingServiceTests : IDisposable
         Assert.Equal(3, _service.LogEntries.Count);
     }
 
+    [Fact]
+    public void Log_MaxEntriesReached_RemovesOldestEntries()
+    {
+        // The LoggingService has a MaxLogEntries = 5000 cap.
+        // After exceeding it, the oldest entries should be removed.
+        for (var i = 0; i < 5010; i++)
+        {
+            _service.Log($"Message {i}");
+        }
+
+        Assert.True(_service.LogEntries.Count <= 5000,
+            $"Expected at most 5000 entries, but got {_service.LogEntries.Count}.");
+
+        // The first entries should have been removed; verify the tail is preserved
+        Assert.Contains("Message 5009", _service.LogEntries[^1].Message);
+    }
+
+    [Fact]
+    public void LogError_MaxEntriesReached_RemovesOldestEntries()
+    {
+        for (var i = 0; i < 5005; i++)
+        {
+            _service.LogError($"Error {i}");
+        }
+
+        Assert.True(_service.LogEntries.Count <= 5000,
+            $"Expected at most 5000 entries, but got {_service.LogEntries.Count}.");
+        Assert.Contains("Error 5004", _service.LogEntries[^1].Message);
+    }
+
     public void Dispose()
     {
         _service.Clear();

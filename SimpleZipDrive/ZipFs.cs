@@ -18,6 +18,7 @@ public class ZipFs : IDokanOperations, IDisposable
 {
     // Cache for compiled regex patterns to avoid recompilation overhead
     private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
+    private static readonly object RegexCacheLock = new();
     private const int MaxRegexCacheSize = 100; // Limit cache size to prevent unbounded growth
 
     /// <summary>
@@ -26,7 +27,7 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly Stream _sourceArchiveStream;
 
     private readonly IArchive _archive;
-    private readonly Dictionary<string, IArchiveEntry> _archiveEntries = new(StringComparer.OrdinalIgnoreCase);
+    internal readonly Dictionary<string, IArchiveEntry> _archiveEntries = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryCreationTimes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryLastWriteTimes = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTime> _directoryLastAccessTimes = new(StringComparer.OrdinalIgnoreCase);
@@ -35,15 +36,15 @@ public class ZipFs : IDokanOperations, IDisposable
     private readonly object _archiveLock = new();
 
     // Cache for large files extracted to disk. Key: normalized path in archive, Value: path to the temp file.
-    private readonly Dictionary<string, string> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
+    internal readonly Dictionary<string, string> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly long _maxMemorySize;
 
     // Cache for entries that failed to decompress (e.g., SharpCompress RAR unpacker bugs). Prevents repeated costly attempts.
     private readonly HashSet<string> _failedEntries = new(StringComparer.OrdinalIgnoreCase);
 
     // Memory throttling for small files to prevent unbounded resource consumption
-    private readonly long _maxTotalMemoryCache; // Dynamic total limit based on per-file setting
-    private long _currentMemoryUsage;
+    internal readonly long _maxTotalMemoryCache; // Dynamic total limit based on per-file setting
+    internal long _currentMemoryUsage;
     private readonly object _memoryLock = new();
 
     private readonly string _tempDirectoryPath;
@@ -166,9 +167,22 @@ public class ZipFs : IDokanOperations, IDisposable
 
             _archive = OpenArchive(archiveStream);
             InitializeEntries();
+
+            DiagnosticLogger.LogSection("ZipFs CONSTRUCTED");
+            DiagnosticLogger.Log($"  Archive type: {_archiveType}");
+            DiagnosticLogger.Log($"  Mount point: {mountPoint}");
+            DiagnosticLogger.Log($"  Total entries: {_archiveEntries.Count}");
+            DiagnosticLogger.Log($"  Implicit directories: {_directoryCreationTimes.Count}");
+            DiagnosticLogger.Log($"  Max memory cache: {maxMemorySize / 1024.0 / 1024.0:F0} MB");
+            DiagnosticLogger.Log($"  Max total memory: {_maxTotalMemoryCache / 1024.0 / 1024.0:F0} MB");
+            DiagnosticLogger.Log($"  Temp directory: {_tempDirectoryPath}");
+            DiagnosticLogger.Log($"  Source stream CanSeek: {archiveStream.CanSeek}");
+            DiagnosticLogger.Log($"  Source stream Length: {(archiveStream.CanSeek ? archiveStream.Length / 1024.0 / 1024.0 : -1):F2} MB");
         }
         catch (Exception ex)
         {
+            DiagnosticLogger.LogSection("ZipFs CONSTRUCTION FAILED");
+            DiagnosticLogger.Log(ex, $"Archive type: {_archiveType}, Mount: {mountPoint}");
             _logErrorAction(ex, $"Error during ZipFs construction for mount point '{mountPoint}'.");
             throw;
         }
@@ -249,7 +263,7 @@ public class ZipFs : IDokanOperations, IDisposable
         };
     }
 
-    private static bool IsPasswordRequiredException(Exception ex)
+    internal static bool IsPasswordRequiredException(Exception ex)
     {
         var message = ex.Message.ToLowerInvariant();
         return message.Contains("password") ||
@@ -257,7 +271,7 @@ public class ZipFs : IDokanOperations, IDisposable
                (message.Contains("rar") && message.Contains("header"));
     }
 
-    private static bool IsDataErrorException(Exception ex)
+    internal static bool IsDataErrorException(Exception ex)
     {
         // DataErrorException is an internal SharpCompress exception type
         // Check by type name and message content to avoid dependency on internal types
@@ -329,13 +343,13 @@ public class ZipFs : IDokanOperations, IDisposable
         }
     }
 
-    private static bool IsDirectory(IArchiveEntry entry)
+    internal static bool IsDirectory(IArchiveEntry entry)
     {
         // ReSharper disable once ConditionIsAlwaysTrueAccordingToNullableAPIContract
         return entry.IsDirectory || (entry.Key != null && (entry.Key.EndsWith('/') || entry.Key.EndsWith('\\')));
     }
 
-    private bool IsStoredEntry(IArchiveEntry entry)
+    internal bool IsStoredEntry(IArchiveEntry entry)
     {
         if (_archiveType != "zip")
             return false;
@@ -350,17 +364,49 @@ public class ZipFs : IDokanOperations, IDisposable
         };
     }
 
-    private static string NormalizePath(string path)
+    internal static string NormalizePath(string path)
     {
         if (string.IsNullOrEmpty(path)) return "/";
 
+        if (path is "\\" or "/") return "/";
+
         path = path.Replace('\\', '/');
+        if (path is "//") return "/";
+
         if (!path.StartsWith('/'))
         {
             path = "/" + path;
         }
 
         return path;
+    }
+
+    internal static string ResolveSpecialPaths(string normalizedPath)
+    {
+        if (normalizedPath == "/")
+            return "/";
+
+        var parts = normalizedPath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var resolved = new List<string>(parts.Length);
+        foreach (var part in parts)
+        {
+            switch (part)
+            {
+                case ".":
+                    continue;
+                case "..":
+                {
+                    if (resolved.Count > 0)
+                        resolved.RemoveAt(resolved.Count - 1);
+                    continue;
+                }
+                default:
+                    resolved.Add(part);
+                    break;
+            }
+        }
+
+        return resolved.Count == 0 ? "/" : "/" + string.Join("/", resolved);
     }
 
     /// <summary>
@@ -383,7 +429,7 @@ public class ZipFs : IDokanOperations, IDisposable
     /// Validates that the path length is within acceptable limits.
     /// Returns true if the path is valid, false if it exceeds the maximum allowed length.
     /// </summary>
-    private static bool IsPathLengthValid(string path)
+    internal static bool IsPathLengthValid(string path)
     {
         if (string.IsNullOrEmpty(path))
             return true;
@@ -430,6 +476,8 @@ public class ZipFs : IDokanOperations, IDisposable
         FileAttributes attributes,
         IDokanFileInfo info)
     {
+        DiagnosticLogger.Log($"  CreateFile: ENTER \"{fileName}\" mode={mode}, access={access}");
+
         // Validate path length before processing
         var pathValidationResult = ValidatePathLength(fileName, nameof(CreateFile));
         if (pathValidationResult != DokanResult.Success)
@@ -439,6 +487,7 @@ public class ZipFs : IDokanOperations, IDisposable
             return DokanResult.NotReady;
 
         var normalizedPath = NormalizePath(fileName);
+        normalizedPath = ResolveSpecialPaths(normalizedPath);
 
         IArchiveEntry? entry;
         bool isImplicitDir;
@@ -764,6 +813,7 @@ public class ZipFs : IDokanOperations, IDisposable
                     var msg = $"CRITICAL ERROR: The source drive containing the archive file is no longer ready. " +
                               $"Please check the connection to drive '{Path.GetPathRoot(_tempDirectoryPath)}'.";
                     LogMessage($"{AppTheme.Critical} {msg}");
+                    _logErrorAction(ioEx, $"ZipFs.CreateFile: Source drive not ready for '{normalizedPath}'");
                     (info.Context as IDisposable)?.Dispose();
                     info.Context = null;
                     return DokanResult.NotReady;
@@ -891,6 +941,7 @@ public class ZipFs : IDokanOperations, IDisposable
         long offset,
         IDokanFileInfo info)
     {
+        DiagnosticLogger.Log($"  ReadFile: ENTER \"{fileName}\" offset={offset}, length={buffer.Length}");
         bytesRead = 0;
 
         if (info.IsDirectory)
@@ -950,6 +1001,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public NtStatus GetFileInformation(string fileName, out FileInformation fileInfo, IDokanFileInfo info)
     {
+        DiagnosticLogger.Log($"  GetFileInformation: ENTER \"{fileName}\"");
         fileInfo = new FileInformation();
 
         // Validate path length before processing
@@ -958,6 +1010,7 @@ public class ZipFs : IDokanOperations, IDisposable
             return pathValidationResult;
 
         var normalizedPath = NormalizePath(fileName);
+        normalizedPath = ResolveSpecialPaths(normalizedPath);
 
         IArchiveEntry? entry;
         bool isImplicitDir;
@@ -1026,6 +1079,8 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public NtStatus FindFiles(string fileName, out IList<FileInformation> files, IDokanFileInfo info)
     {
+        DiagnosticLogger.Log($"  FindFiles: ENTER \"{fileName}\"");
+
         // Validate path length before processing
         var pathValidationResult = ValidatePathLength(fileName, nameof(FindFiles));
         if (pathValidationResult != DokanResult.Success)
@@ -1035,17 +1090,15 @@ public class ZipFs : IDokanOperations, IDisposable
         }
 
         var normalizedPath = NormalizePath(fileName);
+        normalizedPath = ResolveSpecialPaths(normalizedPath);
         var resultFiles = new List<FileInformation>();
         // Use HashSet for O(1) duplicate checking instead of GroupBy
         var seenFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // All dictionaries (_archiveEntries, _directoryCreationTimes, etc.) are immutable after
-        // InitializeEntries() completes. The lock serves only as a memory barrier to ensure
-        // visibility of the fully-populated data on all threads. We enter and exit immediately
-        // so that FindFiles does not block concurrent CreateFile (stream extraction) operations.
-        lock (_archiveLock)
-        {
-        }
+        // InitializeEntries() completes. A memory barrier ensures visibility of the fully-populated
+        // data on all threads without blocking concurrent CreateFile (stream extraction) operations.
+        Thread.MemoryBarrier();
 
         var isExplicitDirEntry = _archiveEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectory(dirEntry);
         var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
@@ -1154,6 +1207,7 @@ public class ZipFs : IDokanOperations, IDisposable
     public NtStatus GetVolumeInformation(out string volumeLabel, out FileSystemFeatures features,
         out string fileSystemName, out uint maximumComponentLength, IDokanFileInfo info)
     {
+        DiagnosticLogger.Log($"  GetVolumeInformation: ENTER");
         volumeLabel = VolumeLabel;
         features = FileSystemFeatures.ReadOnlyVolume | FileSystemFeatures.CasePreservedNames | FileSystemFeatures.UnicodeOnDisk;
         fileSystemName = "ZipFS";
@@ -1347,7 +1401,7 @@ public class ZipFs : IDokanOperations, IDisposable
         return tempFilePath;
     }
 
-    private static bool IsMatchSimple(string input, string pattern)
+    internal static bool IsMatchSimple(string input, string pattern)
     {
         // Limit pattern length to prevent regex DoS attacks
         if (pattern.Length > MaxSearchPatternLength)
@@ -1359,10 +1413,14 @@ public class ZipFs : IDokanOperations, IDisposable
 
         var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
 
-        // Use cached compiled regex or create and cache new one
-        var regex = RegexCache.GetOrAdd(regexPattern, static p =>
+        if (RegexCache.TryGetValue(regexPattern, out var regex))
+            return regex.IsMatch(input);
+
+        lock (RegexCacheLock)
         {
-            // Limit cache size - remove oldest entry if at capacity
+            if (RegexCache.TryGetValue(regexPattern, out regex))
+                return regex.IsMatch(input);
+
             if (RegexCache.Count >= MaxRegexCacheSize)
             {
                 var oldestKey = RegexCache.Keys.FirstOrDefault();
@@ -1372,8 +1430,9 @@ public class ZipFs : IDokanOperations, IDisposable
                 }
             }
 
-            return new Regex(p, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-        });
+            regex = new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
+            RegexCache.TryAdd(regexPattern, regex);
+        }
 
         return regex.IsMatch(input);
     }
@@ -1391,6 +1450,7 @@ public class ZipFs : IDokanOperations, IDisposable
         {
             // Determine if the path is a directory
             var normalizedPath = NormalizePath(fileName);
+            normalizedPath = ResolveSpecialPaths(normalizedPath);
             bool isDirectory;
             lock (_archiveLock)
             {
@@ -1467,6 +1527,8 @@ public class ZipFs : IDokanOperations, IDisposable
         if (_disposed)
             return;
 
+        DiagnosticLogger.LogHeader("ZipFs DISPOSE");
+
         // Set _disposed under _archiveLock to ensure no in-flight extraction is running.
         // Any CreateFile thread currently inside the lock will finish before we proceed.
         lock (_archiveLock)
@@ -1491,7 +1553,14 @@ public class ZipFs : IDokanOperations, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logErrorAction(ex, $"Failed to delete temp file on dispose: {tempFile}");
+                    try
+                    {
+                        _logErrorAction(ex, $"Failed to delete temp file on dispose: {tempFile}");
+                    }
+                    catch
+                    {
+                        // Best-effort logging during disposal; ignore failures.
+                    }
                 }
             }
 
@@ -1508,7 +1577,14 @@ public class ZipFs : IDokanOperations, IDisposable
         }
         catch (Exception ex)
         {
-            _logErrorAction(ex, $"Failed to delete working directory on dispose: {_tempDirectoryPath}");
+            try
+            {
+                _logErrorAction(ex, $"Failed to delete working directory on dispose: {_tempDirectoryPath}");
+            }
+            catch
+            {
+                // Best-effort logging during disposal; ignore failures.
+            }
         }
 
         // Reset memory tracking counters to prevent stale values
@@ -1517,6 +1593,7 @@ public class ZipFs : IDokanOperations, IDisposable
             _currentMemoryUsage = 0;
         }
 
+        DiagnosticLogger.LogHeader("ZipFs DISPOSE complete");
         GC.SuppressFinalize(this);
     }
 
@@ -1572,11 +1649,17 @@ public class ZipFs : IDokanOperations, IDisposable
 
         public StoredEntryStream(Stream sourceStream, long dataOffset, long dataLength, object sourceLock)
         {
+            if (dataOffset < 0 || dataOffset > sourceStream.Length)
+                throw new ArgumentOutOfRangeException(nameof(dataOffset));
+            if (dataLength < 0)
+                throw new ArgumentOutOfRangeException(nameof(dataLength));
+
             _sourceStream = sourceStream;
             _dataOffset = dataOffset;
             Length = dataLength;
             _sourceLock = sourceLock;
             _fileHandle = (sourceStream as FileStream)?.SafeFileHandle;
+            _position = 0;
             _sourceStream.Position = dataOffset;
         }
 
@@ -1692,7 +1775,11 @@ public class ZipFs : IDokanOperations, IDisposable
                 try
                 {
                     if (_sourceStream.Position == _dataOffset + fileOffset)
-                        return _sourceStream.Read(buffer, bufferOffset, maxBytes);
+                    {
+                        var bytesRead = _sourceStream.Read(buffer, bufferOffset, maxBytes);
+                        _position = fileOffset + bytesRead;
+                        return bytesRead;
+                    }
                 }
                 finally
                 {
@@ -1701,12 +1788,18 @@ public class ZipFs : IDokanOperations, IDisposable
             }
 
             if (_fileHandle != null)
-                return RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, maxBytes), _dataOffset + fileOffset);
+            {
+                var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, maxBytes), _dataOffset + fileOffset);
+                _position = fileOffset + bytesRead;
+                return bytesRead;
+            }
 
             lock (_sourceLock)
             {
                 _sourceStream.Position = _dataOffset + fileOffset;
-                return _sourceStream.Read(buffer, bufferOffset, maxBytes);
+                var bytesRead = _sourceStream.Read(buffer, bufferOffset, maxBytes);
+                _position = fileOffset + bytesRead;
+                return bytesRead;
             }
         }
 

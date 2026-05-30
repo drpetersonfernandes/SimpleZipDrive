@@ -12,6 +12,7 @@ public static class AppTheme
 
     public const string Bullet = "  - ";
 
+    // WinFsp log prefix
     public const string WinFspLogPrefix = "[WinFsp] ";
 
     public static string Section(string title)

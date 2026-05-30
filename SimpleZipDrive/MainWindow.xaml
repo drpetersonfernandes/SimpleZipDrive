@@ -18,7 +18,7 @@
         <Menu Grid.Row="0">
             <MenuItem Header="File" ToolTip="File operations">
                 <MenuItem Header="Mount Archive..." Click="Mount_ClickAsync" InputGestureText="Ctrl+M" ToolTip="Select a ZIP, 7Z, or RAR archive to mount as a virtual drive" />
-                <Separator />
+                <Separator ToolTip="Separates mount and exit actions" />
                 <MenuItem Header="Exit" Click="Exit_Click" InputGestureText="Alt+F4" ToolTip="Close the application" />
             </MenuItem>
             <MenuItem Header="Settings" ToolTip="Application tools and settings">
@@ -43,7 +43,8 @@
                     BorderThickness="1"
                     CornerRadius="3,3,0,0"
                     Padding="10,8"
-                    Margin="0,0,0,-1">
+                    Margin="0,0,0,-1"
+                    ToolTip="Toolbar with drive mount controls and log actions">
                 <StackPanel Orientation="Horizontal">
                     <!-- Mount Button -->
                     <Button x:Name="MountButton" 
@@ -63,7 +64,7 @@
                             IsEnabled="False"
                             ToolTip="Unmount the currently mounted drive" />
                     
-                    <Separator Style="{StaticResource {x:Static StatusBar.SeparatorStyleKey}}" Margin="0,0,16,0" />
+                    <Separator Style="{StaticResource {x:Static StatusBar.SeparatorStyleKey}}" Margin="0,0,16,0" ToolTip="Separates drive actions from log actions" />
                     
                     <!-- Log Buttons -->
                     <Button Content="Copy All" Click="CopyLog_Click" Width="90" Margin="0,0,8,0" ToolTip="Copy all log entries to clipboard" />
@@ -76,7 +77,8 @@
                     Background="{StaticResource BgPrimaryBrush}"
                     BorderBrush="{StaticResource BorderPrimaryBrush}"
                     BorderThickness="1"
-                    CornerRadius="0,0,3,3">
+                    CornerRadius="0,0,3,3"
+                    ToolTip="Log output area — shows mount activity, errors, and status messages">
                 <TextBox x:Name="LogTextBox"
                          Style="{StaticResource LogTextBoxStyle}"
                          ContextMenu="{StaticResource LogContextMenu}"
@@ -85,12 +87,12 @@
         </Grid>
 
         <!-- Status Bar -->
-        <StatusBar Grid.Row="2">
-            <StatusBarItem>
+        <StatusBar Grid.Row="2" ToolTip="Application status bar">
+            <StatusBarItem ToolTip="Current application status">
                 <TextBlock x:Name="StatusText" Text="Ready" ToolTip="Current application status" />
             </StatusBarItem>
-            <Separator />
-            <StatusBarItem HorizontalAlignment="Right">
+            <Separator ToolTip="Separates status text from mount information" />
+            <StatusBarItem HorizontalAlignment="Right" ToolTip="Mount status and drive letter">
                 <TextBlock x:Name="MountStatusText" Text="" ToolTip="Current mount status and drive letter" />
             </StatusBarItem>
         </StatusBar>

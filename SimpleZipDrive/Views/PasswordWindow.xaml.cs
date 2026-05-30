@@ -18,6 +18,7 @@ public partial class PasswordWindow
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
         Password = PasswordBox.Password;
+        PasswordBox.Clear();
         DialogResult = true;
         Close();
     }
@@ -25,8 +26,15 @@ public partial class PasswordWindow
     private void Cancel_Click(object sender, RoutedEventArgs e)
     {
         Password = null;
+        PasswordBox.Clear();
         DialogResult = false;
         Close();
+    }
+
+    public void ClearPassword()
+    {
+        Password = null;
+        PasswordBox.Clear();
     }
 
     private void PasswordBox_KeyDown(object sender, KeyEventArgs e)

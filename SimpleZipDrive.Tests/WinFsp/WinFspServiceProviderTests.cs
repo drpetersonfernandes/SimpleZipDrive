@@ -2,6 +2,7 @@ using SimpleZipDrive_WinFsp.Services;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 
+[Collection("ServiceProvider")]
 public class WinFspServiceProviderTests : IDisposable
 {
     public WinFspServiceProviderTests()

@@ -24,19 +24,12 @@ public class AppSettings
             var availableMemoryMb = availableMemoryBytes / 1024 / 1024;
             var maxAllowedMb = (long)(availableMemoryMb * 0.9);
 
-            // Clamp to 90% of available memory if value is too high
-            if (value > maxAllowedMb)
-            {
-                _maxMemoryPerFileMb = maxAllowedMb;
-            }
-            else
-            {
-                _maxMemoryPerFileMb = value;
-            }
+            // Clamp to valid range: minimum 1 MB, maximum 90% of available memory
+            _maxMemoryPerFileMb = value < 1 ? 1 : value > maxAllowedMb ? maxAllowedMb : value;
         }
     }
 
-    public long MaxMemoryPerFileBytes => MaxMemoryPerFileMb * 1024 * 1024;
+    public long MaxMemoryPerFileBytes => MaxMemoryPerFileMb * 1024L * 1024L;
 
     public static AppSettings Load()
     {
@@ -64,8 +57,16 @@ public class AppSettings
         }
         catch (JsonException ex)
         {
-            // Corrupted settings file - report it and use defaults
+            // Corrupted settings file - report it, delete it, and use defaults
             ErrorLoggerStatic.ReportSilentException(ex, "AppSettings.Load: Failed to parse settings file (corrupted JSON)", true);
+            try
+            {
+                File.Delete(SettingsFilePath);
+            }
+            catch (Exception deleteEx)
+            {
+                ErrorLoggerStatic.ReportSilentException(deleteEx, "AppSettings.Load: Failed to delete corrupted settings file", true);
+            }
         }
         catch (Exception ex)
         {
@@ -84,6 +85,10 @@ public class AppSettings
         if (settings.MaxMemoryPerFileMb > maxAllowedMb)
         {
             settings.MaxMemoryPerFileMb = maxAllowedMb;
+        }
+        else if (settings.MaxMemoryPerFileMb < 1)
+        {
+            settings.MaxMemoryPerFileMb = 1;
         }
 
         return settings;

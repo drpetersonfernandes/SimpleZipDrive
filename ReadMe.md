@@ -6,7 +6,11 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE.txt)
 [![GitHub release](https://img.shields.io/github/v/release/drpetersonfernandes/SimpleZipDrive)](https://github.com/drpetersonfernandes/SimpleZipDrive/releases)
 
-**Simple Zip Drive** is a high-performance, user-mode filesystem utility that allows you to mount ZIP, 7Z, and RAR archives as virtual drives or NTFS directory mount points. Built on the [DokanNet](https://github.com/dokan-dev/dokan-dotnet) library, it provides seamless, read-only access to compressed data without the need for manual extraction.
+**Simple Zip Drive** is a high-performance, user-mode filesystem utility that allows you to mount ZIP, 7Z, and RAR archives as virtual drives or NTFS directory mount points. It provides seamless, read-only access to compressed data without the need for manual extraction.
+
+The solution includes two variants:
+*   **SimpleZipDrive** - Built on [DokanNet](https://github.com/dokan-dev/dokan-dotnet)
+*   **SimpleZipDrive_WinFsp** - Built on [WinFsp](https://github.com/winfsp/winfsp)
 
 Unlike traditional archive utilities that extract the entire archive to a temporary folder, Simple Zip Drive utilizes a **hybrid streaming engine** to minimize memory overhead and maximize random-access performance.
 
@@ -36,8 +40,20 @@ Unlike traditional archive utilities that extract the entire archive to a tempor
 Before running Simple Zip Drive, ensure your system meets the following requirements:
 
 1.  **.NET 10.0 Runtime:** Download the latest [.NET Desktop Runtime](https://dotnet.microsoft.com/download).
-2.  **Dokan Library:** This application requires the Dokan kernel-mode driver.
-    *   Download and install the latest `DokanSetup.exe` from the [Official Releases](https://github.com/dokan-dev/dokany/releases).
+2.  **Filesystem Driver** (depends on which variant you use):
+    *   **For SimpleZipDrive (Dokan):** Download and install the latest `DokanSetup.exe` from the [Official Releases](https://github.com/dokan-dev/dokany/releases).
+    *   **For SimpleZipDrive_WinFsp:** Download and install [WinFsp](https://github.com/winfsp/winfsp/releases).
+
+---
+
+## 📦 Project Variants
+
+| Variant | Driver | Library | Notes |
+|:--------|:-------|:--------|:------|
+| **SimpleZipDrive** | Dokan | [DokanNet](https://github.com/dokan-dev/dokan-dotnet) | Original implementation |
+| **SimpleZipDrive_WinFsp** | WinFsp | [winfsp.net](https://github.com/winfsp/winfsp) | Alternative implementation |
+
+Both variants share the same UI and feature set; only the underlying filesystem driver differs.
 
 ---
 
@@ -92,6 +108,7 @@ To safely unmount the drive and clean up temporary resources:
 | Issue                             | Solution                                                                                                                      |
 |:----------------------------------|:------------------------------------------------------------------------------------------------------------------------------|
 | **Dokan Initialization Failed**   | Ensure the Dokan driver is installed and you have restarted your PC after installation. The app detects missing drivers and offers to open the download page automatically. |
+| **WinFsp Not Found**              | Install WinFsp from [GitHub](https://github.com/winfsp/winfsp/releases). The app detects missing drivers and offers to open the download page automatically. |
 | **Drive Letter in Use**           | Specify a different drive letter via CLI or ensure letters M-Q are not mapped to network shares.                              |
 | **Out of Memory**                 | Occurs if too many large files are opened simultaneously. Close applications accessing the virtual drive to free up cache.    |
 | **Archive File Error**            | Simple Zip Drive supports standard ZIP, 7Z, and RAR formats. Other formats like `.tar.gz` or `.bz2` are not supported.        |
@@ -104,7 +121,8 @@ To safely unmount the drive and clean up temporary resources:
 This project is licensed under the GPLv3 License – see the [LICENSE](LICENSE.txt) file for details.
 
 **Third-Party Libraries:**
-*   [DokanNet](https://github.com/dokan-dev/dokan-dotnet) (MIT)
+*   [DokanNet](https://github.com/dokan-dev/dokan-dotnet) (MIT) - used by SimpleZipDrive
+*   [WinFsp](https://github.com/winfsp/winfsp) (LGPL-3.0) - used by SimpleZipDrive_WinFsp
 *   [SharpCompress](https://github.com/adamhathcock/sharpcompress) (MIT)
 
 ---

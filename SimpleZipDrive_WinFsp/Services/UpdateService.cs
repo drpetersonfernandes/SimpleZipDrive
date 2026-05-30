@@ -6,13 +6,13 @@ using System.Text.RegularExpressions;
 
 namespace SimpleZipDrive_WinFsp.Services;
 
-public partial class UpdateService : IUpdateService, IDisposable
+public partial class UpdateService : IUpdateService
 {
     private const string RepoOwner = "drpetersonfernandes";
     private const string RepoName = "SimpleZipDrive";
-    private const string LatestApiUrl = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
+    internal const string LatestApiUrl = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
 
-    private static readonly SocketsHttpHandler HttpHandler = new()
+    private static readonly SocketsHttpHandler DefaultHttpHandler = new()
     {
         SslOptions = new SslClientAuthenticationOptions
         {
@@ -20,39 +20,52 @@ public partial class UpdateService : IUpdateService, IDisposable
         }
     };
 
-    private static HttpClient? _httpClient;
+    private static HttpClient? _defaultHttpClient;
     private static readonly object HttpClientLock = new();
 
     private readonly IUserNotificationService _userNotificationService;
-    private bool _disposed;
+    private readonly HttpClient? _injectedHttpClient;
 
-    private static HttpClient Http
+    private static HttpClient CreateDefaultHttpClient()
     {
-        get
+        var client = new HttpClient(DefaultHttpHandler)
         {
-            if (_httpClient == null)
-            {
-                lock (HttpClientLock)
-                {
-                    if (_httpClient == null)
-                    {
-                        var client = new HttpClient(HttpHandler)
-                        {
-                            Timeout = TimeSpan.FromSeconds(15)
-                        };
-                        client.DefaultRequestHeaders.Add("User-Agent", $"{RepoName}-UpdateChecker");
-                        _httpClient = client;
-                    }
-                }
-            }
+            Timeout = TimeSpan.FromSeconds(15)
+        };
+        client.DefaultRequestHeaders.Add("User-Agent", $"{RepoName}-UpdateChecker");
+        return client;
+    }
 
-            return _httpClient;
+    private HttpClient GetHttpClient()
+    {
+        if (_injectedHttpClient != null) return _injectedHttpClient;
+
+        if (_defaultHttpClient == null)
+        {
+            lock (HttpClientLock)
+            {
+                _defaultHttpClient ??= CreateDefaultHttpClient();
+            }
         }
+
+        return _defaultHttpClient;
     }
 
     public UpdateService(IUserNotificationService userNotificationService)
     {
         _userNotificationService = userNotificationService ?? throw new ArgumentNullException(nameof(userNotificationService));
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="UpdateService"/> class with a custom HttpClient.
+    /// This constructor is intended for testing purposes.
+    /// </summary>
+    /// <param name="userNotificationService">The user notification service.</param>
+    /// <param name="httpClient">The HttpClient to use for HTTP requests.</param>
+    public UpdateService(IUserNotificationService userNotificationService, HttpClient httpClient)
+    {
+        _userNotificationService = userNotificationService ?? throw new ArgumentNullException(nameof(userNotificationService));
+        _injectedHttpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
     }
 
     public async Task CheckForUpdateAsync(CancellationToken cancellationToken = default)
@@ -62,7 +75,8 @@ public partial class UpdateService : IUpdateService, IDisposable
             var current = Assembly.GetExecutingAssembly().GetName().Version
                           ?? new Version(0, 0, 0, 0);
 
-            using var resp = await Http.GetAsync(LatestApiUrl, cancellationToken);
+            var client = GetHttpClient();
+            using var resp = await client.GetAsync(LatestApiUrl, cancellationToken);
             if (!resp.IsSuccessStatusCode) return;
 
             await using var jsonStream = await resp.Content.ReadAsStreamAsync(cancellationToken);
@@ -93,11 +107,4 @@ public partial class UpdateService : IUpdateService, IDisposable
     [GeneratedRegex(@"\d+\.\d+(?:\.\d+)?", RegexOptions.Compiled)]
     private static partial Regex VersionRegex();
 
-    public void Dispose()
-    {
-        if (_disposed) return;
-
-        _disposed = true;
-        GC.SuppressFinalize(this);
-    }
 }
