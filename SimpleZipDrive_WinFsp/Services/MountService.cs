@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Windows;
 using Fsp;
 using Microsoft.Win32;
@@ -8,11 +9,22 @@ namespace SimpleZipDrive_WinFsp.Services;
 
 public class MountService : IDisposable, IMountService
 {
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern bool DefineDosDevice(int dwFlags, string lpDeviceName, string? lpTargetPath);
+
+    private const int DddRemoveDefinition = 0x00000002;
+    private const int DddExactMatchOnRemove = 0x00000004;
+
     private readonly ILoggingService _loggingService;
     private readonly ISettingsService _settingsService;
     private CancellationTokenSource? _mountCancellation;
     private ZipFs? _currentZipFs;
     private FileSystemHost? _currentHost;
+
+    // For admin directory-based mounts: we mount WinFsp to a directory
+    // then map a drive letter to it via DefineDosDevice for session-wide visibility
+    private string? _mountDirectoryPath;
+    private string? _driveLetterMapping;
 
     public event EventHandler<MountStatusChangedEventArgs>? MountStatusChanged;
 
@@ -105,10 +117,42 @@ public class MountService : IDisposable, IMountService
 
             if (cts != null) await Task.Delay(500, cts.Token);
 
+            // Remove any DefineDosDevice drive letter mapping we created
+            if (!string.IsNullOrEmpty(_driveLetterMapping))
+            {
+                try
+                {
+                    DefineDosDevice(DddRemoveDefinition | DddExactMatchOnRemove, _driveLetterMapping, null);
+                    DiagnosticLogger.Log($"  Removed drive mapping: {_driveLetterMapping}");
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticLogger.Log(ex, "Failed to remove drive mapping");
+                }
+
+                _driveLetterMapping = null;
+            }
+
             _currentHost?.Dispose();
             _currentHost = null;
             _currentZipFs?.Dispose();
             _currentZipFs = null;
+
+            // Clean up mount directory if we used one
+            if (!string.IsNullOrEmpty(_mountDirectoryPath) && Directory.Exists(_mountDirectoryPath))
+            {
+                try
+                {
+                    Directory.Delete(_mountDirectoryPath, false);
+                    DiagnosticLogger.Log($"  Removed mount directory: {_mountDirectoryPath}");
+                }
+                catch (Exception ex)
+                {
+                    DiagnosticLogger.Log(ex, $"Failed to remove mount directory {_mountDirectoryPath}");
+                }
+
+                _mountDirectoryPath = null;
+            }
 
             CurrentMountPoint = null;
             CurrentArchivePath = null;
@@ -306,8 +350,26 @@ public class MountService : IDisposable, IMountService
 
     private async Task<bool> AttemptMountLifecycleAsync(string archivePath, string mountPoint, string archiveType)
     {
-        DiagnosticLogger.LogSection($"MOUNT START: {archivePath} -> {mountPoint}");
+        var isDriveLetter = IsDriveLetterMountPoint(mountPoint);
+        var isAdmin = CheckForAdministratorRole.IsAdministrator();
+
+        // Admin drive-letter: mount to a temp directory, then use DefineDosDevice
+        // to create a session-wide drive letter mapping (same as subst).
+        // Directory mounts need admin for NTFS reparse points.
+        var winFspMountPoint = mountPoint;
+
+        if (isDriveLetter && isAdmin)
+        {
+            _mountDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive", $"mount_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(_mountDirectoryPath);
+            winFspMountPoint = _mountDirectoryPath;
+            _loggingService.Log($"Admin mode: mounting to directory, then mapping {mountPoint} via DefineDosDevice.");
+        }
+
+        DiagnosticLogger.LogSection($"MOUNT START: {archivePath} -> {mountPoint} (WinFsp: {winFspMountPoint})");
         DiagnosticLogger.Log($"  Archive type: {archiveType}");
+        DiagnosticLogger.Log($"  IsAdmin: {isAdmin}, IsDriveLetter: {isDriveLetter}");
+
         try
         {
             Directory.CreateDirectory(mountPoint);
@@ -368,23 +430,52 @@ public class MountService : IDisposable, IMountService
                     DiagnosticLogger.Log($"  WinFsp debug log setup failed (non-fatal): {debugLogEx.Message}");
                 }
 
-                DiagnosticLogger.Log($"  Calling host.Mount(\"{mountPoint}\", DebugLog=-1)...");
-                var status = host.Mount(mountPoint, null, false, unchecked((uint)-1));
+                DiagnosticLogger.Log($"  Calling host.Mount(\"{winFspMountPoint}\", DebugLog=-1)...");
+                var mountStatus = host.Mount(winFspMountPoint, null, false, unchecked((uint)-1));
 
-                if (status != 0)
+                if (mountStatus != 0)
                 {
-                    DiagnosticLogger.Log($"  host.Mount FAILED: 0x{status:X8}");
+                    DiagnosticLogger.Log($"  host.Mount FAILED: 0x{mountStatus:X8}");
+                    if (winFspMountPoint != mountPoint)
+                    {
+                        DiagnosticLogger.Log("  Directory mount failed, trying direct drive letter mount...");
+                        mountStatus = host.Mount(mountPoint, null, false, unchecked((uint)-1));
+                    }
+                }
+
+                if (mountStatus != 0)
+                {
+                    DiagnosticLogger.Log($"  All mount attempts FAILED: 0x{mountStatus:X8}");
+                    CleanupMountDirectory();
                     _currentZipFs?.Dispose();
                     _currentZipFs = null;
                     host.Dispose();
-                    _loggingService.LogError($"WinFsp mount failed with status 0x{status:X8}");
-                    ShowWinFspDriverErrorDialog($"Mount failed with status 0x{status:X8}");
+                    _loggingService.LogError($"WinFsp mount failed with status 0x{mountStatus:X8}");
+                    ShowWinFspDriverErrorDialog($"Mount failed with status 0x{mountStatus:X8}");
                     return false;
+                }
+
+                // Create drive letter mapping for directory-based admin mounts
+                if (!string.IsNullOrEmpty(_mountDirectoryPath) && isDriveLetter)
+                {
+                    if (DefineDosDevice(0, mountPoint, _mountDirectoryPath))
+                    {
+                        _driveLetterMapping = mountPoint;
+                        DiagnosticLogger.Log($"  DefineDosDevice: {mountPoint} -> {_mountDirectoryPath} (session-wide)");
+                        _loggingService.Log($"Drive {mountPoint} mapped for session-wide visibility. Drag-and-drop should work.");
+                    }
+                    else
+                    {
+                        var error = Marshal.GetLastWin32Error();
+                        DiagnosticLogger.Log($"  DefineDosDevice FAILED: Win32 error {error}");
+                        _loggingService.Log($"Warning: Could not create drive letter mapping (error {error}).");
+                    }
                 }
             }
             catch (Exception ex)
             {
                 DiagnosticLogger.Log(ex, "Mount exception");
+                CleanupMountDirectory();
                 _currentZipFs?.Dispose();
                 _currentZipFs = null;
                 host.Dispose();
@@ -422,7 +513,14 @@ public class MountService : IDisposable, IMountService
             DiagnosticLogger.LogSection($"UNMOUNT: {mountPoint}");
             if (_currentHost == host)
             {
-                host.Unmount();
+                try
+                {
+                    host.Unmount();
+                }
+                catch (Exception unmountEx)
+                {
+                    DiagnosticLogger.Log(unmountEx, "host.Unmount() failed (non-fatal)");
+                }
             }
 
             return true;
@@ -442,6 +540,29 @@ public class MountService : IDisposable, IMountService
             ErrorLoggerStatic.LogErrorSync(ex, $"MountService.AttemptMountLifecycleAsync: Error mounting archive '{archivePath}' to '{mountPoint}'");
             return false;
         }
+    }
+
+    private void CleanupMountDirectory()
+    {
+        if (!string.IsNullOrEmpty(_mountDirectoryPath) && Directory.Exists(_mountDirectoryPath))
+        {
+            try
+            {
+                Directory.Delete(_mountDirectoryPath, false);
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+
+        _mountDirectoryPath = null;
+        _driveLetterMapping = null;
+    }
+
+    private static bool IsDriveLetterMountPoint(string mountPoint)
+    {
+        return mountPoint is [_, ':'] && char.IsLetter(mountPoint[0]);
     }
 
     private void OnMountStatusChanged()
