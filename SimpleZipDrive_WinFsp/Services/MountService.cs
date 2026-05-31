@@ -308,6 +308,15 @@ public class MountService : IDisposable, IMountService
     {
         DiagnosticLogger.LogSection($"MOUNT START: {archivePath} -> {mountPoint}");
         DiagnosticLogger.Log($"  Archive type: {archiveType}");
+        try
+        {
+            Directory.CreateDirectory(mountPoint);
+        }
+        catch
+        {
+            // ignored
+        }
+
         _mountCancellation = new CancellationTokenSource();
 
         try

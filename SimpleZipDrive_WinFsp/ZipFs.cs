@@ -52,6 +52,8 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             host.PassQueryDirectoryPattern = true;
             host.FlushAndPurgeOnCleanup = true;
             host.FileSystemName = "SimpleZipDrive";
+            host.VolumeCreationTime = DateTimeToFileTimeUtc(DateTime.Now);
+            host.VolumeSerialNumber = (uint)Environment.TickCount;
         }
 
         return STATUS_SUCCESS;
@@ -129,7 +131,6 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         _core.TryResolvePath(fileName, out var normalizedPath);
         normalizedPath = ZipFsHelpers.ResolveSpecialPaths(normalizedPath);
-        normalizedName = normalizedPath == "/" ? "\\" : normalizedPath.Replace('/', '\\');
 
         var node = _core.GetEntryNode(normalizedPath);
         if (node == null)
@@ -139,6 +140,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                 node = new EntryNode
                 {
                     NormalizedPath = "/",
+                    CanonicalPath = "/",
                     IsDir = true,
                     CreationTime = DateTime.Now,
                     LastWriteTime = DateTime.Now,
@@ -152,6 +154,8 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                 return STATUS_OBJECT_NAME_NOT_FOUND;
             }
         }
+
+        normalizedName = node.CanonicalPath == "/" ? "\\" : node.CanonicalPath.Replace('/', '\\');
 
         if (node.IsDir)
         {
@@ -388,7 +392,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             return STATUS_OBJECT_NAME_NOT_FOUND;
         }
 
-        NormalizedName = childNode.NormalizedPath.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s)) ?? FileName;
+        NormalizedName = childNode.CanonicalPath.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s)) ?? FileName;
         FileInfo = EntryNodeToFileInfo(childNode);
         DiagnosticLogger.LogOperation("GetDirInfoByName", FileName, STATUS_SUCCESS, $"resolved to {childNode.NormalizedPath}");
         return STATUS_SUCCESS;
@@ -523,7 +527,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
                 foreach (var child in dirEntries)
                 {
-                    var name = child.NormalizedPath.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s)) ?? "";
+                    var name = child.CanonicalPath.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s)) ?? "";
                     if (!string.IsNullOrEmpty(name) && seenFileNames.Add(name))
                     {
                         if (!ZipFsHelpers.IsNameMatch(name, Pattern))

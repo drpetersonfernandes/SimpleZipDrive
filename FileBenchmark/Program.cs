@@ -7,7 +7,7 @@ if (args.Length == 0)
 {
     Console.WriteLine("Usage: drop a file onto this executable, or run: FileBenchmark <filepath> [--no-clear]");
     Console.WriteLine("Press any key to exit...");
-    Console.ReadKey();
+    PauseIfConsole();
     return;
 }
 
@@ -63,8 +63,7 @@ catch (Exception ex)
 if (!File.Exists(filePath))
 {
     Console.WriteLine($"ERROR: File not found: {filePath}");
-    Console.WriteLine("Press any key to exit...");
-    Console.ReadKey();
+    PauseIfConsole();
     return;
 }
 
@@ -116,8 +115,7 @@ File.AppendAllText(resultFile, output);
 Console.WriteLine();
 Console.WriteLine(output);
 Console.WriteLine($"Results appended to: {resultFile}");
-Console.WriteLine("Press any key to exit...");
-Console.ReadKey();
+PauseIfConsole();
 
 // ============================================================================
 // Cache Clearing
@@ -125,6 +123,18 @@ Console.ReadKey();
 
 const int systemMemoryListInformation = 0x50;
 return;
+
+static void PauseIfConsole()
+{
+    try
+    {
+        Console.WriteLine("Press any key to exit...");
+        Console.ReadKey();
+    }
+    catch (InvalidOperationException)
+    {
+    }
+}
 
 [DllImport("ntdll.dll", SetLastError = true)]
 static extern int NtSetSystemInformation(int systemInformationClass, IntPtr systemInformation, int systemInformationLength);

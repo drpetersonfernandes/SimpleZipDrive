@@ -293,11 +293,13 @@ public class ZipFileSystemCore : IDisposable
 
         if (entry != null)
         {
+            var canonicalPath = ZipFsHelpers.NormalizePath(entry.Key);
             if (ZipFsHelpers.IsDirectory(entry))
             {
                 return new EntryNode
                 {
                     NormalizedPath = normalizedPath,
+                    CanonicalPath = canonicalPath,
                     IsDir = true,
                     Entry = entry,
                     FileSize = 0,
@@ -311,6 +313,7 @@ public class ZipFileSystemCore : IDisposable
                 return new EntryNode
                 {
                     NormalizedPath = normalizedPath,
+                    CanonicalPath = canonicalPath,
                     IsDir = false,
                     Entry = entry,
                     FileSize = entry.Size,
@@ -325,6 +328,7 @@ public class ZipFileSystemCore : IDisposable
             return new EntryNode
             {
                 NormalizedPath = normalizedPath,
+                CanonicalPath = normalizedPath,
                 IsDir = true,
                 Entry = null,
                 FileSize = 0,
@@ -405,9 +409,11 @@ public class ZipFileSystemCore : IDisposable
 
             if (!string.IsNullOrEmpty(fileNameOnly) && seenFileNames.Add(fileNameOnly))
             {
+                var canonicalPath = ZipFsHelpers.NormalizePath(entry.Key);
                 result.Add(new EntryNode
                 {
                     NormalizedPath = searchPrefix + fileNameOnly,
+                    CanonicalPath = canonicalPath,
                     IsDir = isDir,
                     Entry = entry,
                     FileSize = isDir ? 0 : entry.Size,
@@ -433,9 +439,11 @@ public class ZipFileSystemCore : IDisposable
                 _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
                 _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
 
+                var implicitPath = searchPrefix + name;
                 result.Add(new EntryNode
                 {
-                    NormalizedPath = searchPrefix + name,
+                    NormalizedPath = implicitPath,
+                    CanonicalPath = implicitPath,
                     IsDir = true,
                     Entry = null,
                     FileSize = 0,
@@ -885,6 +893,7 @@ public class ZipFileSystemCore : IDisposable
 public sealed class EntryNode
 {
     public string NormalizedPath { get; set; } = null!;
+    public string CanonicalPath { get; set; } = null!;
     public bool IsDir { get; set; }
     public IArchiveEntry? Entry { get; set; }
     public long FileSize { get; set; }

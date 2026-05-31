@@ -415,6 +415,7 @@ public class WinFspZipFsTests : IDisposable
         var node = new EntryNode
         {
             NormalizedPath = "/test.txt",
+            CanonicalPath = "/test.txt",
             IsDir = false,
             FileSize = 1024L,
             CreationTime = new DateTime(2024, 1, 1),
@@ -436,6 +437,7 @@ public class WinFspZipFsTests : IDisposable
         var node = new EntryNode
         {
             NormalizedPath = "/testdir",
+            CanonicalPath = "/testdir",
             IsDir = true,
             FileSize = 0L,
             CreationTime = new DateTime(2024, 1, 1),
