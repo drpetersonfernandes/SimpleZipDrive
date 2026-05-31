@@ -1,4 +1,4 @@
-using SimpleZipDrive.Models;
+using SimpleZipDrive.Core.Models;
 
 namespace SimpleZipDrive.Tests;
 

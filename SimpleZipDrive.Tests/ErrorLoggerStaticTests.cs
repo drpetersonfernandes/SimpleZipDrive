@@ -1,3 +1,5 @@
+using SimpleZipDrive.Core;
+
 namespace SimpleZipDrive.Tests;
 
 public class ErrorLoggerStaticTests

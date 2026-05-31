@@ -6,4 +6,8 @@ global using System.Linq;
 global using System.Net.Http;
 global using System.Threading;
 global using System.Threading.Tasks;
+global using SimpleZipDrive.Core;
+global using SimpleZipDrive.Core.Models;
+global using SimpleZipDrive.Core.Services;
+global using SimpleZipDrive.Core.Views;
 global using SimpleZipDrive.Services;

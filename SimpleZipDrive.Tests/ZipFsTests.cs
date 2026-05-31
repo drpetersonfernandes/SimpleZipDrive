@@ -1,3 +1,4 @@
+using SimpleZipDrive.Core;
 using System.IO.Compression;
 using System.Collections.Concurrent;
 using System.Security.AccessControl;
@@ -810,8 +811,8 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void MemoryThrottlingFallsBackToDiskCache()
     {
-        var maxTotalMemoryCache = _zipFs._maxTotalMemoryCache;
-        _zipFs._currentMemoryUsage = maxTotalMemoryCache - 5;
+        var maxTotalMemoryCache = _zipFs.MaxTotalMemoryCache;
+        _zipFs.CurrentMemoryUsage = maxTotalMemoryCache - 5;
 
         var info = new FakeDokanFileInfo();
         var result = _zipFs.CreateFile(
@@ -830,14 +831,14 @@ public class ZipFsTests : IDisposable
         ((IDisposable)info.Context).Dispose();
         info.Context = null;
 
-        _zipFs._currentMemoryUsage = 0L;
+        _zipFs.CurrentMemoryUsage = 0L;
     }
 
     [Fact]
     public void TrackedMemoryStreamDisposalDecrementsMemoryUsage()
     {
-        _zipFs._currentMemoryUsage = 0L;
-        var before = _zipFs._currentMemoryUsage;
+        _zipFs.CurrentMemoryUsage = 0L;
+        var before = _zipFs.CurrentMemoryUsage;
         Assert.Equal(0, before);
 
         var info = new FakeDokanFileInfo();
@@ -850,19 +851,19 @@ public class ZipFsTests : IDisposable
             FileAttributes.Normal,
             info);
 
-        var afterOpen = _zipFs._currentMemoryUsage;
+        var afterOpen = _zipFs.CurrentMemoryUsage;
         Assert.True(afterOpen > 0);
 
         _zipFs.CloseFile("\\readme.txt", info);
 
-        var afterClose = _zipFs._currentMemoryUsage;
+        var afterClose = _zipFs.CurrentMemoryUsage;
         Assert.Equal(0, afterClose);
     }
 
     [Fact]
     public void MemoryUsageClampedToZeroOnNegative()
     {
-        _zipFs._currentMemoryUsage = 100L;
+        _zipFs.CurrentMemoryUsage = 100L;
 
         var info = new FakeDokanFileInfo();
         _zipFs.CreateFile(
@@ -874,11 +875,11 @@ public class ZipFsTests : IDisposable
             FileAttributes.Normal,
             info);
 
-        _zipFs._currentMemoryUsage = -50L;
+        _zipFs.CurrentMemoryUsage = -50L;
 
         _zipFs.CloseFile("\\readme.txt", info);
 
-        var afterClose = _zipFs._currentMemoryUsage;
+        var afterClose = _zipFs.CurrentMemoryUsage;
         Assert.Equal(0, afterClose);
     }
 
@@ -917,7 +918,7 @@ public class ZipFsTests : IDisposable
         // Create an exception with the specified message
         var exception = new InvalidDataException(message);
 
-        var result = ZipFs.IsDataErrorException(exception);
+        var result = ZipFsHelpers.IsDataErrorException(exception);
         Assert.Equal(expectedResult, result);
     }
 
@@ -927,7 +928,7 @@ public class ZipFsTests : IDisposable
         // Create a custom exception type with "DataError" in the name
         var exception = new TestDataErrorException("some message");
 
-        var result = ZipFs.IsDataErrorException(exception);
+        var result = ZipFsHelpers.IsDataErrorException(exception);
         Assert.True(result);
     }
 
@@ -946,7 +947,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void NormalizePathNullReturnsRoot()
     {
-        var result = ZipFs.NormalizePath(null);
+        var result = ZipFsHelpers.NormalizePath(null);
 
         Assert.Equal("/", result);
     }
@@ -954,7 +955,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void NormalizePathEmptyReturnsRoot()
     {
-        var result = ZipFs.NormalizePath("");
+        var result = ZipFsHelpers.NormalizePath("");
 
         Assert.Equal("/", result);
     }
@@ -962,7 +963,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void NormalizePathConvertsBackslashes()
     {
-        var result = ZipFs.NormalizePath(@"foo\\bar\\baz.txt");
+        var result = ZipFsHelpers.NormalizePath(@"foo\bar\baz.txt");
 
         Assert.Equal("/foo/bar/baz.txt", result);
     }
@@ -970,7 +971,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void NormalizePathAddsLeadingSlash()
     {
-        var result = ZipFs.NormalizePath("data/info.txt");
+        var result = ZipFsHelpers.NormalizePath("data/info.txt");
 
         Assert.Equal("/data/info.txt", result);
     }
@@ -978,7 +979,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void NormalizePathPreservesExistingLeadingSlash()
     {
-        var result = ZipFs.NormalizePath("/already/normalized");
+        var result = ZipFsHelpers.NormalizePath("/already/normalized");
 
         Assert.Equal("/already/normalized", result);
     }
@@ -988,7 +989,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsPasswordRequiredExceptionMessageContainsPasswordReturnsTrue()
     {
-        var result = ZipFs.IsPasswordRequiredException(new InvalidOperationException("archive requires a password"));
+        var result = ZipFsHelpers.IsPasswordRequiredException(new InvalidOperationException("archive requires a password"));
 
         Assert.True(result);
     }
@@ -996,7 +997,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsPasswordRequiredExceptionMessageContainsEncryptedReturnsTrue()
     {
-        var result = ZipFs.IsPasswordRequiredException(new InvalidOperationException("file is encrypted"));
+        var result = ZipFsHelpers.IsPasswordRequiredException(new InvalidOperationException("file is encrypted"));
 
         Assert.True(result);
     }
@@ -1004,7 +1005,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsPasswordRequiredExceptionMessageContainsRarAndHeaderReturnsTrue()
     {
-        var result = ZipFs.IsPasswordRequiredException(new InvalidOperationException("RAR header is encrypted"));
+        var result = ZipFsHelpers.IsPasswordRequiredException(new InvalidOperationException("RAR header is encrypted"));
 
         Assert.True(result);
     }
@@ -1012,7 +1013,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsPasswordRequiredExceptionNonMatchingMessageReturnsFalse()
     {
-        var result = ZipFs.IsPasswordRequiredException(new InvalidOperationException("file not found"));
+        var result = ZipFsHelpers.IsPasswordRequiredException(new InvalidOperationException("file not found"));
 
         Assert.False(result);
     }
@@ -1025,10 +1026,10 @@ public class ZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var entries = zipFs._archiveEntries as System.Collections.IDictionary;
+        System.Collections.IDictionary entries = zipFs.ArchiveEntries;
         Assert.NotNull(entries);
 
-        var result = ZipFs.IsDirectory((IArchiveEntry)entries["/empty/"]);
+        var result = ZipFsHelpers.IsDirectory((entries["/empty/"] as IArchiveEntry)!);
 
         Assert.True(result);
     }
@@ -1039,10 +1040,10 @@ public class ZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var entries = zipFs._archiveEntries as System.Collections.IDictionary;
+        System.Collections.IDictionary entries = zipFs.ArchiveEntries;
         Assert.NotNull(entries);
 
-        var result = ZipFs.IsDirectory((IArchiveEntry)entries["/readme.txt"]);
+        var result = ZipFsHelpers.IsDirectory((entries["/readme.txt"] as IArchiveEntry)!);
 
         Assert.False(result);
     }
@@ -1052,7 +1053,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsPathLengthValidNullReturnsTrue()
     {
-        var result = ZipFs.IsPathLengthValid(null);
+        var result = ZipFsHelpers.IsPathLengthValid(null);
 
         Assert.True(result);
     }
@@ -1060,7 +1061,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsPathLengthValidEmptyReturnsTrue()
     {
-        var result = ZipFs.IsPathLengthValid("");
+        var result = ZipFsHelpers.IsPathLengthValid("");
 
         Assert.True(result);
     }
@@ -1069,7 +1070,7 @@ public class ZipFsTests : IDisposable
     public void IsPathLengthValidExactlyMaxPathReturnsTrue()
     {
         var path = "\\" + new string('a', 259);
-        var result = ZipFs.IsPathLengthValid(path);
+        var result = ZipFsHelpers.IsPathLengthValid(path);
 
         Assert.True(result);
     }
@@ -1078,7 +1079,7 @@ public class ZipFsTests : IDisposable
     public void IsPathLengthValidExceedsMaxPathReturnsFalse()
     {
         var path = "\\" + new string('a', 260);
-        var result = ZipFs.IsPathLengthValid(path);
+        var result = ZipFsHelpers.IsPathLengthValid(path);
 
         Assert.False(result);
     }
@@ -1087,7 +1088,7 @@ public class ZipFsTests : IDisposable
     public void IsPathLengthValidExtendedPathPrefixWithinLimitReturnsTrue()
     {
         var path = @"\\?\" + new string('a', 260);
-        var result = ZipFs.IsPathLengthValid(path);
+        var result = ZipFsHelpers.IsPathLengthValid(path);
 
         Assert.True(result);
     }
@@ -1097,7 +1098,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsMatchSimpleWildcardQuestionMarkMatchesSingleChar()
     {
-        var result = ZipFs.IsMatchSimple("abc.txt", "abc.tx?");
+        var result = ZipFsHelpers.IsMatchSimple("abc.txt", "abc.tx?");
 
         Assert.True(result);
     }
@@ -1105,7 +1106,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsMatchSimpleWildcardQuestionMarkDoesNotMatchDifferentLength()
     {
-        var result = ZipFs.IsMatchSimple("abcd.txt", "abc.tx?");
+        var result = ZipFsHelpers.IsMatchSimple("abcd.txt", "abc.tx?");
 
         Assert.False(result);
     }
@@ -1114,7 +1115,7 @@ public class ZipFsTests : IDisposable
     public void IsMatchSimplePatternTooLongReturnsFalse()
     {
         var pattern = new string('a', 261);
-        var result = ZipFs.IsMatchSimple("anything", pattern);
+        var result = ZipFsHelpers.IsMatchSimple("anything", pattern);
 
         Assert.False(result);
     }
@@ -1122,7 +1123,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsMatchSimpleStarStarPattern()
     {
-        var result = ZipFs.IsMatchSimple("readme.txt", "*");
+        var result = ZipFsHelpers.IsMatchSimple("readme.txt", "*");
 
         Assert.True(result);
     }
@@ -1130,7 +1131,7 @@ public class ZipFsTests : IDisposable
     [Fact]
     public void IsMatchSimpleDotStarPattern()
     {
-        var result = ZipFs.IsMatchSimple("test.txt", "*.*");
+        var result = ZipFsHelpers.IsMatchSimple("test.txt", "*.*");
 
         Assert.True(result);
     }
@@ -1336,7 +1337,7 @@ public class ZipFsTests : IDisposable
         zipFs.CreateFile("\\stored.txt", FileAccess.ReadData, FileShare.Read,
             FileMode.Open, FileOptions.None, FileAttributes.Normal, info);
 
-        var cache = zipFs._largeFileCache;
+        var cache = zipFs.LargeFileCache;
         Assert.DoesNotContain(cache, static kvp => kvp.Key.Contains("stored.txt", StringComparison.OrdinalIgnoreCase));
 
         zipFs.CloseFile("\\stored.txt", info);
@@ -1405,7 +1406,7 @@ public class ZipFsTests : IDisposable
         using var stream = CreateStoredZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var entries = zipFs._archiveEntries;
+        var entries = zipFs.ArchiveEntries;
         Assert.NotNull(entries);
         Assert.True(entries.ContainsKey("/stored.txt"));
 

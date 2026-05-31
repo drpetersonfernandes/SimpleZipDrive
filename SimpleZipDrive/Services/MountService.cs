@@ -4,7 +4,6 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using DokanNet;
 using DokanNet.Logging;
-using SimpleZipDrive.Views;
 
 namespace SimpleZipDrive.Services;
 

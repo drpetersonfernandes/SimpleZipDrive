@@ -1,491 +1,44 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Security.AccessControl;
-using System.Security.Principal;
-using System.Text.RegularExpressions;
 using Fsp;
 using Fsp.Interop;
-using Microsoft.Win32.SafeHandles;
 using SharpCompress.Archives;
-using SharpCompress.Archives.Rar;
-using SharpCompress.Archives.SevenZip;
-using SharpCompress.Archives.Zip;
 using SharpCompress.Common;
 using SharpCompress.Compressors.Deflate;
-using SharpCompress.Readers;
 
 namespace SimpleZipDrive_WinFsp;
 
 [SuppressMessage("ReSharper", "InconsistentNaming")]
 public sealed class ZipFs : FileSystemBase, IDisposable
 {
-    private static readonly ConcurrentDictionary<string, Regex> RegexCache = new();
-    private static readonly object RegexCacheLock = new();
-    private const int MaxRegexCacheSize = 100;
-
-    private readonly Stream _sourceArchiveStream;
-    private readonly IArchive _archive;
-    internal readonly Dictionary<string, IArchiveEntry> _archiveEntries = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, DateTime> _directoryCreationTimes = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, DateTime> _directoryLastWriteTimes = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, DateTime> _directoryLastAccessTimes = new(StringComparer.OrdinalIgnoreCase);
-
+    private readonly ZipFileSystemCore _core;
     private readonly Action<Exception?, string?> _logErrorAction;
-    private readonly object _archiveLock = new();
 
-    private readonly Dictionary<string, string> _largeFileCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly long _maxMemorySize;
-
-    private readonly HashSet<string> _failedEntries = new(StringComparer.OrdinalIgnoreCase);
-
-    internal readonly long _maxTotalMemoryCache;
-    internal long _currentMemoryUsage;
-    private readonly object _memoryLock = new();
-
-    private readonly string _tempDirectoryPath;
-    private readonly Func<string?> _passwordProvider;
-    private readonly string _archiveType;
-    private volatile bool _disposed;
-
-    private const string VolumeLabel = "SimpleZipDrive";
-    private const long DefaultMaxMemorySize = 512L * 1024 * 1024;
-    private static readonly char[] Separator = ['/'];
-
-    private const int MaxPath = 260;
-    private const int MaxPathExtended = 32767;
-    private const string ExtendedPathPrefix = @"\\?\";
-
-    private static int _cleanupPerformed;
-
-    private static void CleanupOrphanedTempDirectories()
+    internal long _currentMemoryUsage
     {
-        try
-        {
-            var baseTempPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive");
-            if (!Directory.Exists(baseTempPath))
-                return;
-
-            var tempDirs = Directory.GetDirectories(baseTempPath);
-            foreach (var dir in tempDirs)
-            {
-                try
-                {
-                    var dirName = Path.GetFileName(dir);
-                    var underscoreIndex = dirName.IndexOf('_');
-                    if (underscoreIndex <= 0)
-                        continue;
-
-                    if (!int.TryParse(dirName.AsSpan(0, underscoreIndex), out var pid))
-                        continue;
-
-                    bool processExists;
-                    try
-                    {
-                        _ = System.Diagnostics.Process.GetProcessById(pid);
-                        processExists = true;
-                    }
-                    catch (ArgumentException)
-                    {
-                        processExists = false;
-                    }
-
-                    if (!processExists)
-                    {
-                        Directory.Delete(dir, true);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.CleanupOrphanedTempDirectories: Error cleaning directory '{dir}'", true);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            ErrorLoggerStatic.ReportSilentException(ex, "ZipFs.CleanupOrphanedTempDirectories: Error during cleanup", true);
-        }
+        get => _core.CurrentMemoryUsage;
+        set => _core.CurrentMemoryUsage = value;
     }
 
-    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = DefaultMaxMemorySize)
-    {
-        if (Interlocked.Exchange(ref _cleanupPerformed, 1) == 0)
-        {
-            CleanupOrphanedTempDirectories();
-        }
-
-        _sourceArchiveStream = archiveStream;
-        _logErrorAction = logErrorAction;
-        _passwordProvider = passwordProvider;
-        _archiveType = archiveType.ToLowerInvariant();
-        _maxMemorySize = maxMemorySize;
-        var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
-        _maxTotalMemoryCache = (long)(availableMemory * 0.90);
-        _tempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive", $"{Environment.ProcessId}_{Guid.NewGuid():N}");
-
-        try
-        {
-            Directory.CreateDirectory(_tempDirectoryPath);
-
-            if (archiveStream.CanSeek)
-            {
-                archiveStream.Position = 0;
-            }
-
-            _archive = OpenArchive(archiveStream);
-            InitializeEntries();
-
-            DiagnosticLogger.LogSection("ZipFs CONSTRUCTED");
-            DiagnosticLogger.Log($"  Archive type: {_archiveType}");
-            DiagnosticLogger.Log($"  Mount point: {mountPoint}");
-            DiagnosticLogger.Log($"  Total entries: {_archiveEntries.Count}");
-            DiagnosticLogger.Log($"  Implicit directories: {_directoryCreationTimes.Count}");
-            DiagnosticLogger.Log($"  Max memory cache: {maxMemorySize / 1024.0 / 1024.0:F0} MB");
-            DiagnosticLogger.Log($"  Max total memory: {_maxTotalMemoryCache / 1024.0 / 1024.0:F0} MB");
-            DiagnosticLogger.Log($"  Temp directory: {_tempDirectoryPath}");
-            DiagnosticLogger.Log($"  Source stream CanSeek: {archiveStream.CanSeek}");
-            DiagnosticLogger.Log($"  Source stream Length: {(archiveStream.CanSeek ? archiveStream.Length / 1024.0 / 1024.0 : -1):F2} MB");
-
-            DumpEntries(30);
-        }
-        catch (Exception ex)
-        {
-            DiagnosticLogger.LogSection("ZipFs CONSTRUCTION FAILED");
-            DiagnosticLogger.Log(ex, $"Archive type: {_archiveType}, Mount: {mountPoint}");
-            _logErrorAction(ex, $"Error during ZipFs construction for mount point '{mountPoint}'.");
-            throw;
-        }
-    }
-
-    private IArchive OpenArchive(Stream stream)
-    {
-        try
-        {
-            var archiveWithoutPassword = _archiveType switch
-            {
-                "zip" => ZipArchive.OpenArchive(stream, new ReaderOptions()),
-                "7z" => SevenZipArchive.OpenArchive(stream, new ReaderOptions()),
-                "rar" => RarArchive.OpenArchive(stream, new ReaderOptions()),
-                _ => throw new NotSupportedException($"Archive type '{_archiveType}' is not supported.")
-            };
-
-            bool hasEncryptedEntries;
-            try
-            {
-                hasEncryptedEntries = archiveWithoutPassword.Entries.Any(static e => e.IsEncrypted);
-            }
-            catch (Exception entryEx) when (IsPasswordRequiredException(entryEx))
-            {
-                archiveWithoutPassword.Dispose();
-                throw;
-            }
-            catch (Exception entryEx) when (!IsPasswordRequiredException(entryEx))
-            {
-                archiveWithoutPassword.Dispose();
-                throw new InvalidOperationException(
-                    "The archive file appears to be corrupted, incomplete, or uses an unsupported format/feature that could not be parsed.", entryEx);
-            }
-
-            if (!hasEncryptedEntries)
-            {
-                return archiveWithoutPassword;
-            }
-
-            archiveWithoutPassword.Dispose();
-        }
-        catch (Exception ex) when (IsPasswordRequiredException(ex))
-        {
-        }
-        catch (InvalidOperationException)
-        {
-            throw;
-        }
-        catch (NotSupportedException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException(
-                "The archive file appears to be corrupted, incomplete, or uses an unsupported format/feature that could not be parsed.", ex);
-        }
-
-        if (stream.CanSeek)
-        {
-            stream.Position = 0;
-        }
-
-        var password = _passwordProvider();
-
-        return _archiveType switch
-        {
-            "zip" => ZipArchive.OpenArchive(stream, new ReaderOptions { Password = password }),
-            "7z" => SevenZipArchive.OpenArchive(stream, new ReaderOptions { Password = password }),
-            "rar" => RarArchive.OpenArchive(stream, new ReaderOptions { Password = password }),
-            _ => throw new NotSupportedException($"Archive type '{_archiveType}' is not supported.")
-        };
-    }
-
-    internal static bool IsPasswordRequiredException(Exception ex)
-    {
-        var message = ex.Message.ToLowerInvariant();
-        return message.Contains("password") ||
-               message.Contains("encrypted") ||
-               (message.Contains("rar") && message.Contains("header"));
-    }
-
-    internal static bool IsDataErrorException(Exception ex)
-    {
-        var exceptionTypeName = ex.GetType().Name;
-        return exceptionTypeName.Contains("DataError", StringComparison.OrdinalIgnoreCase) ||
-               ex.Message.Contains("Data Error", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void InitializeEntries()
-    {
-        try
-        {
-            foreach (var entry in _archive.Entries)
-            {
-                if (string.IsNullOrEmpty(entry.Key))
-                {
-                    _logErrorAction?.Invoke(null, "Skipping invalid archive entry with null/empty name.");
-                    continue;
-                }
-
-                var normalizedPath = NormalizePath(entry.Key);
-                _archiveEntries[normalizedPath] = entry;
-
-                var currentPath = "";
-                var parts = normalizedPath.Split(Separator, StringSplitOptions.RemoveEmptyEntries);
-                for (var i = 0; i < parts.Length - (IsDirectory(entry) ? 0 : 1); i++)
-                {
-                    currentPath += "/" + parts[i];
-                    if (_directoryCreationTimes.ContainsKey(currentPath)) continue;
-
-                    var entryTime = entry.LastModifiedTime ?? entry.CreatedTime ?? DateTime.Now;
-                    _directoryCreationTimes[currentPath] = entryTime;
-                    _directoryLastWriteTimes[currentPath] = entryTime;
-                    _directoryLastAccessTimes[currentPath] = DateTime.Now;
-                }
-            }
-
-            if (_directoryCreationTimes.ContainsKey("/")) return;
-
-            var now = DateTime.Now;
-            _directoryCreationTimes["/"] = now;
-            _directoryLastWriteTimes["/"] = now;
-            _directoryLastAccessTimes["/"] = now;
-        }
-        catch (Exception ex)
-        {
-            var exceptionTypeName = ex.GetType().Name;
-            var message = ex.Message;
-            var stackTrace = ex.StackTrace ?? "";
-            var isDataCorruptionError = ex is IndexOutOfRangeException ||
-                                        exceptionTypeName.Contains("DataError", StringComparison.OrdinalIgnoreCase) ||
-                                        message.Contains("Data Error", StringComparison.OrdinalIgnoreCase) ||
-                                        stackTrace.Contains("SharpCompress.Compressors.LZMA", StringComparison.OrdinalIgnoreCase) ||
-                                        stackTrace.Contains("SharpCompress.Archives.Zip.ZipArchive.LoadEntries", StringComparison.OrdinalIgnoreCase);
-
-            if (isDataCorruptionError)
-            {
-                var contextMessage = "Archive data corruption detected during initialization. The archive file appears to be damaged, incomplete, or uses an unsupported compression method. " +
-                                     "Archive type: " + _archiveType + ". " +
-                                     "Entries loaded before error: " + _archiveEntries.Count + ". " +
-                                     "Exception: " + exceptionTypeName + ": " + ex.Message;
-                _logErrorAction?.Invoke(ex, contextMessage);
-                throw new InvalidOperationException(contextMessage, ex);
-            }
-
-            _logErrorAction?.Invoke(ex, "Error during ZipFs.InitializeEntries. Archive type: " + _archiveType + ", Entries loaded: " + _archiveEntries.Count + ".");
-            throw;
-        }
-    }
-
-    internal static bool IsDirectory(IArchiveEntry entry)
-    {
-        return entry.IsDirectory || (entry.Key != null && (entry.Key.EndsWith('/') || entry.Key.EndsWith('\\')));
-    }
+    internal long _maxTotalMemoryCache => _core.MaxTotalMemoryCache;
+    internal Dictionary<string, IArchiveEntry> _archiveEntries => _core.ArchiveEntries;
 
     internal bool IsStoredEntry(IArchiveEntry entry)
     {
-        if (_archiveType != "zip")
-            return false;
-
-        if (entry.IsDirectory || entry.IsEncrypted || entry.IsSolid || entry.Size <= 0)
-            return false;
-
-        return entry switch
-        {
-            ZipArchiveEntry ze => ze.CompressionType == CompressionType.None,
-            _ => entry.CompressedSize == entry.Size
-        };
+        return _core.IsStoredEntry(entry);
     }
 
-    internal static string NormalizePath(string path)
+    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize)
     {
-        if (string.IsNullOrEmpty(path)) return "/";
+        _core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize);
+        _logErrorAction = logErrorAction;
 
-        if (path is "\\" or "/") return "/";
-
-        path = path.Replace('\\', '/');
-        if (path is "//") return "/";
-
-        if (!path.StartsWith('/'))
-        {
-            path = "/" + path;
-        }
-
-        return path;
-    }
-
-    internal static string ResolveSpecialPaths(string normalizedPath)
-    {
-        if (normalizedPath == "/")
-            return "/";
-
-        var parts = normalizedPath.Split(Separator, StringSplitOptions.RemoveEmptyEntries);
-        var resolved = new List<string>(parts.Length);
-        foreach (var part in parts)
-        {
-            switch (part)
-            {
-                case ".":
-                    continue;
-                case "..":
-                {
-                    if (resolved.Count > 0)
-                        resolved.RemoveAt(resolved.Count - 1);
-                    continue;
-                }
-                default:
-                    resolved.Add(part);
-                    break;
-            }
-        }
-
-        return resolved.Count == 0 ? "/" : "/" + string.Join("/", resolved);
-    }
-
-    private static void LogMessage(string message)
-    {
-        try
-        {
-            var loggingService = ServiceProvider.TryGet<ILoggingService>();
-            loggingService?.Log(message);
-        }
-        catch (Exception ex)
-        {
-            ErrorLoggerStatic.ReportSilentException(ex, "ZipFs.LogMessage: Logging service error", true);
-        }
-    }
-
-    internal static bool IsPathLengthValid(string path)
-    {
-        if (string.IsNullOrEmpty(path))
-            return true;
-
-        if (path.StartsWith(ExtendedPathPrefix, StringComparison.Ordinal))
-        {
-            return path.Length <= MaxPathExtended;
-        }
-
-        return path.Length <= MaxPath;
+        _core.DumpEntries(30);
     }
 
     private int ValidatePathLength(string path, string operationName)
     {
-        if (!IsPathLengthValid(path))
-        {
-            var isExtended = path.StartsWith(ExtendedPathPrefix, StringComparison.Ordinal);
-            var maxLength = isExtended ? MaxPathExtended : MaxPath;
-            var pathType = isExtended ? "extended-length" : "standard";
-
-            _logErrorAction(
-                new PathTooLongException($"Path exceeds maximum length for {pathType} paths ({maxLength} characters)."),
-                $"ZipFs.{operationName}: Path length validation failed - {path.Length} characters.");
-
-            return STATUS_UNSUCCESSFUL;
-        }
-
-        return STATUS_SUCCESS;
-    }
-
-    internal sealed class EntryNode
-    {
-        public string NormalizedPath = null!;
-        public bool IsDir;
-        public IArchiveEntry? Entry;
-        public long FileSize;
-        public DateTime CreationTime;
-        public DateTime LastWriteTime;
-        public DateTime LastAccessTime;
-    }
-
-    internal EntryNode? GetEntryNode(string normalizedPath)
-    {
-        IArchiveEntry? entry;
-        bool isImplicitDir;
-        var dirCreationTime = DateTime.Now;
-        var dirLastWriteTime = DateTime.Now;
-        var dirLastAccessTime = DateTime.Now;
-
-        lock (_archiveLock)
-        {
-            _archiveEntries.TryGetValue(normalizedPath, out entry);
-            isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
-
-            if (entry == null && isImplicitDir)
-            {
-                _directoryCreationTimes.TryGetValue(normalizedPath, out dirCreationTime);
-                _directoryLastWriteTimes.TryGetValue(normalizedPath, out dirLastWriteTime);
-                _directoryLastAccessTimes.TryGetValue(normalizedPath, out dirLastAccessTime);
-            }
-        }
-
-        if (entry != null)
-        {
-            if (IsDirectory(entry))
-            {
-                return new EntryNode
-                {
-                    NormalizedPath = normalizedPath,
-                    IsDir = true,
-                    Entry = entry,
-                    FileSize = 0,
-                    CreationTime = entry.CreatedTime ?? DateTime.Now,
-                    LastWriteTime = entry.LastModifiedTime ?? DateTime.Now,
-                    LastAccessTime = DateTime.Now
-                };
-            }
-            else
-            {
-                return new EntryNode
-                {
-                    NormalizedPath = normalizedPath,
-                    IsDir = false,
-                    Entry = entry,
-                    FileSize = entry.Size,
-                    CreationTime = entry.CreatedTime ?? DateTime.Now,
-                    LastWriteTime = entry.LastModifiedTime ?? DateTime.Now,
-                    LastAccessTime = DateTime.Now
-                };
-            }
-        }
-        else if (isImplicitDir)
-        {
-            return new EntryNode
-            {
-                NormalizedPath = normalizedPath,
-                IsDir = true,
-                Entry = null,
-                FileSize = 0,
-                CreationTime = dirCreationTime,
-                LastWriteTime = dirLastWriteTime,
-                LastAccessTime = dirLastAccessTime
-            };
-        }
-
-        return null;
+        return _core.ValidatePathLength(path, operationName) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
     }
 
     public override int Init(object Host)
@@ -504,6 +57,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_SUCCESS;
     }
 
+    [SuppressMessage("ReSharper", "ConditionalAccessQualifierIsNonNullableAccordingToAPIContract")]
     public override int Create(
         string FileName,
         uint CreateOptions,
@@ -521,6 +75,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return result;
     }
 
+    [SuppressMessage("ReSharper", "ConditionalAccessQualifierIsNonNullableAccordingToAPIContract")]
     public override int Open(
         string FileName,
         uint CreateOptions,
@@ -566,17 +121,17 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             return pathValidationResult;
         }
 
-        if (_disposed)
+        if (_core.IsDisposed)
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_DEVICE_NOT_READY, "disposed");
             return STATUS_DEVICE_NOT_READY;
         }
 
-        var normalizedPath = NormalizePath(fileName);
-        normalizedPath = ResolveSpecialPaths(normalizedPath);
+        _core.TryResolvePath(fileName, out var normalizedPath);
+        normalizedPath = ZipFsHelpers.ResolveSpecialPaths(normalizedPath);
         normalizedName = normalizedPath == "/" ? "\\" : normalizedPath.Replace('/', '\\');
 
-        var node = GetEntryNode(normalizedPath);
+        var node = _core.GetEntryNode(normalizedPath);
         if (node == null)
         {
             if (fileName.Equals("\\", StringComparison.OrdinalIgnoreCase) || normalizedPath == "/")
@@ -601,6 +156,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         if (node.IsDir)
         {
             fileNode = node;
+            fileDesc = node;
             fileInfo = EntryNodeToFileInfo(node);
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, "directory");
             return STATUS_SUCCESS;
@@ -614,252 +170,32 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         var entry = node.Entry;
 
-        lock (_archiveLock)
+        if (_core.IsFailedEntry(normalizedPath))
         {
-            if (_failedEntries.Contains(normalizedPath))
-            {
-                DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "in failed entries");
-                return STATUS_UNSUCCESSFUL;
-            }
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "in failed entries");
+            return STATUS_UNSUCCESSFUL;
         }
 
         try
         {
-            var entrySize = entry.Size;
-
-            if (IsStoredEntry(entry) && _sourceArchiveStream.CanSeek)
+            var stream = _core.OpenEntryStream(entry, normalizedPath);
+            if (stream == null)
             {
-                Stream? storedStream = null;
-                lock (_archiveLock)
-                {
-                    try
-                    {
-                        using var entryStream = entry.OpenEntryStream();
-                        var dataStart = _sourceArchiveStream.Position;
-                        storedStream = new StoredEntryStream(_sourceArchiveStream, dataStart, entrySize, _archiveLock);
-                    }
-                    catch (Exception storedEx)
-                    {
-                        ErrorLoggerStatic.ReportSilentException(storedEx, $"ZipFs.Create: StoredEntryStream creation failed for '{normalizedPath}'", true);
-                    }
-                }
-
-                if (storedStream != null)
-                {
-                    fileNode = node;
-                    fileDesc = storedStream;
-                    fileInfo = EntryNodeToFileInfo(node);
-                    DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, $"stored entry, {entrySize / 1024.0 / 1024.0:F2} MB");
-                    LogMessage($"Stored entry detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Using direct-read mode (no cache).");
-                    LogMessage("");
-                    return STATUS_SUCCESS;
-                }
-            }
-
-            if (entrySize >= _maxMemorySize || entrySize < 0)
-            {
-                string? cachedPath = null;
-                lock (_archiveLock)
-                {
-                    if (_largeFileCache.TryGetValue(normalizedPath, out var path))
-                    {
-                        cachedPath = path;
-                    }
-                }
-
-                if (cachedPath != null)
-                {
-                    LogMessage($"Reusing existing temporary cache for '{normalizedPath}'.");
-                }
-                else
-                {
-                    LogMessage($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
-                    LogMessage("");
-                    var newTempFilePath = CreateSecureTempFile();
-
-                    if (entrySize >= 0)
-                    {
-                        try
-                        {
-                            var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath) ?? "C:\\";
-                            var tempDrive = new DriveInfo(tempDrivePathRoot);
-                            if (tempDrive.AvailableFreeSpace < entrySize)
-                            {
-                                try
-                                {
-                                    File.Delete(newTempFilePath);
-                                }
-                                catch (Exception ex)
-                                {
-                                    ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.Create: Failed to delete temp file '{newTempFilePath}' during disk space check", true);
-                                }
-
-                                var errorMessage = $"Insufficient disk space to extract large file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).";
-                                _logErrorAction(new IOException(errorMessage), "ZipFs.Create: Disk space check failed.");
-                                return STATUS_DISK_FULL;
-                            }
-                        }
-                        catch (Exception driveEx)
-                        {
-                            _logErrorAction(driveEx, $"Error checking disk space for large file extraction of '{normalizedPath}'.");
-                        }
-                    }
-
-                    lock (_archiveLock)
-                    {
-                        if (_largeFileCache.TryGetValue(normalizedPath, out var existingPath))
-                        {
-                            cachedPath = existingPath;
-                            try
-                            {
-                                File.Delete(newTempFilePath);
-                            }
-                            catch (Exception deleteEx)
-                            {
-                                ErrorLoggerStatic.ReportSilentException(deleteEx, $"ZipFs.Create: Failed to delete duplicate temp file for large file '{normalizedPath}'", true);
-                            }
-                        }
-                        else
-                        {
-                            using var entryStream = entry.OpenEntryStream();
-                            using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None);
-                            entryStream.CopyTo(tempFileStream);
-                            _largeFileCache[normalizedPath] = newTempFilePath;
-                            cachedPath = newTempFilePath;
-                        }
-                    }
-
-                    LogMessage($"Extraction complete for '{normalizedPath}'. Temp file: '{cachedPath}'");
-                }
-
-                if (!string.IsNullOrEmpty(cachedPath))
-                {
-                    try
-                    {
-                        fileNode = node;
-                        fileDesc = new FileStream(cachedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                        fileInfo = EntryNodeToFileInfo(node);
-                        DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, $"large file (disk cached), {entrySize / 1024.0 / 1024.0:F2} MB");
-                        return STATUS_SUCCESS;
-                    }
-                    catch (Exception fsEx)
-                    {
-                        DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"large file cache open failed: {fsEx.Message}");
-                        _logErrorAction(fsEx, $"ZipFs.Create: Failed to open cached temp file '{cachedPath}' for reading.");
-                        return STATUS_UNSUCCESSFUL;
-                    }
-                }
-                else
-                {
-                    DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "large file: cachedPath is null");
-                    _logErrorAction(new InvalidOperationException($"ZipFs.Create: cachedPath is null/empty for large file '{normalizedPath}' after caching attempt."), "ZipFs.Create: Large file caching failed silently.");
-                    return STATUS_UNSUCCESSFUL;
-                }
-            }
-            else
-            {
-                bool useDiskCache;
-                lock (_memoryLock)
-                {
-                    var projectedMemoryUsage = _currentMemoryUsage + entrySize;
-                    useDiskCache = projectedMemoryUsage > _maxTotalMemoryCache;
-                }
-
-                if (useDiskCache)
-                {
-                    LogMessage($"Memory limit approaching. Using disk cache for small file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).");
-
-                    string? cachedPath = null;
-                    lock (_archiveLock)
-                    {
-                        if (_largeFileCache.TryGetValue(normalizedPath, out var path))
-                        {
-                            cachedPath = path;
-                        }
-                    }
-
-                    if (cachedPath == null)
-                    {
-                        var newTempFilePath = CreateSecureTempFile();
-
-                        lock (_archiveLock)
-                        {
-                            if (_largeFileCache.TryGetValue(normalizedPath, out var existingPath))
-                            {
-                                cachedPath = existingPath;
-                                try
-                                {
-                                    File.Delete(newTempFilePath);
-                                }
-                                catch (Exception deleteEx)
-                                {
-                                    ErrorLoggerStatic.ReportSilentException(deleteEx, $"ZipFs.Create: Failed to delete duplicate disk-cache temp file for '{normalizedPath}'", true);
-                                }
-                            }
-                            else
-                            {
-                                using var entryStream = entry.OpenEntryStream();
-                                using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None);
-                                entryStream.CopyTo(tempFileStream);
-                                _largeFileCache[normalizedPath] = newTempFilePath;
-                                cachedPath = newTempFilePath;
-                            }
-                        }
-                    }
-
-                    if (!string.IsNullOrEmpty(cachedPath))
-                    {
-                        try
-                        {
-                            fileNode = node;
-                            fileDesc = new FileStream(cachedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                            fileInfo = EntryNodeToFileInfo(node);
-                            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, $"small file (disk cached), {entrySize / 1024.0 / 1024.0:F2} MB");
-                            return STATUS_SUCCESS;
-                        }
-                        catch (Exception fsEx)
-                        {
-                            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"disk cache open failed: {fsEx.Message}");
-                            _logErrorAction(fsEx, $"ZipFs.Create: Failed to open disk-cached temp file '{cachedPath}' for reading.");
-                            return STATUS_UNSUCCESSFUL;
-                        }
-                    }
-                }
-                else
-                {
-                    byte[] entryBytes;
-                    lock (_archiveLock)
-                    {
-                        using var entryStream = entry.OpenEntryStream();
-                        var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
-                        using var tempMs = new MemoryStream(capacity);
-                        entryStream.CopyTo(tempMs);
-                        entryBytes = tempMs.ToArray();
-                    }
-
-                    lock (_memoryLock)
-                    {
-                        _currentMemoryUsage += entryBytes.Length;
-                    }
-
-                    fileNode = node;
-                    fileDesc = new TrackedMemoryStream(entryBytes, this);
-                    fileInfo = EntryNodeToFileInfo(node);
-                    DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, $"small file (memory), {entrySize / 1024.0 / 1024.0:F2} MB, cache usage {_currentMemoryUsage / 1024.0 / 1024.0:F2} MB");
-                    return STATUS_SUCCESS;
-                }
-
-                DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "no caching path matched");
-                fileNode = null!;
-                fileDesc = null!;
+                DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "stream creation returned null");
                 return STATUS_UNSUCCESSFUL;
             }
+
+            fileNode = node;
+            fileDesc = stream;
+            fileInfo = EntryNodeToFileInfo(node);
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_SUCCESS, $"stream created ({stream.GetType().Name})");
+            return STATUS_SUCCESS;
         }
         catch (CryptographicException cryptoEx)
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"CryptographicException: {cryptoEx.Message}");
             var contextMessage = $"ZipFs.Create: Password error for '{normalizedPath}'. The provided password may be incorrect or missing.";
-            LogMessage($"{AppTheme.Warning} Password Error: Could not decrypt '{normalizedPath}'.");
+            ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Password Error: Could not decrypt '{normalizedPath}'.");
             _logErrorAction(cryptoEx, contextMessage);
             fileNode = null!;
             fileDesc = null!;
@@ -869,8 +205,8 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_DEVICE_NOT_READY, "IOException: source drive not ready (0x80070015)");
             var msg = $"CRITICAL ERROR: The source drive containing the archive file is no longer ready. " +
-                      $"Please check the connection to drive '{Path.GetPathRoot(_tempDirectoryPath)}'.";
-            LogMessage($"{AppTheme.Critical} {msg}");
+                      $"Please check the connection to drive '{Path.GetPathRoot(_core.TempDirectoryPath)}'.";
+            ZipFileSystemCore.LogMessage($"{AppTheme.Critical} {msg}");
             _logErrorAction(ioEx, $"ZipFs.OpenOrCreateFile: Source drive not ready for '{normalizedPath}'");
             fileNode = null!;
             fileDesc = null!;
@@ -879,14 +215,14 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         catch (IOException ioEx) when ((uint)ioEx.HResult == 0x800703EE || (uint)ioEx.HResult == 0x80070037)
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"IOException: source file inaccessible (0x{ioEx.HResult:X8})");
-            LogMessage($"{AppTheme.Section("SOURCE FILE ACCESS ERROR")}");
-            LogMessage("Error: The source archive file is no longer accessible.");
-            LogMessage($"Details: {ioEx.Message}");
-            LogMessage("This usually means:");
-            LogMessage($"{AppTheme.Bullet}The external drive/USB device was disconnected");
-            LogMessage($"{AppTheme.Bullet}The archive file was modified or deleted after mounting started");
-            LogMessage($"{AppTheme.Bullet}The source device is no longer available or has errors");
-            LogMessage("Please verify the drive is connected and the file has not been altered.");
+            ZipFileSystemCore.LogMessage($"{AppTheme.Section("SOURCE FILE ACCESS ERROR")}");
+            ZipFileSystemCore.LogMessage("Error: The source archive file is no longer accessible.");
+            ZipFileSystemCore.LogMessage($"Details: {ioEx.Message}");
+            ZipFileSystemCore.LogMessage("This usually means:");
+            ZipFileSystemCore.LogMessage($"{AppTheme.Bullet}The external drive/USB device was disconnected");
+            ZipFileSystemCore.LogMessage($"{AppTheme.Bullet}The archive file was modified or deleted after mounting started");
+            ZipFileSystemCore.LogMessage($"{AppTheme.Bullet}The source device is no longer available or has errors");
+            ZipFileSystemCore.LogMessage("Please verify the drive is connected and the file has not been altered.");
             _logErrorAction(ioEx, $"ZipFs.Create: Source file inaccessible for entry '{normalizedPath}'");
             fileNode = null!;
             fileDesc = null!;
@@ -896,13 +232,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"ZlibException: {zlibEx.Message}");
             var contextMessage = $"ZipFs.Create: Deflate decompression error for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB).";
-            LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
+            ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
             _logErrorAction(zlibEx, contextMessage);
-            lock (_archiveLock)
-            {
-                _failedEntries.Add(normalizedPath);
-            }
-
+            _core.AddFailedEntry(normalizedPath);
             fileNode = null!;
             fileDesc = null!;
             return STATUS_UNSUCCESSFUL;
@@ -910,13 +242,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         catch (ArgumentOutOfRangeException argEx)
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"ArgumentOutOfRangeException: {argEx.Message}");
-            LogMessage($"{AppTheme.Warning} Corruption Error: Cannot read '{normalizedPath}'. The archive file may be damaged or incomplete.");
+            ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Corruption Error: Cannot read '{normalizedPath}'. The archive file may be damaged or incomplete.");
             _logErrorAction(argEx, $"ZipFs.Create: Invalid data offset for '{normalizedPath}'.");
-            lock (_archiveLock)
-            {
-                _failedEntries.Add(normalizedPath);
-            }
-
+            _core.AddFailedEntry(normalizedPath);
             fileNode = null!;
             fileDesc = null!;
             return STATUS_UNSUCCESSFUL;
@@ -924,27 +252,19 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         catch (NullReferenceException nre)
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"NullReferenceException: {nre.Message}");
-            lock (_archiveLock)
-            {
-                _failedEntries.Add(normalizedPath);
-            }
-
+            _core.AddFailedEntry(normalizedPath);
             _logErrorAction(nre, $"ZipFs.Create: NullReferenceException during decompression of '{normalizedPath}'.");
-            LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
+            ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
             fileNode = null!;
             fileDesc = null!;
             return STATUS_UNSUCCESSFUL;
         }
-        catch (Exception ex) when (IsDataErrorException(ex))
+        catch (Exception ex) when (ZipFsHelpers.IsDataErrorException(ex))
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"DataError: {ex.Message}");
-            lock (_archiveLock)
-            {
-                _failedEntries.Add(normalizedPath);
-            }
-
+            _core.AddFailedEntry(normalizedPath);
             _logErrorAction(ex, $"ZipFs.Create: Data error for '{normalizedPath}'.");
-            LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
+            ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
             fileNode = null!;
             fileDesc = null!;
             return STATUS_UNSUCCESSFUL;
@@ -979,39 +299,8 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         try
         {
-            if (stream is StoredEntryStream stored)
-            {
-                var buffer2 = new byte[Length];
-                var bytesRead = stored.ReadAt((long)Offset, buffer2, 0, (int)Length);
-                if (bytesRead > 0)
-                {
-                    System.Runtime.InteropServices.Marshal.Copy(buffer2, 0, Buffer, bytesRead);
-                }
-
-                BytesTransferred = (uint)bytesRead;
-                return STATUS_SUCCESS;
-            }
-
-            if (stream.CanSeek)
-            {
-                if ((long)Offset >= stream.Length)
-                {
-                    BytesTransferred = 0;
-                    return STATUS_SUCCESS;
-                }
-
-                stream.Position = (long)Offset;
-            }
-            else
-            {
-                if ((long)Offset != stream.Position)
-                {
-                    return STATUS_UNSUCCESSFUL;
-                }
-            }
-
             var readBuffer = new byte[Length];
-            var read = stream.Read(readBuffer, 0, (int)Length);
+            var read = _core.ReadStream(stream, (long)Offset, readBuffer, 0, (int)Length);
             if (read > 0)
             {
                 System.Runtime.InteropServices.Marshal.Copy(readBuffer, 0, Buffer, read);
@@ -1090,9 +379,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         var searchPrefix = parentPath == "/" ? "/" : parentPath + "/";
         var normalizedFileName = FileName.Replace('\\', '/');
         var childPath = searchPrefix + normalizedFileName;
-        childPath = ResolveSpecialPaths(childPath);
+        childPath = ZipFsHelpers.ResolveSpecialPaths(childPath);
 
-        var childNode = GetEntryNode(childPath);
+        var childNode = _core.GetEntryNode(childPath);
         if (childNode == null)
         {
             DiagnosticLogger.LogOperation("GetDirInfoByName", FileName, STATUS_OBJECT_NAME_NOT_FOUND, "not found");
@@ -1108,10 +397,10 @@ public sealed class ZipFs : FileSystemBase, IDisposable
     public override int GetVolumeInfo(out VolumeInfo VolumeInfo)
     {
         VolumeInfo = default;
-        VolumeInfo.TotalSize = (ulong)(_sourceArchiveStream.CanSeek ? _sourceArchiveStream.Length : 0);
+        VolumeInfo.TotalSize = (ulong)_core.TotalSize;
         VolumeInfo.FreeSize = 0;
-        VolumeInfo.SetVolumeLabel(VolumeLabel);
-        DiagnosticLogger.Log($"  GetVolumeInfo: label={VolumeLabel}, size={VolumeInfo.TotalSize / 1024.0 / 1024.0:F2} MB");
+        VolumeInfo.SetVolumeLabel(ZipFileSystemCore.VolumeLabel);
+        DiagnosticLogger.Log($"  GetVolumeInfo: label={ZipFileSystemCore.VolumeLabel}, size={VolumeInfo.TotalSize / 1024.0 / 1024.0:F2} MB");
         return STATUS_SUCCESS;
     }
 
@@ -1129,37 +418,47 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         FileAttributes = 0;
         SecurityDescriptor = Array.Empty<byte>();
 
-        var pathValidationResult = ValidatePathLength(FileName, nameof(GetSecurityByName));
-        if (pathValidationResult != STATUS_SUCCESS)
-            return pathValidationResult;
-
-        var normalizedPath = NormalizePath(FileName);
-        normalizedPath = ResolveSpecialPaths(normalizedPath);
-        var node = GetEntryNode(normalizedPath);
-
-        if (node != null)
+        try
         {
-            if (node.IsDir)
+            var pathValidationResult = ValidatePathLength(FileName, nameof(GetSecurityByName));
+            if (pathValidationResult != STATUS_SUCCESS)
+                return pathValidationResult;
+
+            _core.TryResolvePath(FileName, out var normalizedPath);
+            normalizedPath = ZipFsHelpers.ResolveSpecialPaths(normalizedPath);
+            var node = _core.GetEntryNode(normalizedPath);
+
+            if (node != null)
+            {
+                if (node.IsDir)
+                {
+                    FileAttributes = (uint)System.IO.FileAttributes.Directory;
+                }
+                else
+                {
+                    FileAttributes = (uint)(System.IO.FileAttributes.Archive | System.IO.FileAttributes.ReadOnly);
+                }
+
+                DiagnosticLogger.LogOperation("GetSecurityByName", FileName, STATUS_SUCCESS, $"found, IsDir={node.IsDir}, Attrs=0x{FileAttributes:X}");
+                return STATUS_SUCCESS;
+            }
+
+            if (normalizedPath == "/" || normalizedPath.Equals("\\", StringComparison.OrdinalIgnoreCase))
             {
                 FileAttributes = (uint)System.IO.FileAttributes.Directory;
-            }
-            else
-            {
-                FileAttributes = (uint)(System.IO.FileAttributes.Archive | System.IO.FileAttributes.ReadOnly);
+                DiagnosticLogger.LogOperation("GetSecurityByName", FileName, STATUS_SUCCESS, "root dir");
+                return STATUS_SUCCESS;
             }
 
-            return STATUS_SUCCESS;
+            DiagnosticLogger.LogOperation("GetSecurityByName", FileName, STATUS_OBJECT_NAME_NOT_FOUND, "not found");
+            return STATUS_OBJECT_NAME_NOT_FOUND;
         }
-
-        if (normalizedPath == "/" || normalizedPath.Equals("\\", StringComparison.OrdinalIgnoreCase))
+        catch (Exception ex)
         {
-            FileAttributes = (uint)System.IO.FileAttributes.Directory;
-            DiagnosticLogger.LogOperation("GetSecurityByName", FileName, STATUS_SUCCESS, "root dir");
-            return STATUS_SUCCESS;
+            DiagnosticLogger.LogOperation("GetSecurityByName", FileName, STATUS_UNSUCCESSFUL, $"EXCEPTION: {ex.GetType().Name}: {ex.Message}");
+            _logErrorAction(ex, $"ZipFs.GetSecurityByName: EXCEPTION for '{FileName}'.");
+            return STATUS_UNSUCCESSFUL;
         }
-
-        DiagnosticLogger.LogOperation("GetSecurityByName", FileName, STATUS_OBJECT_NAME_NOT_FOUND, "not found");
-        return STATUS_OBJECT_NAME_NOT_FOUND;
     }
 
     public override bool ReadDirectoryEntry(
@@ -1188,18 +487,10 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                 return false;
             }
 
-            var searchPrefix = normalizedPath.TrimEnd('/') + (normalizedPath == "/" ? "" : "/");
-            if (normalizedPath == "/")
-            {
-                searchPrefix = "/";
-            }
-
             if (Context is not (List<(string Name, Fsp.Interop.FileInfo Info)> entries, int currentIndex))
             {
-                var isExplicitDirEntry = _archiveEntries.TryGetValue(normalizedPath, out var dirEntry) && IsDirectory(dirEntry);
-                var isImplicitDir = _directoryCreationTimes.ContainsKey(normalizedPath) || normalizedPath == "/";
-
-                if (!isExplicitDirEntry && !isImplicitDir)
+                var dirEntries = _core.ListDirectory(normalizedPath);
+                if (dirEntries.Count == 0)
                 {
                     DiagnosticLogger.LogOperation("ReadDirectoryEntry", normalizedPath, false, "not a directory");
                     return false;
@@ -1208,8 +499,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                 var seenFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 entries = new List<(string, Fsp.Interop.FileInfo)>();
 
-                // Add dot entries for all directories (including root)
-                var dotNode = GetEntryNode(normalizedPath);
+                var dotNode = _core.GetEntryNode(normalizedPath);
                 if (dotNode != null)
                 {
                     if (string.IsNullOrEmpty(Marker))
@@ -1218,10 +508,10 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                         seenFileNames.Add(".");
                     }
 
-                    var parentPath = normalizedPath == "/" ? "/" : GetParentPath(normalizedPath);
+                    var parentPath = normalizedPath == "/" ? "/" : ZipFsHelpers.GetParentPath(normalizedPath);
                     if (parentPath != null)
                     {
-                        var dotdotNode = GetEntryNode(parentPath);
+                        var dotdotNode = _core.GetEntryNode(parentPath);
                         if (dotdotNode != null &&
                             (string.IsNullOrEmpty(Marker) || string.Equals(Marker, ".", StringComparison.OrdinalIgnoreCase)))
                         {
@@ -1231,84 +521,24 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                     }
                 }
 
-                foreach (var kvp in _archiveEntries)
+                foreach (var child in dirEntries)
                 {
-                    var path = kvp.Key;
-                    if (path.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (!path.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-
-                    var remainder = path.Substring(searchPrefix.Length);
-                    var slashIndex = remainder.IndexOf('/');
-                    if (slashIndex != -1 && slashIndex != remainder.Length - 1)
-                        continue;
-
-                    var entry = kvp.Value;
-                    string? fileNameOnly;
-                    var isDir = IsDirectory(entry);
-
-                    if (isDir)
-                    {
-                        if (entry.Key != null)
-                        {
-                            var tempFullName = entry.Key.TrimEnd('/', '\\');
-                            fileNameOnly = Path.GetFileName(tempFullName);
-                        }
-                        else
-                        {
-                            fileNameOnly = null;
-                        }
-                    }
-                    else
-                    {
-                        fileNameOnly = Path.GetFileName(entry.Key);
-                    }
-
-                    if (!string.IsNullOrEmpty(fileNameOnly) && seenFileNames.Add(fileNameOnly))
-                    {
-                        if (!IsNameMatch(fileNameOnly, Pattern))
-                            continue;
-
-                        var fileSize = isDir ? 0ul : (ulong)entry.Size;
-                        entries.Add((fileNameOnly, new Fsp.Interop.FileInfo
-                        {
-                            FileAttributes = isDir ? (uint)FileAttributes.Directory : (uint)(FileAttributes.Archive | FileAttributes.ReadOnly),
-                            FileSize = fileSize,
-                            AllocationSize = isDir ? 0ul : (ulong)((entry.Size + 4095) / 4096 * 4096),
-                            CreationTime = DateTimeToFileTimeUtc(entry.CreatedTime ?? DateTime.Now),
-                            LastAccessTime = DateTimeToFileTimeUtc(DateTime.Now),
-                            LastWriteTime = DateTimeToFileTimeUtc(entry.LastModifiedTime ?? DateTime.Now),
-                            ChangeTime = DateTimeToFileTimeUtc(entry.LastModifiedTime ?? DateTime.Now)
-                        }));
-                    }
-                }
-
-                foreach (var dirPathKey in _directoryCreationTimes.Keys)
-                {
-                    if (dirPathKey.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (!dirPathKey.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-
-                    var remainder = dirPathKey.Substring(searchPrefix.Length);
-                    if (remainder.Contains('/') || string.IsNullOrEmpty(remainder)) continue;
-
-                    var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
+                    var name = child.NormalizedPath.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s)) ?? "";
                     if (!string.IsNullOrEmpty(name) && seenFileNames.Add(name))
                     {
-                        if (!IsNameMatch(name, Pattern))
+                        if (!ZipFsHelpers.IsNameMatch(name, Pattern))
                             continue;
 
-                        _directoryCreationTimes.TryGetValue(dirPathKey, out var ct);
-                        _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
-                        _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
-
+                        var fileSize = child.IsDir ? 0ul : (ulong)child.FileSize;
                         entries.Add((name, new Fsp.Interop.FileInfo
                         {
-                            FileAttributes = (uint)FileAttributes.Directory,
-                            FileSize = 0,
-                            AllocationSize = 0,
-                            CreationTime = DateTimeToFileTimeUtc(ct),
-                            LastAccessTime = DateTimeToFileTimeUtc(lat),
-                            LastWriteTime = DateTimeToFileTimeUtc(lwt),
-                            ChangeTime = DateTimeToFileTimeUtc(lwt)
+                            FileAttributes = child.IsDir ? (uint)FileAttributes.Directory : (uint)(FileAttributes.Archive | FileAttributes.ReadOnly),
+                            FileSize = fileSize,
+                            AllocationSize = child.IsDir ? 0ul : (ulong)((child.FileSize + 4095) / 4096 * 4096),
+                            CreationTime = DateTimeToFileTimeUtc(child.CreationTime),
+                            LastAccessTime = DateTimeToFileTimeUtc(child.LastAccessTime),
+                            LastWriteTime = DateTimeToFileTimeUtc(child.LastWriteTime),
+                            ChangeTime = DateTimeToFileTimeUtc(child.LastWriteTime)
                         }));
                     }
                 }
@@ -1350,53 +580,6 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             _logErrorAction(ex, "ZipFs.ReadDirectoryEntry: EXCEPTION during directory enumeration.");
             return false;
         }
-    }
-
-    internal static string? GetParentPath(string normalizedPath)
-    {
-        if (normalizedPath == "/")
-            return null;
-
-        var lastSlash = normalizedPath.LastIndexOf('/');
-        if (lastSlash <= 0)
-            return "/";
-
-        return normalizedPath.Substring(0, lastSlash);
-    }
-
-    internal static bool IsNameMatch(string name, string pattern)
-    {
-        if (string.IsNullOrEmpty(pattern) || pattern == "*" || pattern == "*.*")
-            return true;
-
-        return IsMatchSimple(name, pattern);
-    }
-
-    internal static ulong DateTimeToFileTimeUtc(DateTime dt)
-    {
-        if (dt == DateTime.MinValue)
-        {
-            dt = new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        }
-
-        var utc = dt.ToUniversalTime();
-        var fileTime = (utc.Ticks - new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc).Ticks);
-        return fileTime > 0 ? (ulong)fileTime : 0;
-    }
-
-    internal static Fsp.Interop.FileInfo EntryNodeToFileInfo(EntryNode node)
-    {
-        var fi = new Fsp.Interop.FileInfo
-        {
-            FileAttributes = node.IsDir ? (uint)FileAttributes.Directory : (uint)(FileAttributes.Archive | FileAttributes.ReadOnly),
-            FileSize = node.IsDir ? 0ul : (ulong)node.FileSize,
-            CreationTime = DateTimeToFileTimeUtc(node.CreationTime),
-            LastAccessTime = DateTimeToFileTimeUtc(node.LastAccessTime),
-            LastWriteTime = DateTimeToFileTimeUtc(node.LastWriteTime),
-            ChangeTime = DateTimeToFileTimeUtc(node.LastWriteTime),
-            AllocationSize = node.IsDir ? 0ul : (ulong)((node.FileSize + 4095) / 4096 * 4096)
-        };
-        return fi;
     }
 
     public override void Cleanup(
@@ -1490,436 +673,35 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_ACCESS_DENIED;
     }
 
-    internal string CreateSecureTempFile()
+    internal static ulong DateTimeToFileTimeUtc(DateTime dt)
     {
-        var tempFilePath = Path.Combine(_tempDirectoryPath, Guid.NewGuid().ToString("N") + ".tmp");
-
-        File.Create(tempFilePath).Dispose();
-
-        try
+        if (dt == DateTime.MinValue)
         {
-            var fileInfo = new System.IO.FileInfo(tempFilePath);
-
-            var fileSecurity = fileInfo.GetAccessControl();
-
-            fileSecurity.SetAccessRuleProtection(true, false);
-
-            var existingRules = fileSecurity.GetAccessRules(true, true, typeof(SecurityIdentifier));
-            foreach (FileSystemAccessRule rule in existingRules)
-            {
-                fileSecurity.RemoveAccessRule(rule);
-            }
-
-            var currentUser = WindowsIdentity.GetCurrent();
-            var currentUserSid = currentUser.User ?? throw new InvalidOperationException("Unable to get current user SID");
-
-            var accessRule = new FileSystemAccessRule(
-                currentUserSid,
-                FileSystemRights.FullControl,
-                AccessControlType.Allow);
-            fileSecurity.AddAccessRule(accessRule);
-
-            fileInfo.SetAccessControl(fileSecurity);
-        }
-        catch (PlatformNotSupportedException ex)
-        {
-            ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.CreateSecureTempFile: Platform not supported for ACL on '{tempFilePath}'", true);
-        }
-        catch (InvalidOperationException ex)
-        {
-            ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.CreateSecureTempFile: Invalid operation setting ACL on '{tempFilePath}'", true);
+            dt = new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         }
 
-        return tempFilePath;
+        var utc = dt.ToUniversalTime();
+        var fileTime = (utc.Ticks - new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc).Ticks);
+        return fileTime > 0 ? (ulong)fileTime : 0;
     }
 
-    internal static bool IsMatchSimple(string input, string pattern)
+    internal static Fsp.Interop.FileInfo EntryNodeToFileInfo(EntryNode node)
     {
-        if (pattern.Length > 260)
-            return false;
-
-        if (pattern.Equals("*", StringComparison.Ordinal) || pattern.Equals("*.*", StringComparison.Ordinal)) return true;
-
-        var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
-
-        if (RegexCache.TryGetValue(regexPattern, out var regex))
-            return regex.IsMatch(input);
-
-        lock (RegexCacheLock)
+        var fi = new Fsp.Interop.FileInfo
         {
-            if (RegexCache.TryGetValue(regexPattern, out regex))
-                return regex.IsMatch(input);
-
-            if (RegexCache.Count >= MaxRegexCacheSize)
-            {
-                var oldestKey = RegexCache.Keys.FirstOrDefault();
-                if (oldestKey != null)
-                {
-                    RegexCache.TryRemove(oldestKey, out _);
-                }
-            }
-
-            regex = new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-            RegexCache.TryAdd(regexPattern, regex);
-        }
-
-        return regex.IsMatch(input);
-    }
-
-    public void DumpEntries(int maxEntries = 100)
-    {
-        try
-        {
-            DiagnosticLogger.LogHeader("ENTRY DUMP");
-            DiagnosticLogger.Log($"  Total entries: {_archiveEntries.Count}");
-            DiagnosticLogger.Log($"  Implicit directories: {_directoryCreationTimes.Count}");
-            DiagnosticLogger.Log($"  Failed entries: {_failedEntries.Count}");
-
-            var count = 0;
-            lock (_archiveLock)
-            {
-                foreach (var kvp in _archiveEntries.OrderBy(static k => k.Key))
-                {
-                    if (count >= maxEntries)
-                    {
-                        DiagnosticLogger.Log($"  ... ({_archiveEntries.Count - maxEntries} more entries)");
-                        break;
-                    }
-
-                    var entry = kvp.Value;
-                    var isDir = IsDirectory(entry);
-                    var typeLabel = isDir ? "DIR" : "FILE";
-                    var sizeStr = isDir ? "" : $" ({entry.Size / 1024.0:F1} KB)";
-                    DiagnosticLogger.Log($"  [{typeLabel}] {kvp.Key}{sizeStr}");
-                    count++;
-                }
-            }
-
-            if (_directoryCreationTimes.Count > 0)
-            {
-                DiagnosticLogger.Log("  --- Implicit directories ---");
-                count = 0;
-                lock (_archiveLock)
-                {
-                    foreach (var kvp in _directoryCreationTimes.OrderBy(static k => k.Key))
-                    {
-                        if (count >= maxEntries) break;
-
-                        DiagnosticLogger.Log($"  [IMPLICIT] {kvp.Key}");
-                        count++;
-                    }
-                }
-            }
-
-            if (_failedEntries.Count > 0)
-            {
-                DiagnosticLogger.Log("  --- Failed entries ---");
-                foreach (var failed in _failedEntries)
-                {
-                    DiagnosticLogger.Log($"  [FAILED] {failed}");
-                }
-            }
-
-            DiagnosticLogger.LogHeader("END ENTRY DUMP");
-        }
-        catch (Exception ex)
-        {
-            DiagnosticLogger.Log(ex, "DumpEntries failed");
-            _logErrorAction(ex, "ZipFs.DumpEntries failed");
-        }
+            FileAttributes = node.IsDir ? (uint)FileAttributes.Directory : (uint)(FileAttributes.Archive | FileAttributes.ReadOnly),
+            FileSize = node.IsDir ? 0ul : (ulong)node.FileSize,
+            CreationTime = DateTimeToFileTimeUtc(node.CreationTime),
+            LastAccessTime = DateTimeToFileTimeUtc(node.LastAccessTime),
+            LastWriteTime = DateTimeToFileTimeUtc(node.LastWriteTime),
+            ChangeTime = DateTimeToFileTimeUtc(node.LastWriteTime),
+            AllocationSize = node.IsDir ? 0ul : (ulong)((node.FileSize + 4095) / 4096 * 4096)
+        };
+        return fi;
     }
 
     public void Dispose()
     {
-        DiagnosticLogger.LogHeader("ZipFs DISPOSE");
-        if (_disposed)
-            return;
-
-        lock (_archiveLock)
-        {
-            _disposed = true;
-        }
-
-        _archive.Dispose();
-        _sourceArchiveStream.Dispose();
-
-        lock (_archiveLock)
-        {
-            foreach (var tempFile in _largeFileCache.Values)
-            {
-                try
-                {
-                    if (File.Exists(tempFile))
-                    {
-                        File.Delete(tempFile);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logErrorAction(ex, $"Failed to delete temp file on dispose: {tempFile}");
-                }
-            }
-
-            _largeFileCache.Clear();
-        }
-
-        try
-        {
-            if (Directory.Exists(_tempDirectoryPath))
-            {
-                Directory.Delete(_tempDirectoryPath, true);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logErrorAction(ex, $"Failed to delete working directory on dispose: {_tempDirectoryPath}");
-        }
-
-        lock (_memoryLock)
-        {
-            _currentMemoryUsage = 0;
-        }
-
-        DiagnosticLogger.LogHeader("ZipFs DISPOSE complete");
-    }
-
-    private class TrackedMemoryStream : MemoryStream
-    {
-        private readonly ZipFs _owner;
-        private readonly int _size;
-        private bool _disposed;
-
-        public TrackedMemoryStream(byte[] buffer, ZipFs owner) : base(buffer, false)
-        {
-            _owner = owner;
-            _size = buffer.Length;
-            _disposed = false;
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (!_disposed)
-            {
-                if (disposing)
-                {
-                    lock (_owner._memoryLock)
-                    {
-                        _owner._currentMemoryUsage -= _size;
-                        if (_owner._currentMemoryUsage < 0)
-                        {
-                            _owner._currentMemoryUsage = 0;
-                        }
-                    }
-                }
-
-                _disposed = true;
-            }
-
-            base.Dispose(disposing);
-        }
-    }
-
-    private sealed class StoredEntryStream : Stream
-    {
-        private readonly Stream _sourceStream;
-        private readonly long _dataOffset;
-        private readonly object _sourceLock;
-        private readonly SafeFileHandle? _fileHandle;
-        private long _position;
-        private bool _disposed;
-
-        public StoredEntryStream(Stream sourceStream, long dataOffset, long dataLength, object sourceLock)
-        {
-            if (dataOffset < 0 || dataOffset > sourceStream.Length)
-                throw new ArgumentOutOfRangeException(nameof(dataOffset));
-            if (dataLength < 0)
-                throw new ArgumentOutOfRangeException(nameof(dataLength));
-
-            _sourceStream = sourceStream;
-            _dataOffset = dataOffset;
-            Length = dataLength;
-            _sourceLock = sourceLock;
-            _fileHandle = (sourceStream as FileStream)?.SafeFileHandle;
-            _position = 0;
-            _sourceStream.Position = dataOffset;
-        }
-
-        public override bool CanRead => true;
-        public override bool CanSeek => true;
-        public override bool CanWrite => false;
-        public override long Length { get; }
-
-        public override long Position
-        {
-            get => _position;
-            set
-            {
-                if (value < 0 || value > Length)
-                    throw new ArgumentOutOfRangeException(nameof(value));
-
-                _position = value;
-            }
-        }
-
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            var maxBytes = (int)Math.Min(count, Length - _position);
-            if (maxBytes <= 0) return 0;
-
-            if (Monitor.TryEnter(_sourceLock))
-            {
-                try
-                {
-                    if (_sourceStream.Position == _dataOffset + _position)
-                    {
-                        var bytesRead = _sourceStream.Read(buffer, offset, maxBytes);
-                        _position += bytesRead;
-                        return bytesRead;
-                    }
-                }
-                finally
-                {
-                    Monitor.Exit(_sourceLock);
-                }
-            }
-
-            if (_fileHandle != null)
-            {
-                var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(offset, maxBytes), _dataOffset + _position);
-                _position += bytesRead;
-                return bytesRead;
-            }
-
-            lock (_sourceLock)
-            {
-                _sourceStream.Position = _dataOffset + _position;
-                var bytesRead = _sourceStream.Read(buffer, offset, maxBytes);
-                _position += bytesRead;
-                return bytesRead;
-            }
-        }
-
-        public override int Read(Span<byte> buffer)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            var maxBytes = (int)Math.Min(buffer.Length, Length - _position);
-            if (maxBytes <= 0) return 0;
-
-            if (Monitor.TryEnter(_sourceLock))
-            {
-                try
-                {
-                    if (_sourceStream.Position == _dataOffset + _position)
-                    {
-                        var bytesRead = _sourceStream.Read(buffer[..maxBytes]);
-                        _position += bytesRead;
-                        return bytesRead;
-                    }
-                }
-                finally
-                {
-                    Monitor.Exit(_sourceLock);
-                }
-            }
-
-            if (_fileHandle != null)
-            {
-                var bytesRead = RandomAccess.Read(_fileHandle, buffer[..maxBytes], _dataOffset + _position);
-                _position += bytesRead;
-                return bytesRead;
-            }
-
-            lock (_sourceLock)
-            {
-                _sourceStream.Position = _dataOffset + _position;
-                var bytesRead = _sourceStream.Read(buffer[..maxBytes]);
-                _position += bytesRead;
-                return bytesRead;
-            }
-        }
-
-        public int ReadAt(long fileOffset, byte[] buffer, int bufferOffset, int count)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            if (fileOffset < 0 || fileOffset >= Length)
-                return 0;
-
-            var maxBytes = (int)Math.Min(count, Length - fileOffset);
-            if (maxBytes <= 0) return 0;
-
-            if (Monitor.TryEnter(_sourceLock))
-            {
-                try
-                {
-                    if (_sourceStream.Position == _dataOffset + fileOffset)
-                    {
-                        var bytesRead = _sourceStream.Read(buffer, bufferOffset, maxBytes);
-                        _position = fileOffset + bytesRead;
-                        return bytesRead;
-                    }
-                }
-                finally
-                {
-                    Monitor.Exit(_sourceLock);
-                }
-            }
-
-            if (_fileHandle != null)
-            {
-                var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, maxBytes), _dataOffset + fileOffset);
-                _position = fileOffset + bytesRead;
-                return bytesRead;
-            }
-
-            lock (_sourceLock)
-            {
-                _sourceStream.Position = _dataOffset + fileOffset;
-                var bytesRead = _sourceStream.Read(buffer, bufferOffset, maxBytes);
-                _position = fileOffset + bytesRead;
-                return bytesRead;
-            }
-        }
-
-        public override long Seek(long offset, SeekOrigin origin)
-        {
-            ObjectDisposedException.ThrowIf(_disposed, this);
-
-            _position = origin switch
-            {
-                SeekOrigin.Begin => offset,
-                SeekOrigin.Current => _position + offset,
-                SeekOrigin.End => Length + offset,
-                _ => throw new ArgumentOutOfRangeException(nameof(origin))
-            };
-
-            if (_position < 0 || _position > Length)
-                throw new IOException("Seek position out of range");
-
-            return _position;
-        }
-
-        public override void Flush()
-        {
-        }
-
-        public override void SetLength(long value)
-        {
-            throw new NotSupportedException();
-        }
-
-        public override void Write(byte[] buffer, int offset, int count)
-        {
-            throw new NotSupportedException();
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            _disposed = true;
-            base.Dispose(disposing);
-        }
+        _core.Dispose();
     }
 }

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using System.Text;
 using System.Threading.Channels;
@@ -24,13 +25,14 @@ public partial class App
         {
             StartupArgs = e.Args;
 
+            DiagnosticLogger.CleanupOldLogs();
             DiagnosticLogger.Initialize();
             DiagnosticLogger.LogSection("APPLICATION STARTUP");
             DiagnosticLogger.Log($"  Version: {Assembly.GetExecutingAssembly().GetName().Version}");
             DiagnosticLogger.Log($"  Arguments: [{string.Join(", ", StartupArgs)}]");
             DiagnosticLogger.Log($"  Base directory: {AppContext.BaseDirectory}");
-            DiagnosticLogger.Log($"  OS: {System.Runtime.InteropServices.RuntimeInformation.OSDescription}");
-            DiagnosticLogger.Log($"  Framework: {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}");
+            DiagnosticLogger.Log($"  OS: {RuntimeInformation.OSDescription}");
+            DiagnosticLogger.Log($"  Framework: {RuntimeInformation.FrameworkDescription}");
             DiagnosticLogger.Log($"  Working directory: {Environment.CurrentDirectory}");
 
             PreloadFspAssembly();
@@ -104,18 +106,49 @@ public partial class App
     {
         try
         {
-            var fspAssemblyPath = Path.Combine(
-                AppContext.BaseDirectory, "winfsp-msil.dll");
-
-            if (File.Exists(fspAssemblyPath))
+            var fspAssemblyPath = FindWinfspManagedDll();
+            if (fspAssemblyPath != null)
             {
                 AssemblyLoadContext.Default.LoadFromAssemblyPath(fspAssemblyPath);
+                DiagnosticLogger.Log($"  WinFsp assembly loaded from: {fspAssemblyPath}");
+                return;
+            }
+
+            var bundlePath = Path.Combine(AppContext.BaseDirectory, "winfsp-msil.dll");
+            if (File.Exists(bundlePath))
+            {
+                AssemblyLoadContext.Default.LoadFromAssemblyPath(bundlePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Log($"  WinFsp assembly preload failed: {ex.Message}");
+        }
+    }
+
+    private static string? FindWinfspManagedDll()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                @"SOFTWARE\WOW6432Node\WinFsp") ?? Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                @"SOFTWARE\WinFsp");
+            if (key?.GetValue("InstallDir") is string installDir)
+            {
+                var candidate = Path.Combine(installDir, "bin", "winfsp-msil.dll");
+                if (File.Exists(candidate)) return candidate;
             }
         }
         catch
         {
             // ignored
         }
+
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        var pfCandidate = Path.Combine(programFiles, "WinFsp", "bin", "winfsp-msil.dll");
+        if (File.Exists(pfCandidate)) return pfCandidate;
+
+        return null;
     }
 
     private static void RegisterServices()

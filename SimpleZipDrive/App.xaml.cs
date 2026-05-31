@@ -22,6 +22,7 @@ public partial class App
     {
         base.OnStartup(e);
 
+        DiagnosticLogger.CleanupOldLogs();
         DiagnosticLogger.Initialize();
         DiagnosticLogger.LogSection("APPLICATION STARTUP");
         DiagnosticLogger.Log($"  Version: {Assembly.GetExecutingAssembly().GetName().Version}");

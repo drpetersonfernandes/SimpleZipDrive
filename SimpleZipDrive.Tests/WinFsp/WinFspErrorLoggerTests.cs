@@ -1,5 +1,5 @@
-using WinFspErrorLogger = SimpleZipDrive_WinFsp.ErrorLogger;
-using WinFspErrorLoggerStatic = SimpleZipDrive_WinFsp.ErrorLoggerStatic;
+using WinFspErrorLogger = SimpleZipDrive.Core.ErrorLogger;
+using WinFspErrorLoggerStatic = SimpleZipDrive.Core.ErrorLoggerStatic;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 
@@ -249,7 +249,7 @@ public class WinFspErrorLoggerTests : IDisposable
 
         logger.Dispose();
 
-        var ex = Record.Exception(() => logger.Dispose());
+        var ex = Record.Exception(logger.Dispose);
         Assert.Null(ex);
     }
 

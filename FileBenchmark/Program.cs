@@ -14,6 +14,52 @@ if (args.Length == 0)
 var filePath = Path.GetFullPath(args[0]);
 var skipCacheClear = args.Any(static a => a.Equals("--no-clear", StringComparison.OrdinalIgnoreCase));
 
+Console.WriteLine($"[DEBUG] Raw arg: {args[0]}");
+Console.WriteLine($"[DEBUG] Full path: {filePath}");
+Console.WriteLine($"[DEBUG] Path length: {filePath.Length}");
+Console.WriteLine($"[DEBUG] Path exists (File.Exists): {File.Exists(filePath)}");
+Console.WriteLine($"[DEBUG] Directory exists: {Directory.Exists(Path.GetDirectoryName(filePath))}");
+Console.WriteLine($"[DEBUG] Drive info: {Path.GetPathRoot(filePath)}");
+
+try
+{
+    var di = new DriveInfo(Path.GetPathRoot(filePath)!);
+    Console.WriteLine($"[DEBUG] Drive type: {di.DriveType}, format: {di.DriveFormat}, ready: {di.IsReady}");
+    if (di.IsReady)
+        Console.WriteLine($"[DEBUG] Total size: {di.TotalSize}, available: {di.AvailableFreeSpace}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"[DEBUG] DriveInfo error: {ex.GetType().Name}: {ex.Message}");
+}
+
+try
+{
+    var dirPath = Path.GetDirectoryName(filePath)!;
+    if (Directory.Exists(dirPath))
+    {
+        var entries = Directory.GetFiles(dirPath);
+        Console.WriteLine($"[DEBUG] Files in directory: {entries.Length}");
+        foreach (var e in entries.Take(5))
+            Console.WriteLine($"[DEBUG]   {e}");
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"[DEBUG] Directory listing error: {ex.GetType().Name}: {ex.Message}");
+}
+
+try
+{
+    var fi = new FileInfo(filePath);
+    Console.WriteLine($"[DEBUG] FileInfo.Exists: {fi.Exists}");
+    Console.WriteLine($"[DEBUG] FileInfo.Attributes: {fi.Attributes}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"[DEBUG] FileInfo error: {ex.GetType().Name}: {ex.Message}");
+}
+
 if (!File.Exists(filePath))
 {
     Console.WriteLine($"ERROR: File not found: {filePath}");

@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
-using SimpleZipDrive.Services;
+using SimpleZipDrive.Core.Services;
 
 namespace SimpleZipDrive.Tests;
 
@@ -182,9 +182,9 @@ public class StatsServiceTests
     private static StatsService CreateStatsServiceWithClient(HttpClient client)
     {
         var service = new StatsService();
-        var oldClient = service._httpClient;
-        oldClient?.Dispose();
-        service._httpClient = client;
+        var oldClient = service.HttpClient;
+        oldClient.Dispose();
+        service.HttpClient = client;
         return service;
     }
 

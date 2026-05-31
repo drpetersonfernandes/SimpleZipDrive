@@ -1,4 +1,4 @@
-using SimpleZipDrive_WinFsp.Models;
+using SimpleZipDrive.Core.Models;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 

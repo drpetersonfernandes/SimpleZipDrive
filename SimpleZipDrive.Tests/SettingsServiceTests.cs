@@ -1,5 +1,5 @@
-using SimpleZipDrive.Models;
-using SimpleZipDrive.Services;
+using SimpleZipDrive.Core.Models;
+using SimpleZipDrive.Core.Services;
 
 namespace SimpleZipDrive.Tests;
 

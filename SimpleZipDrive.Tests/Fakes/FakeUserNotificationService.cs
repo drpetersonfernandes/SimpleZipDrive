@@ -1,6 +1,6 @@
 namespace SimpleZipDrive.Tests.Fakes;
 
-public class FakeUserNotificationService : Services.IUserNotificationService, SimpleZipDrive_WinFsp.Services.IUserNotificationService
+public class FakeUserNotificationService : Core.Services.IUserNotificationService
 {
     public bool ShowUpdateAvailableCalled { get; private set; }
     public Version? CalledWithCurrentVersion { get; private set; }

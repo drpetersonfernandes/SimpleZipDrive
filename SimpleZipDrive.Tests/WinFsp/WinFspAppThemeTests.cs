@@ -1,4 +1,4 @@
-using WinFspAppTheme = SimpleZipDrive_WinFsp.AppTheme;
+using WinFspAppTheme = SimpleZipDrive.Core.AppTheme;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 
@@ -56,5 +56,4 @@ public class WinFspAppThemeTests
     {
         Assert.Equal("  - ", WinFspAppTheme.Bullet);
     }
-
 }

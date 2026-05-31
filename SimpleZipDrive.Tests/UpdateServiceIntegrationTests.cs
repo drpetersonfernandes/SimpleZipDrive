@@ -9,15 +9,10 @@ namespace SimpleZipDrive.Tests;
 /// </summary>
 public class UpdateServiceIntegrationTests
 {
-    private readonly Fakes.FakeUserNotificationService _fakeNotificationService;
-    private readonly Version _currentVersion;
+    private readonly Fakes.FakeUserNotificationService _fakeNotificationService = new();
 
-    public UpdateServiceIntegrationTests()
-    {
-        _fakeNotificationService = new Fakes.FakeUserNotificationService();
-        _currentVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version
-                          ?? new Version(0, 0, 0, 0);
-    }
+    private readonly Version _currentVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version
+                                               ?? new Version(0, 0, 0, 0);
 
     #region Helper Methods
 
@@ -52,12 +47,12 @@ public class UpdateServiceIntegrationTests
     public async Task CheckForUpdateAsync_WhenNewerVersionAvailable_NotifiesUser()
     {
         // Arrange - use a version that's definitely higher than the current assembly version
-        var tagName = "release_99.0.1";
-        var htmlUrl = $"https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/{tagName}";
+        const string tagName = "release_99.0.1";
+        const string htmlUrl = $"https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/{tagName}";
         var json = CreateGitHubReleaseJson(tagName, htmlUrl);
 
         using var httpClient = CreateMockHttpClient(json);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -72,12 +67,12 @@ public class UpdateServiceIntegrationTests
     public async Task CheckForUpdateAsync_WhenMajorVersionUpdate_NotifiesUser()
     {
         // Arrange
-        var tagName = "release_99.0.0";
-        var htmlUrl = $"https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/{tagName}";
+        const string tagName = "release_99.0.0";
+        const string htmlUrl = $"https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/{tagName}";
         var json = CreateGitHubReleaseJson(tagName, htmlUrl);
 
         using var httpClient = CreateMockHttpClient(json);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -91,12 +86,12 @@ public class UpdateServiceIntegrationTests
     public async Task CheckForUpdateAsync_WhenMinorVersionUpdate_NotifiesUser()
     {
         // Arrange - use a version that's definitely higher than the current assembly version
-        var tagName = "v99.1.0";
-        var htmlUrl = $"https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/{tagName}";
+        const string tagName = "v99.1.0";
+        const string htmlUrl = $"https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/{tagName}";
         var json = CreateGitHubReleaseJson(tagName, htmlUrl);
 
         using var httpClient = CreateMockHttpClient(json);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -117,7 +112,7 @@ public class UpdateServiceIntegrationTests
         var json = CreateGitHubReleaseJson(tagName);
 
         using var httpClient = CreateMockHttpClient(json);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -130,11 +125,11 @@ public class UpdateServiceIntegrationTests
     public async Task CheckForUpdateAsync_WhenOlderVersion_DoesNotNotifyUser()
     {
         // Arrange
-        var tagName = "release_0.0.1";
+        const string tagName = "release_0.0.1";
         var json = CreateGitHubReleaseJson(tagName);
 
         using var httpClient = CreateMockHttpClient(json);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -152,7 +147,7 @@ public class UpdateServiceIntegrationTests
     {
         // Arrange
         using var httpClient = CreateMockHttpClient(new HttpRequestException("Network error"));
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -166,7 +161,7 @@ public class UpdateServiceIntegrationTests
     {
         // Arrange
         using var httpClient = CreateMockHttpClient(new TaskCanceledException("Request timed out"));
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -179,9 +174,9 @@ public class UpdateServiceIntegrationTests
     public async Task CheckForUpdateAsync_WhenServerReturnsError_DoesNotNotifyUser()
     {
         // Arrange
-        var json = "{}";
+        const string json = "{}";
         using var httpClient = CreateMockHttpClient(json, HttpStatusCode.NotFound);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -194,9 +189,9 @@ public class UpdateServiceIntegrationTests
     public async Task CheckForUpdateAsync_WhenServerReturnsServerError_DoesNotNotifyUser()
     {
         // Arrange
-        var json = "{}";
+        const string json = "{}";
         using var httpClient = CreateMockHttpClient(json, HttpStatusCode.InternalServerError);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -220,7 +215,7 @@ public class UpdateServiceIntegrationTests
         });
 
         using var httpClient = CreateMockHttpClient(json);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -240,7 +235,7 @@ public class UpdateServiceIntegrationTests
         });
 
         using var httpClient = CreateMockHttpClient(json);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -256,7 +251,7 @@ public class UpdateServiceIntegrationTests
         var json = CreateGitHubReleaseJson("invalid-tag-name");
 
         using var httpClient = CreateMockHttpClient(json);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -269,9 +264,9 @@ public class UpdateServiceIntegrationTests
     public async Task CheckForUpdateAsync_WhenResponseIsInvalidJson_DoesNotNotifyUser()
     {
         // Arrange
-        var json = "this is not valid json";
+        const string json = "this is not valid json";
         using var httpClient = CreateMockHttpClient(json);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act
         await updateService.CheckForUpdateAsync(CancellationToken.None);
@@ -291,11 +286,11 @@ public class UpdateServiceIntegrationTests
         var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        var tagName = "release_99.0.0";
+        const string tagName = "release_99.0.0";
         var json = CreateGitHubReleaseJson(tagName);
 
         using var httpClient = CreateMockHttpClient(json);
-        var updateService = new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, httpClient);
+        var updateService = new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, httpClient);
 
         // Act - UpdateService catches all exceptions internally, so no exception is thrown
         await updateService.CheckForUpdateAsync(cts.Token);
@@ -312,8 +307,8 @@ public class UpdateServiceIntegrationTests
     public void Constructor_WithNullNotificationService_ThrowsArgumentNullException()
     {
         // Arrange & Act & Assert
-        Assert.Throws<ArgumentNullException>(() =>
-            new SimpleZipDrive.Services.UpdateService(null!));
+        Assert.Throws<ArgumentNullException>(static () =>
+            new SimpleZipDrive.Core.Services.UpdateService(null!));
     }
 
     [Fact]
@@ -321,7 +316,7 @@ public class UpdateServiceIntegrationTests
     {
         // Arrange & Act & Assert
         Assert.Throws<ArgumentNullException>(() =>
-            new SimpleZipDrive.Services.UpdateService(_fakeNotificationService, null!));
+            new SimpleZipDrive.Core.Services.UpdateService(_fakeNotificationService, null!));
     }
 
     #endregion

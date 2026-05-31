@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Windows;
 using Fsp;
 using Microsoft.Win32;
-using SimpleZipDrive_WinFsp.Views;
 
 namespace SimpleZipDrive_WinFsp.Services;
 
@@ -347,11 +346,18 @@ public class MountService : IDisposable, IMountService
 
             try
             {
-                var winfspDebugLogPath = Path.Combine(
-                    Path.GetDirectoryName(DiagnosticLogger.LogFilePath) ?? AppDomain.CurrentDomain.BaseDirectory,
-                    $"winfsp_debug_{DateTime.Now:yyyyMMdd_HHmmss}.log");
-                FileSystemHost.SetDebugLogFile(winfspDebugLogPath);
-                DiagnosticLogger.Log($"  WinFsp debug log: {winfspDebugLogPath}");
+                try
+                {
+                    var winfspDebugLogPath = Path.Combine(
+                        Path.GetDirectoryName(DiagnosticLogger.LogFilePath) ?? AppDomain.CurrentDomain.BaseDirectory,
+                        $"winfsp_debug_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+                    FileSystemHost.SetDebugLogFile(winfspDebugLogPath);
+                    DiagnosticLogger.Log($"  WinFsp debug log: {winfspDebugLogPath}");
+                }
+                catch (Exception debugLogEx)
+                {
+                    DiagnosticLogger.Log($"  WinFsp debug log setup failed (non-fatal): {debugLogEx.Message}");
+                }
 
                 DiagnosticLogger.Log($"  Calling host.Mount(\"{mountPoint}\", DebugLog=-1)...");
                 var status = host.Mount(mountPoint, null, false, unchecked((uint)-1));

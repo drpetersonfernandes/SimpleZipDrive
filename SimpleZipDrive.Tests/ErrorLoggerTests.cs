@@ -1,3 +1,5 @@
+using SimpleZipDrive.Core;
+
 namespace SimpleZipDrive.Tests;
 
 [Collection("ErrorLogger")]
@@ -318,7 +320,7 @@ public class ErrorLoggerTests : IDisposable
 
         logger.Dispose();
 
-        var ex = Record.Exception(() => logger.Dispose());
+        var ex = Record.Exception(logger.Dispose);
         Assert.Null(ex);
     }
 
@@ -492,7 +494,7 @@ public class ErrorLoggerTests : IDisposable
     [Fact]
     public void FireAndForget_MethodExists()
     {
-        Action<Task> fireAndForget = ErrorLogger.FireAndForgetAsync;
+        var fireAndForget = ErrorLogger.FireAndForgetAsync;
 
         Assert.NotNull(fireAndForget);
     }

@@ -1,4 +1,4 @@
-using SimpleZipDrive.Services;
+using SimpleZipDrive.Core.Services;
 
 namespace SimpleZipDrive.Tests;
 

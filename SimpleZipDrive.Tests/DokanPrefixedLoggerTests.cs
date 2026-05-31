@@ -1,4 +1,3 @@
-using DokanNet.Logging;
 using SimpleZipDrive.Services;
 
 namespace SimpleZipDrive.Tests;
@@ -7,7 +6,7 @@ public class DokanPrefixedLoggerTests : IDisposable
 {
     private readonly StringWriter _consoleOutCapture;
     private readonly TextWriter _originalOut;
-    private readonly ILogger? _logger;
+    private readonly DokanPrefixedLogger? _logger;
 
     public DokanPrefixedLoggerTests()
     {

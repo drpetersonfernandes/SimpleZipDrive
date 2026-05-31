@@ -1,3 +1,4 @@
+using SimpleZipDrive.Core.Services;
 using SimpleZipDrive_WinFsp.Services;
 
 namespace SimpleZipDrive.Tests.WinFsp;
@@ -98,7 +99,7 @@ public class WinFspMountServiceTests : IDisposable
 
     private class WinFspFakeLoggingService : ILoggingService
     {
-        public System.Collections.ObjectModel.ObservableCollection<SimpleZipDrive_WinFsp.Models.LogEntry> LogEntries { get; } = [];
+        public System.Collections.ObjectModel.ObservableCollection<Core.Models.LogEntry> LogEntries { get; } = [];
 
         public void Log(string message)
         {
@@ -120,7 +121,7 @@ public class WinFspMountServiceTests : IDisposable
 
     private class WinFspFakeSettingsService : ISettingsService
     {
-        public SimpleZipDrive_WinFsp.Models.AppSettings Settings { get; } = new();
+        public Core.Models.AppSettings Settings { get; } = new();
 
         public void SaveSettings()
         {

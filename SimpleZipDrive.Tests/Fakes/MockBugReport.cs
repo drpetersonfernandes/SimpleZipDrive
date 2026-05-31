@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests.Fakes;
 
@@ -8,6 +9,6 @@ internal static class MockBugReport
     internal static void Initialize()
     {
         ErrorLogger.SuppressApiCalls = true;
-        SimpleZipDrive_WinFsp.ErrorLogger.SuppressApiCalls = true;
+        ErrorLogger.SuppressApiCalls = true;
     }
 }

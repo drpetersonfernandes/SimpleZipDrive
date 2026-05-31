@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
-using SimpleZipDrive.Models;
+using SimpleZipDrive.Core.Models;
+using SimpleZipDrive.Core.Services;
 using SimpleZipDrive.Services;
 
 namespace SimpleZipDrive.Tests;

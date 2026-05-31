@@ -1,4 +1,4 @@
-using WinFspLogEntry = SimpleZipDrive_WinFsp.Models.LogEntry;
+using WinFspLogEntry = SimpleZipDrive.Core.Models.LogEntry;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 

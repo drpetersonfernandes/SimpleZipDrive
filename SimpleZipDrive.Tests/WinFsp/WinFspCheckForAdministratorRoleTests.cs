@@ -5,7 +5,7 @@ public class WinFspCheckForAdministratorRoleTests
     [Fact]
     public void IsAdministrator_DoesNotThrow()
     {
-        var ex = Record.Exception(static () => SimpleZipDrive_WinFsp.Services.CheckForAdministratorRole.IsAdministrator());
+        var ex = Record.Exception(static () => Core.Services.CheckForAdministratorRole.IsAdministrator());
 
         Assert.Null(ex);
     }
@@ -13,7 +13,7 @@ public class WinFspCheckForAdministratorRoleTests
     [Fact]
     public void IsAdministrator_ReturnsBoolean()
     {
-        var result = SimpleZipDrive_WinFsp.Services.CheckForAdministratorRole.IsAdministrator();
+        var result = Core.Services.CheckForAdministratorRole.IsAdministrator();
 
         Assert.IsType<bool>(result);
     }

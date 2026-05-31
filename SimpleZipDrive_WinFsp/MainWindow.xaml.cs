@@ -65,7 +65,7 @@ public partial class MainWindow : IDisposable
             {
                 case NotifyCollectionChangedAction.Add:
                 {
-                    foreach (var newItem in e.NewItems?.Cast<Models.LogEntry>() ?? [])
+                    foreach (var newItem in e.NewItems?.Cast<LogEntry>() ?? [])
                     {
                         if (LogTextBox.Text.Length > 0)
                             LogTextBox.AppendText(Environment.NewLine);
