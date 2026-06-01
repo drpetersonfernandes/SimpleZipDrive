@@ -163,9 +163,13 @@ public class MountService : IDisposable, IMountService
         {
         }
 
+        // Give the driver time to finish pending callbacks before disposing resources
+        Thread.Sleep(500);
+
         _mountCancellation?.Dispose();
         _currentZipFs?.Dispose();
         _currentZipFs = null;
+        CurrentArchivePath = null;
         GC.SuppressFinalize(this);
     }
 
@@ -312,6 +316,7 @@ public class MountService : IDisposable, IMountService
 
     private async Task<bool> AttemptMountLifecycleAsync(string archivePath, string mountPoint, Dokan dokan, string archiveType)
     {
+        _mountCancellation?.Dispose();
         _mountCancellation = new CancellationTokenSource();
 
         try
@@ -331,7 +336,7 @@ public class MountService : IDisposable, IMountService
 
             try
             {
-                var volumeLabel = Path.GetFileNameWithoutExtension(archivePath);
+                var volumeLabel = ZipFsHelpers.SanitizeVolumeLabel(Path.GetFileNameWithoutExtension(archivePath));
                 _currentZipFs = new ZipFs(
                     fileStream,
                     mountPoint,
@@ -412,6 +417,7 @@ public class MountService : IDisposable, IMountService
             _loggingService.LogError($"Dokan error: {ex.Message}");
             ErrorLoggerStatic.ReportSilentException(ex, $"MountService.AttemptMountLifecycleAsync: DokanException mounting '{archivePath}' to '{mountPoint}'", true);
             ShowDokanDriverErrorDialog(ex.Message);
+            CurrentArchivePath = null;
             return false;
         }
         catch (Exception ex) when (ex.Message.Contains("drive", StringComparison.OrdinalIgnoreCase) ||
@@ -419,12 +425,14 @@ public class MountService : IDisposable, IMountService
         {
             _loggingService.LogError($"Mount error: {ex.Message}");
             ErrorLoggerStatic.ReportSilentException(ex, $"MountService.AttemptMountLifecycleAsync: Drive/mount error for '{archivePath}' to '{mountPoint}'", true);
+            CurrentArchivePath = null;
             return false;
         }
         catch (Exception ex)
         {
             _loggingService.LogError($"Mount error: {ex.Message}");
             ErrorLoggerStatic.LogErrorSync(ex, $"MountService.AttemptMountLifecycleAsync: Error mounting archive '{archivePath}' to '{mountPoint}'");
+            CurrentArchivePath = null;
             return false;
         }
     }

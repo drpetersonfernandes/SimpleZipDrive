@@ -37,7 +37,7 @@ public class ZipFileSystemCore : IDisposable
     private readonly object _memoryLock = new();
 
     private readonly Func<string?> _passwordProvider;
-    private volatile bool _disposed;
+    private int _disposedInt;
 
     public const string DefaultVolumeLabel = "SimpleZipDrive";
     public const long DefaultMaxMemorySize = 512L * 1024 * 1024;
@@ -103,7 +103,7 @@ public class ZipFileSystemCore : IDisposable
         }
     }
 
-    public bool IsDisposed => _disposed;
+    public bool IsDisposed => Volatile.Read(ref _disposedInt) != 0;
     public string ArchiveType { get; }
 
     public string TempDirectoryPath { get; }
@@ -427,8 +427,15 @@ public class ZipFileSystemCore : IDisposable
             }
         }
 
-        foreach (var dirPathKey in _directoryCreationTimes.Keys)
+        List<KeyValuePair<string, DateTime>> dirSnapshot;
+        lock (_archiveLock)
         {
+            dirSnapshot = _directoryCreationTimes.ToList();
+        }
+
+        foreach (var dirKvp in dirSnapshot)
+        {
+            var dirPathKey = dirKvp.Key;
             if (dirPathKey.Equals(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
             if (!dirPathKey.StartsWith(searchPrefix, StringComparison.OrdinalIgnoreCase)) continue;
 
@@ -438,9 +445,13 @@ public class ZipFileSystemCore : IDisposable
             var name = dirPathKey.Split('/').LastOrDefault(static s => !string.IsNullOrEmpty(s));
             if (!string.IsNullOrEmpty(name) && seenFileNames.Add(name))
             {
-                _directoryCreationTimes.TryGetValue(dirPathKey, out var ct);
-                _directoryLastWriteTimes.TryGetValue(dirPathKey, out var lwt);
-                _directoryLastAccessTimes.TryGetValue(dirPathKey, out var lat);
+                DateTime ct, lwt, lat;
+                lock (_archiveLock)
+                {
+                    _directoryCreationTimes.TryGetValue(dirPathKey, out ct);
+                    _directoryLastWriteTimes.TryGetValue(dirPathKey, out lwt);
+                    _directoryLastAccessTimes.TryGetValue(dirPathKey, out lat);
+                }
 
                 var implicitPath = searchPrefix + name;
                 result.Add(new EntryNode
@@ -804,7 +815,13 @@ public class ZipFileSystemCore : IDisposable
             if (_failedEntries.Count > 0)
             {
                 DiagnosticLogger.Log("  --- Failed entries ---");
-                foreach (var failed in _failedEntries)
+                string[] failedSnapshot;
+                lock (_archiveLock)
+                {
+                    failedSnapshot = _failedEntries.ToArray();
+                }
+
+                foreach (var failed in failedSnapshot)
                 {
                     DiagnosticLogger.Log($"  [FAILED] {failed}");
                 }
@@ -821,15 +838,10 @@ public class ZipFileSystemCore : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposedInt, 1) != 0)
             return;
 
         DiagnosticLogger.LogHeader("ZipFs DISPOSE");
-
-        lock (_archiveLock)
-        {
-            _disposed = true;
-        }
 
         _archive.Dispose();
         _sourceArchiveStream.Dispose();

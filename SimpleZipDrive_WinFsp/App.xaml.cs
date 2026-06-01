@@ -4,6 +4,7 @@ using System.Runtime.Loader;
 using System.Text;
 using System.Threading.Channels;
 using System.Windows;
+using SimpleZipDrive_WinFsp.Services;
 
 namespace SimpleZipDrive_WinFsp;
 

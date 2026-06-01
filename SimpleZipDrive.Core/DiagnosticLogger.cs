@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 
 namespace SimpleZipDrive.Core;
 
@@ -10,6 +9,7 @@ public static class DiagnosticLogger
 {
     private static readonly object Lock = new();
     internal static volatile bool Initialized;
+    private static StreamWriter? _writer;
 
     public static bool IsEnabled { get; internal set; }
 
@@ -75,11 +75,33 @@ public static class DiagnosticLogger
         {
             Directory.CreateDirectory(dir);
             LogFilePath = Path.Combine(dir, $"debug_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.log");
+
+            lock (Lock)
+            {
+                _writer?.Dispose();
+                _writer = new StreamWriter(LogFilePath, false, System.Text.Encoding.UTF8)
+                {
+                    AutoFlush = true
+                };
+            }
+
             Initialized = true;
         }
         catch
         {
             Initialized = false;
+        }
+    }
+
+    /// <summary>
+    /// Closes the underlying log file writer. Call during application shutdown.
+    /// </summary>
+    public static void Close()
+    {
+        lock (Lock)
+        {
+            _writer?.Dispose();
+            _writer = null;
         }
     }
 
@@ -93,15 +115,13 @@ public static class DiagnosticLogger
 
         var timestamp = DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture);
         var threadId = Environment.CurrentManagedThreadId;
-        var line = $"[{timestamp}][T{threadId}] {message}{Environment.NewLine}";
+        var line = $"[{timestamp}][T{threadId}] {message}";
 
         try
         {
             lock (Lock)
             {
-                var bytes = Encoding.UTF8.GetBytes(line);
-                using var fs = new FileStream(LogFilePath, FileMode.Append, FileAccess.Write, FileShare.Read | FileShare.Delete);
-                fs.Write(bytes, 0, bytes.Length);
+                _writer?.WriteLine(line);
             }
         }
         catch

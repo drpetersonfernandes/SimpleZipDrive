@@ -112,6 +112,6 @@ public partial class UpdateService : IUpdateService
         }
     }
 
-    [GeneratedRegex(@"\d+\.\d+(?:\.\d+)?", RegexOptions.Compiled)]
+    [GeneratedRegex(@"\d+\.\d+\.\d+", RegexOptions.Compiled)]
     private static partial Regex VersionRegex();
 }

@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using Fsp;
 using Fsp.Interop;
@@ -289,15 +291,22 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         try
         {
-            var readBuffer = new byte[Length];
-            var read = Core.ReadStream(stream, (long)Offset, readBuffer, 0, (int)Length);
-            if (read > 0)
+            var readBuffer = ArrayPool<byte>.Shared.Rent((int)Length);
+            try
             {
-                System.Runtime.InteropServices.Marshal.Copy(readBuffer, 0, Buffer, read);
-            }
+                var read = Core.ReadStream(stream, (long)Offset, readBuffer, 0, (int)Length);
+                if (read > 0)
+                {
+                    Marshal.Copy(readBuffer, 0, Buffer, read);
+                }
 
-            BytesTransferred = (uint)read;
-            return STATUS_SUCCESS;
+                BytesTransferred = (uint)read;
+                return STATUS_SUCCESS;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(readBuffer);
+            }
         }
         catch (Exception ex)
         {

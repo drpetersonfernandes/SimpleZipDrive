@@ -104,8 +104,8 @@ public class MountService : IDisposable, IMountService
                 // Expected if cancellation completes before delay
             }
 
-            _currentHost?.Dispose();
-            _currentHost = null;
+            var host = Interlocked.Exchange(ref _currentHost, null);
+            host?.Dispose();
             _currentZipFs?.Dispose();
             _currentZipFs = null;
 
@@ -142,11 +142,15 @@ public class MountService : IDisposable, IMountService
         {
         }
 
+        // Give the driver time to finish pending callbacks before disposing resources
+        Thread.Sleep(500);
+
         _mountCancellation?.Dispose();
-        _currentHost?.Dispose();
-        _currentHost = null;
+        var host = Interlocked.Exchange(ref _currentHost, null);
+        host?.Dispose();
         _currentZipFs?.Dispose();
         _currentZipFs = null;
+        CurrentArchivePath = null;
         GC.SuppressFinalize(this);
     }
 
@@ -328,6 +332,7 @@ public class MountService : IDisposable, IMountService
             return false;
         }
 
+        _mountCancellation?.Dispose();
         _mountCancellation = new CancellationTokenSource();
 
         try
@@ -347,7 +352,7 @@ public class MountService : IDisposable, IMountService
             try
             {
                 DiagnosticLogger.Log("  Creating ZipFs instance...");
-                var volumeLabel = Path.GetFileNameWithoutExtension(archivePath);
+                var volumeLabel = ZipFsHelpers.SanitizeVolumeLabel(Path.GetFileNameWithoutExtension(archivePath));
                 _currentZipFs = new ZipFs(
                     fileStream,
                     mountPoint,
@@ -433,7 +438,7 @@ public class MountService : IDisposable, IMountService
 
             _loggingService.Log($"Unmounting '{mountPoint}'...");
             DiagnosticLogger.LogSection($"UNMOUNT: {mountPoint}");
-            if (_currentHost == host)
+            if (Interlocked.CompareExchange(ref _currentHost, null, host) == host)
             {
                 try
                 {
@@ -444,6 +449,8 @@ public class MountService : IDisposable, IMountService
                     ErrorLoggerStatic.ReportSilentException(unmountEx, "host.Unmount() failed");
                     DiagnosticLogger.Log(unmountEx, "host.Unmount() failed (non-fatal)");
                 }
+
+                host.Dispose();
             }
 
             return true;
@@ -454,6 +461,7 @@ public class MountService : IDisposable, IMountService
             DiagnosticLogger.Log(ex, "Mount error (drive/mount)");
             _loggingService.LogError($"Mount error: {ex.Message}");
             ErrorLoggerStatic.ReportSilentException(ex, $"MountService.AttemptMountLifecycleAsync: Drive/mount error for '{archivePath}' to '{mountPoint}'", true);
+            CurrentArchivePath = null;
             return false;
         }
         catch (Exception ex)
@@ -461,6 +469,7 @@ public class MountService : IDisposable, IMountService
             DiagnosticLogger.Log(ex, "Mount error (general)");
             _loggingService.LogError($"Mount error: {ex.Message}");
             ErrorLoggerStatic.LogErrorSync(ex, $"MountService.AttemptMountLifecycleAsync: Error mounting archive '{archivePath}' to '{mountPoint}'");
+            CurrentArchivePath = null;
             return false;
         }
     }

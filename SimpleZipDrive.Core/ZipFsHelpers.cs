@@ -11,9 +11,11 @@ namespace SimpleZipDrive.Core;
 public static class ZipFsHelpers
 {
     // Cache for compiled regex patterns to avoid recompilation overhead.
-    // Uses a plain Dictionary guarded by a lock because all accesses are protected
-    // by the same lock to ensure atomic check-evict-add semantics.
-    private static readonly Dictionary<string, Regex> RegexCache = new();
+    // Uses a Dictionary + LinkedList for LRU eviction: the LinkedList tracks
+    // insertion/re-access order (most recent at the end), and when the cache
+    // is full the oldest entry (first in LinkedList) is evicted.
+    private static readonly Dictionary<string, (Regex Regex, LinkedListNode<string> Node)> RegexCache = new();
+    private static readonly LinkedList<string> RegexLruOrder = new();
     private static readonly object RegexCacheLock = new();
     private const int MaxRegexCacheSize = 100; // Limit cache size to prevent unbounded growth
 
@@ -233,20 +235,29 @@ public static class ZipFsHelpers
 
         lock (RegexCacheLock)
         {
-            if (RegexCache.TryGetValue(regexPattern, out var regex))
-                return regex.IsMatch(input);
+            if (RegexCache.TryGetValue(regexPattern, out var entry))
+            {
+                // Move to end of LRU list (most recently used)
+                RegexLruOrder.Remove(entry.Node);
+                var newNode = RegexLruOrder.AddLast(regexPattern);
+                RegexCache[regexPattern] = (entry.Regex, newNode);
+                return entry.Regex.IsMatch(input);
+            }
 
             if (RegexCache.Count >= MaxRegexCacheSize)
             {
-                var oldestKey = RegexCache.Keys.FirstOrDefault();
-                if (oldestKey != null)
+                // Evict the least recently used (first in the linked list)
+                var oldest = RegexLruOrder.First;
+                if (oldest != null)
                 {
-                    RegexCache.Remove(oldestKey);
+                    RegexLruOrder.RemoveFirst();
+                    RegexCache.Remove(oldest.Value);
                 }
             }
 
             var newRegex = new Regex(regexPattern, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(100));
-            RegexCache[regexPattern] = newRegex;
+            var lruNode = RegexLruOrder.AddLast(regexPattern);
+            RegexCache[regexPattern] = (newRegex, lruNode);
             return newRegex.IsMatch(input);
         }
     }
@@ -269,5 +280,53 @@ public static class ZipFsHelpers
             return true;
 
         return IsMatchSimple(name, pattern);
+    }
+
+    private const int MaxVolumeLabelLength = 32;
+    private static readonly char[] InvalidVolumeLabelChars = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+
+    /// <summary>
+    /// Sanitizes a string for use as a Windows volume label.
+    /// Strips invalid characters, trims whitespace, truncates to 32 characters,
+    /// and falls back to <see cref="ZipFileSystemCore.DefaultVolumeLabel"/> if the result is empty.
+    /// </summary>
+    internal static string SanitizeVolumeLabel(string? label)
+    {
+        if (string.IsNullOrWhiteSpace(label))
+            return ZipFileSystemCore.DefaultVolumeLabel;
+
+        Span<char> buffer = stackalloc char[label.Length];
+        var written = 0;
+
+        foreach (var ch in label)
+        {
+            if (Array.IndexOf(InvalidVolumeLabelChars, ch) < 0)
+            {
+                buffer[written++] = ch;
+            }
+        }
+
+        // Trim trailing spaces/dots (Windows trims these)
+        while (written > 0 && (buffer[written - 1] == ' ' || buffer[written - 1] == '.'))
+        {
+            written--;
+        }
+
+        // Truncate to NTFS limit
+        if (written > MaxVolumeLabelLength)
+        {
+            written = MaxVolumeLabelLength;
+        }
+
+        // Final trim in case truncation exposed trailing spaces/dots
+        while (written > 0 && (buffer[written - 1] == ' ' || buffer[written - 1] == '.'))
+        {
+            written--;
+        }
+
+        if (written == 0)
+            return ZipFileSystemCore.DefaultVolumeLabel;
+
+        return new string(buffer[..written]);
     }
 }

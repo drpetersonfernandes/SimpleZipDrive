@@ -8,4 +8,3 @@ global using SimpleZipDrive.Core;
 global using SimpleZipDrive.Core.Models;
 global using SimpleZipDrive.Core.Services;
 global using SimpleZipDrive.Core.Views;
-global using SimpleZipDrive_WinFsp.Services;
