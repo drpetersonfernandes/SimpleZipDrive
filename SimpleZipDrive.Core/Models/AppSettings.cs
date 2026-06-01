@@ -39,6 +39,8 @@ public class AppSettings
 
     public MountType DefaultMountType { get; set; } = MountType.DriveLetter;
 
+    public bool AutoOpenMountedDrive { get; set; }
+
     public static AppSettings Load()
     {
         AppSettings? settings = null;

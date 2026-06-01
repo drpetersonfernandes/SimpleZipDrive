@@ -16,6 +16,8 @@ public partial class SettingsWindow
         MountTypeComboBox.Items.Add("Drive Letter");
         MountTypeComboBox.Items.Add("Folder");
         MountTypeComboBox.SelectedIndex = _settingsService.Settings.DefaultMountType == MountType.Folder ? 1 : 0;
+
+        AutoOpenCheckBox.IsChecked = _settingsService.Settings.AutoOpenMountedDrive;
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -26,6 +28,7 @@ public partial class SettingsWindow
             {
                 _settingsService.Settings.MaxMemoryPerFileMb = value;
                 _settingsService.Settings.DefaultMountType = MountTypeComboBox.SelectedIndex == 1 ? MountType.Folder : MountType.DriveLetter;
+                _settingsService.Settings.AutoOpenMountedDrive = AutoOpenCheckBox.IsChecked == true;
                 _settingsService.SaveSettings();
 
                 var actualValue = _settingsService.Settings.MaxMemoryPerFileMb;
@@ -45,6 +48,8 @@ public partial class SettingsWindow
 
                 var mountType = _settingsService.Settings.DefaultMountType;
                 loggingService?.Log($"Default mount type set to: {(mountType == MountType.Folder ? "Folder" : "Drive Letter")}.");
+
+                loggingService?.Log($"Auto-open mounted drive: {(_settingsService.Settings.AutoOpenMountedDrive ? "Enabled" : "Disabled")}.");
 
                 DialogResult = true;
                 Close();

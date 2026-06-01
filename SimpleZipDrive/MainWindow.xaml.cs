@@ -502,6 +502,19 @@ public partial class MainWindow : IDisposable
             StatusText.Text = "Drive mounted - Click Unmount to unmount";
             UnmountButton.IsEnabled = true;
             MountButton.IsEnabled = false;
+
+            if (ServiceProvider.Get<ISettingsService>().Settings.AutoOpenMountedDrive
+                && _mountService.CurrentMountPoint is { } mountPoint)
+            {
+                try
+                {
+                    Process.Start("explorer.exe", mountPoint);
+                }
+                catch (Exception ex)
+                {
+                    _loggingService.LogError($"Failed to open drive in File Explorer: {ex.Message}");
+                }
+            }
         }
         else
         {

@@ -105,4 +105,29 @@ public class AppSettingsTests
 
         Assert.Equal(MountType.DriveLetter, settings.DefaultMountType);
     }
+
+    [Fact]
+    public void AutoOpenMountedDriveDefaultsToFalse()
+    {
+        var settings = new AppSettings();
+
+        Assert.False(settings.AutoOpenMountedDrive);
+    }
+
+    [Fact]
+    public void AutoOpenMountedDriveCanBeSetToTrue()
+    {
+        var settings = new AppSettings { AutoOpenMountedDrive = true };
+
+        Assert.True(settings.AutoOpenMountedDrive);
+    }
+
+    [Fact]
+    public void AutoOpenMountedDriveCanBeToggled()
+    {
+        var settings = new AppSettings { AutoOpenMountedDrive = true };
+        settings.AutoOpenMountedDrive = false;
+
+        Assert.False(settings.AutoOpenMountedDrive);
+    }
 }
