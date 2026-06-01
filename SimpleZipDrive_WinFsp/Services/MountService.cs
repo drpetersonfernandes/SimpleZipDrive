@@ -95,7 +95,14 @@ public class MountService : IDisposable, IMountService
 
             IsMounted = false;
 
-            if (cts != null) await Task.Delay(500, cts.Token);
+            try
+            {
+                if (cts != null) await Task.Delay(500, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected if cancellation completes before delay
+            }
 
             _currentHost?.Dispose();
             _currentHost = null;
