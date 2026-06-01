@@ -2,14 +2,12 @@
 
 A console tool for measuring cold-file I/O performance. Drops the Windows Standby List (page cache) between each test to ensure accurate, hardware-bound disk I/O measurements unaffected by OS-level caching.
 
-Requires **Administrator privileges** (manifest enforces `requireAdministrator`).
-
 ## Requirements
 
 - [.NET 10.0 Runtime](https://dotnet.microsoft.com/download)
 - `xxhsum.exe` shipped alongside the executable (bundled automatically on build)
 - `RAMMap64.exe` shipped alongside the executable (bundled automatically on build)
-- Administrator privileges
+- **Administrator privileges** (optional, required only for cache clearing — see below)
 
 ## Usage
 
@@ -33,7 +31,8 @@ By default, the Windows Standby List (page cache) is purged before **each** of t
 
 - **Primary**: `RAMMap64.exe -Et` (bundled) — purges the standby list via Sysinternals RAMMap.
 - **Fallback**: P/Invoke `NtSetSystemInformation` with `SystemMemoryListInformation` (0x50) — calls the undocumented but stable internal NT API directly.
-- If neither works (e.g., not running as Administrator), the test continues with a warning.
+- If neither works (e.g., not running as Administrator), the test continues with a warning and runs with warm cache.
+- Without Administrator privileges, cache clearing is automatically skipped and benchmarks run with warm cache. Use `--no-clear` to suppress the warning.
 
 ## Benchmarks
 

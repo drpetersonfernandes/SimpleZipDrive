@@ -1053,7 +1053,7 @@ public class ZipFsTests : IDisposable
         var entries = zipFs.Core.ArchiveEntries;
         Assert.NotNull(entries);
 
-        var result = ZipFsHelpers.IsDirectory((entries["/empty/"] as IArchiveEntry));
+        var result = ZipFsHelpers.IsDirectory(entries["/empty"]);
 
         Assert.True(result);
     }
@@ -1067,7 +1067,7 @@ public class ZipFsTests : IDisposable
         var entries = zipFs.Core.ArchiveEntries;
         Assert.NotNull(entries);
 
-        var result = ZipFsHelpers.IsDirectory((entries["/readme.txt"] as IArchiveEntry));
+        var result = ZipFsHelpers.IsDirectory(entries["/readme.txt"]);
 
         Assert.False(result);
     }
@@ -1435,7 +1435,7 @@ public class ZipFsTests : IDisposable
         Assert.True(entries.ContainsKey("/stored.txt"));
 
         var storedEntry = entries["/stored.txt"];
-        Assert.True(zipFs.IsStoredEntry((IArchiveEntry)storedEntry));
+        Assert.True(zipFs.Core.IsStoredEntry((IArchiveEntry)storedEntry));
     }
 
     private static string CreateTempStoredZipFile(string entryName, byte[] data)

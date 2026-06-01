@@ -1,7 +1,6 @@
 using System.Security.AccessControl;
 using System.Security.Principal;
 using DokanNet;
-using SharpCompress.Archives;
 using SharpCompress.Common;
 using SharpCompress.Compressors.Deflate;
 using DokanFileAccess = DokanNet.FileAccess;
@@ -26,11 +25,6 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public long MaxTotalMemoryCache => Core.MaxTotalMemoryCache;
     internal ZipFileSystemCore Core { get; }
-
-    internal bool IsStoredEntry(IArchiveEntry entry)
-    {
-        return Core.IsStoredEntry(entry);
-    }
 
     private NtStatus ValidatePathLength(string path, string operationName)
     {

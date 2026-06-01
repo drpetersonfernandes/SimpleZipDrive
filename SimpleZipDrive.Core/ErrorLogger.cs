@@ -168,13 +168,20 @@ public class ErrorLogger : IDisposable
         DiagnosticLogger.Log(ex, contextMessage);
 
         // Log to console immediately (synchronously)
-        Console.Error.WriteLine($"\n{AppTheme.Section("ERROR (SYNC)")}");
-        Console.Error.WriteLine($"Timestamp: {DateTime.Now}");
-        Console.Error.WriteLine($"Context: {contextMessage}");
-        Console.Error.WriteLine($"Exception Type: {ex.GetType().Name}");
-        Console.Error.WriteLine($"Exception Message: {ex.Message}");
-        Console.Error.WriteLine($"Stack Trace:\n{ex.StackTrace}");
-        Console.Error.WriteLine($"{AppTheme.Section("END ERROR (SYNC)")}\n");
+        try
+        {
+            Console.Error.WriteLine($"\n{AppTheme.Section("ERROR (SYNC)")}");
+            Console.Error.WriteLine($"Timestamp: {DateTime.Now}");
+            Console.Error.WriteLine($"Context: {contextMessage}");
+            Console.Error.WriteLine($"Exception Type: {ex.GetType().Name}");
+            Console.Error.WriteLine($"Exception Message: {ex.Message}");
+            Console.Error.WriteLine($"Stack Trace:\n{ex.StackTrace}");
+            Console.Error.WriteLine($"{AppTheme.Section("END ERROR (SYNC)")}\n");
+        }
+        catch (ObjectDisposedException)
+        {
+            // Console stream may be closed during shutdown or test teardown
+        }
 
         var logContent = FormatErrorMessage(ex, contextMessage);
 
@@ -184,7 +191,14 @@ public class ErrorLogger : IDisposable
         }
         catch (Exception writeEx)
         {
-            Console.Error.WriteLine($"Failed to write to local error log (sync): {writeEx.Message}");
+            try
+            {
+                Console.Error.WriteLine($"Failed to write to local error log (sync): {writeEx.Message}");
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
             WriteToCriticalLog(writeEx, $"Failed to write main error to '{ErrorLogFilePath}'. Original error: {ex.Message}");
         }
 
@@ -249,13 +263,20 @@ public class ErrorLogger : IDisposable
         contextMessage ??= "No additional context provided.";
 
         // Log to console immediately
-        await Console.Error.WriteLineAsync($"\n{AppTheme.Section("ERROR (ASYNC)")}");
-        await Console.Error.WriteLineAsync($"Timestamp: {DateTime.Now}");
-        await Console.Error.WriteLineAsync($"Context: {contextMessage}");
-        await Console.Error.WriteLineAsync($"Exception Type: {ex.GetType().Name}");
-        await Console.Error.WriteLineAsync($"Exception Message: {ex.Message}");
-        await Console.Error.WriteLineAsync($"Stack Trace:\n{ex.StackTrace}");
-        await Console.Error.WriteLineAsync($"{AppTheme.Section("END ERROR (ASYNC)")}\n");
+        try
+        {
+            await Console.Error.WriteLineAsync($"\n{AppTheme.Section("ERROR (ASYNC)")}");
+            await Console.Error.WriteLineAsync($"Timestamp: {DateTime.Now}");
+            await Console.Error.WriteLineAsync($"Context: {contextMessage}");
+            await Console.Error.WriteLineAsync($"Exception Type: {ex.GetType().Name}");
+            await Console.Error.WriteLineAsync($"Exception Message: {ex.Message}");
+            await Console.Error.WriteLineAsync($"Stack Trace:\n{ex.StackTrace}");
+            await Console.Error.WriteLineAsync($"{AppTheme.Section("END ERROR (ASYNC)")}\n");
+        }
+        catch (ObjectDisposedException)
+        {
+            // Console stream may be closed during shutdown or test teardown
+        }
 
         var logContent = FormatErrorMessage(ex, contextMessage);
 
@@ -265,7 +286,14 @@ public class ErrorLogger : IDisposable
         }
         catch (Exception writeEx)
         {
-            await Console.Error.WriteLineAsync($"Failed to write to local error log (async): {writeEx.Message}");
+            try
+            {
+                await Console.Error.WriteLineAsync($"Failed to write to local error log (async): {writeEx.Message}");
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
             WriteToCriticalLog(writeEx, $"Failed to write main error to '{ErrorLogFilePath}'. Original error: {ex.Message}");
         }
 
@@ -610,18 +638,6 @@ public static class ErrorLoggerStatic
     /// Gets the singleton ErrorLogger instance.
     /// </summary>
     public static ErrorLogger Instance => LazyInstance.Value;
-
-    /// <summary>
-    /// Disposes the singleton ErrorLogger instance if it has been created.
-    /// Call this during application shutdown to release the HttpClient.
-    /// </summary>
-    public static void DisposeInstance()
-    {
-        if (LazyInstance.IsValueCreated)
-        {
-            LazyInstance.Value.Dispose();
-        }
-    }
 
     /// <summary>
     /// Initializes global exception handlers to catch all unhandled exceptions.

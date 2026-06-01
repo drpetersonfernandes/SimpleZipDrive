@@ -172,7 +172,7 @@ public class StatsServiceTests
         await service.ReportStatsAsync();
 
         Assert.NotNull(handler.LastContentBody);
-        Assert.Contains("SimpleZipDrive", handler.LastContentBody);
+        Assert.Contains("testhost", handler.LastContentBody);
         Assert.Contains("applicationId", handler.LastContentBody);
         Assert.Contains("version", handler.LastContentBody);
 

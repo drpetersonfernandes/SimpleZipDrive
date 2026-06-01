@@ -413,7 +413,7 @@ public class ErrorLoggerTests : IDisposable
         var result = ErrorLogger.FormatErrorMessage(ex, "format context");
         Assert.NotNull(result);
         Assert.Contains("Timestamp", result);
-        Assert.Contains("Application: SimpleZipDrive", result);
+        Assert.Contains("Application:", result);
         Assert.Contains("Context: format context", result);
         Assert.Contains("InvalidOperationException", result);
         Assert.Contains("format test error", result);

@@ -43,10 +43,11 @@ public class WinFspLoggingServiceTests : IDisposable
     }
 
     [Fact]
-    public void Log_Null_ThrowsNullReferenceException()
+    public void Log_Null_DoesNotThrow()
     {
-        // WinFsp LoggingService doesn't have a null guard (unlike Dokan variant)
-        Assert.ThrowsAny<NullReferenceException>(() => _service.Log(null!));
+        var exception = Record.Exception(() => _service.Log(null!));
+        Assert.Null(exception);
+        Assert.Empty(_service.LogEntries);
     }
 
     [Fact]

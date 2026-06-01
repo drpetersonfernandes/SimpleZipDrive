@@ -53,11 +53,12 @@ public class AppSettingsTests
     }
 
     [Fact]
-    public void ZeroMemoryLimitCalculatesToZeroBytes()
+    public void ZeroMemoryLimitCalculatesToOneMegabyte()
     {
         var settings = new AppSettings { MaxMemoryPerFileMb = 0 };
 
-        Assert.Equal(0, settings.MaxMemoryPerFileBytes);
+        Assert.Equal(1 * 1024 * 1024, settings.MaxMemoryPerFileBytes);
+        Assert.Equal(1, settings.MaxMemoryPerFileMb);
     }
 
     [Fact]

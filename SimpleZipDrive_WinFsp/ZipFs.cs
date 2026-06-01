@@ -2,7 +2,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Security.AccessControl;
 using Fsp;
 using Fsp.Interop;
-using SharpCompress.Archives;
 using SharpCompress.Common;
 using SharpCompress.Compressors.Deflate;
 
@@ -13,19 +12,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 {
     private readonly Action<Exception?, string?> _logErrorAction;
 
-    internal long _currentMemoryUsage
-    {
-        get => Core.CurrentMemoryUsage;
-        set => Core.CurrentMemoryUsage = value;
-    }
-
-    internal long _maxTotalMemoryCache => Core.MaxTotalMemoryCache;
     internal ZipFileSystemCore Core { get; }
-
-    internal bool IsStoredEntry(IArchiveEntry entry)
-    {
-        return Core.IsStoredEntry(entry);
-    }
 
     public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize)
     {

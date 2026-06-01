@@ -50,11 +50,12 @@ public class WinFspAppSettingsTests
     }
 
     [Fact]
-    public void ZeroMemoryLimit_CalculatesToZeroBytes()
+    public void ZeroMemoryLimit_CalculatesToOneMegabyte()
     {
         var settings = new AppSettings { MaxMemoryPerFileMb = 0 };
 
-        Assert.Equal(0, settings.MaxMemoryPerFileBytes);
+        Assert.Equal(1 * 1024 * 1024, settings.MaxMemoryPerFileBytes);
+        Assert.Equal(1, settings.MaxMemoryPerFileMb);
     }
 
     [Fact]

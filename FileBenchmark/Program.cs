@@ -137,12 +137,6 @@ Console.WriteLine();
 Console.WriteLine(output);
 Console.WriteLine($"Results appended to: {resultFile}");
 PauseIfConsole();
-
-// ============================================================================
-// Cache Clearing
-// ============================================================================
-
-const int systemMemoryListInformation = 0x50;
 return;
 
 static bool IsAdmin()
@@ -192,6 +186,7 @@ static void ClearWindowsFileCache()
     }
 
     Console.Write("Purging Windows Standby List (ntdll)... ");
+    const int systemMemoryListInformation = 0x50;
     var status = NtSetSystemInformation(systemMemoryListInformation, IntPtr.Zero, 0);
     if (status == 0)
     {

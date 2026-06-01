@@ -491,7 +491,7 @@ public class WinFspZipFsTests : IDisposable
         IArchiveEntry? dirEntry = null;
         foreach (var kvp in entries)
         {
-            if (kvp.Key.EndsWith('/'))
+            if (ZipFsHelpers.IsDirectory(kvp.Value))
             {
                 dirEntry = kvp.Value;
                 break;
@@ -499,8 +499,7 @@ public class WinFspZipFsTests : IDisposable
         }
 
         Assert.NotNull(dirEntry);
-        var result = ZipFsHelpers.IsDirectory(dirEntry);
-        Assert.True(result);
+        Assert.True(ZipFsHelpers.IsDirectory(dirEntry));
     }
 
     [Fact]
@@ -650,7 +649,7 @@ public class WinFspZipFsTests : IDisposable
         var storedKey = entries.Keys.FirstOrDefault(static k => k.Contains("stored.txt"));
         Assert.NotNull(storedKey);
 
-        var result = zipFs.IsStoredEntry(entries[storedKey]);
+        var result = zipFs.Core.IsStoredEntry(entries[storedKey]);
         Assert.True(result);
     }
 
@@ -666,7 +665,7 @@ public class WinFspZipFsTests : IDisposable
         var readmeKey = entries.Keys.FirstOrDefault(static k => k.Contains("readme.txt"));
         Assert.NotNull(readmeKey);
 
-        var result = zipFs.IsStoredEntry(entries[readmeKey]);
+        var result = zipFs.Core.IsStoredEntry(entries[readmeKey]);
         Assert.False(result);
     }
 
@@ -718,16 +717,16 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void OpenOrCreateFile_Close_DecrementsMemoryUsage()
     {
-        _zipFs._currentMemoryUsage = 0L;
+        _zipFs.Core.CurrentMemoryUsage = 0L;
 
         InvokeOpenOrCreateFile("\\readme.txt", out var fileNode, out var fileDesc, out _, out _);
 
-        var afterOpen = _zipFs._currentMemoryUsage;
+        var afterOpen = _zipFs.Core.CurrentMemoryUsage;
         Assert.True(afterOpen > 0);
 
         InvokeClose(fileNode, fileDesc);
 
-        var afterClose = _zipFs._currentMemoryUsage;
+        var afterClose = _zipFs.Core.CurrentMemoryUsage;
         Assert.Equal(0, afterClose);
     }
 
@@ -736,8 +735,8 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void OpenOrCreateFile_MemoryThrottling_FallsBackToDiskCache()
     {
-        var maxTotal = _zipFs._maxTotalMemoryCache;
-        _zipFs._currentMemoryUsage = maxTotal - 5;
+        var maxTotal = _zipFs.Core.MaxTotalMemoryCache;
+        _zipFs.Core.CurrentMemoryUsage = maxTotal - 5;
 
         InvokeOpenOrCreateFile("\\readme.txt", out _, out var fileDesc, out _, out _);
 
@@ -745,7 +744,7 @@ public class WinFspZipFsTests : IDisposable
         Assert.IsType<FileStream>(fileDesc);
 
         ((IDisposable)fileDesc).Dispose();
-        _zipFs._currentMemoryUsage = 0L;
+        _zipFs.Core.CurrentMemoryUsage = 0L;
     }
 
     // ─── Read via reflection ───
