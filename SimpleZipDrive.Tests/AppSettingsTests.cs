@@ -80,4 +80,29 @@ public class AppSettingsTests
 
         Assert.Equal(100, settings.MaxMemoryPerFileMb);
     }
+
+    [Fact]
+    public void DefaultMountTypeIsDriveLetter()
+    {
+        var settings = new AppSettings();
+
+        Assert.Equal(MountType.DriveLetter, settings.DefaultMountType);
+    }
+
+    [Fact]
+    public void MountTypeCanBeSetToFolder()
+    {
+        var settings = new AppSettings { DefaultMountType = MountType.Folder };
+
+        Assert.Equal(MountType.Folder, settings.DefaultMountType);
+    }
+
+    [Fact]
+    public void MountTypeCanBeSetToDriveLetter()
+    {
+        var settings = new AppSettings { DefaultMountType = MountType.Folder };
+        settings.DefaultMountType = MountType.DriveLetter;
+
+        Assert.Equal(MountType.DriveLetter, settings.DefaultMountType);
+    }
 }

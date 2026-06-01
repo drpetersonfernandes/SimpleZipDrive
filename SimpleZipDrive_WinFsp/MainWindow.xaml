@@ -17,7 +17,10 @@
         <!-- Top Menu -->
         <Menu Grid.Row="0">
             <MenuItem Header="File" ToolTip="File operations">
-                <MenuItem Header="Mount Archive..." Click="Mount_ClickAsync" InputGestureText="Ctrl+M" ToolTip="Select a ZIP, 7Z, or RAR archive to mount as a virtual drive" />
+                <MenuItem Header="Mount Archive..." Click="Mount_ClickAsync" InputGestureText="Ctrl+M" ToolTip="Mount using the default mount type from settings" />
+                <Separator />
+                <MenuItem Header="Mount as Drive Letter..." Click="MountAsDrive_ClickAsync" ToolTip="Select an archive and mount as a virtual drive letter" />
+                <MenuItem Header="Mount as Folder..." Click="MountAsFolder_ClickAsync" ToolTip="Select an archive and mount as an NTFS folder" />
                 <Separator ToolTip="Separates mount and exit actions" />
                 <MenuItem Header="Exit" Click="Exit_Click" InputGestureText="Alt+F4" ToolTip="Close the application" />
             </MenuItem>

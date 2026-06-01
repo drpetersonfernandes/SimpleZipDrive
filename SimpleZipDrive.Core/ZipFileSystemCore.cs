@@ -39,8 +39,10 @@ public class ZipFileSystemCore : IDisposable
     private readonly Func<string?> _passwordProvider;
     private volatile bool _disposed;
 
-    public const string VolumeLabel = "SimpleZipDrive";
+    public const string DefaultVolumeLabel = "SimpleZipDrive";
     public const long DefaultMaxMemorySize = 512L * 1024 * 1024;
+
+    public string VolumeLabel { get; }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ZipFileSystemCore"/> class.
@@ -51,7 +53,8 @@ public class ZipFileSystemCore : IDisposable
         Action<Exception?, string?> logErrorAction,
         Func<string?> passwordProvider,
         string archiveType,
-        long maxMemorySize = DefaultMaxMemorySize)
+        long maxMemorySize = DefaultMaxMemorySize,
+        string? volumeLabel = null)
     {
         ZipFsHelpers.EnsureCleanupPerformed();
 
@@ -60,6 +63,7 @@ public class ZipFileSystemCore : IDisposable
         _passwordProvider = passwordProvider;
         ArchiveType = archiveType.ToLowerInvariant();
         MaxMemorySize = maxMemorySize;
+        VolumeLabel = volumeLabel ?? DefaultVolumeLabel;
         var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
         MaxTotalMemoryCache = (long)(availableMemory * 0.90);
 

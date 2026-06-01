@@ -202,7 +202,15 @@ public partial class MainWindow : IDisposable
 
             if (openFileDialog.ShowDialog() == true)
             {
-                await _mountService.MountAsync(openFileDialog.FileName);
+                var settings = ServiceProvider.Get<ISettingsService>().Settings;
+                if (settings.DefaultMountType == MountType.Folder)
+                {
+                    await MountAsFolderAsync(openFileDialog.FileName);
+                }
+                else
+                {
+                    await _mountService.MountAsync(openFileDialog.FileName);
+                }
             }
         }
         catch (Exception ex)
@@ -212,6 +220,87 @@ public partial class MainWindow : IDisposable
             MessageBox.Show($"Error mounting archive: {ex.Message}", "Mount Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
+    }
+
+    private async void MountAsDrive_ClickAsync(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_mountService.IsMounted)
+            {
+                MessageBox.Show("A drive is already mounted. Please unmount it first.", "Drive Already Mounted",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var openFileDialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Select Archive File",
+                Filter = "Archive files (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|All files (*.*)|*.*",
+                CheckFileExists = true,
+                CheckPathExists = true
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                await _mountService.MountAsync(openFileDialog.FileName);
+            }
+        }
+        catch (Exception ex)
+        {
+            const string context = "Error in method MountAsDrive_ClickAsync";
+            await ErrorLoggerStatic.LogErrorAsync(ex, context);
+            MessageBox.Show($"Error mounting archive: {ex.Message}", "Mount Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async void MountAsFolder_ClickAsync(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_mountService.IsMounted)
+            {
+                MessageBox.Show("A drive is already mounted. Please unmount it first.", "Drive Already Mounted",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var openFileDialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Select Archive File",
+                Filter = "Archive files (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|All files (*.*)|*.*",
+                CheckFileExists = true,
+                CheckPathExists = true
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                await MountAsFolderAsync(openFileDialog.FileName);
+            }
+        }
+        catch (Exception ex)
+        {
+            const string context = "Error in method MountAsFolder_ClickAsync";
+            await ErrorLoggerStatic.LogErrorAsync(ex, context);
+            MessageBox.Show($"Error mounting archive: {ex.Message}", "Mount Error",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private Task MountAsFolderAsync(string archivePath)
+    {
+        var folderDialog = new Microsoft.Win32.OpenFolderDialog
+        {
+            Title = "Select Mount Folder"
+        };
+
+        if (folderDialog.ShowDialog() == true)
+        {
+            return _mountService.MountAsync(archivePath, folderDialog.FolderName);
+        }
+
+        return Task.CompletedTask;
     }
 
     private async void Unmount_ClickAsync(object sender, RoutedEventArgs e)

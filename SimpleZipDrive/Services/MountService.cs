@@ -331,13 +331,15 @@ public class MountService : IDisposable, IMountService
 
             try
             {
+                var volumeLabel = Path.GetFileNameWithoutExtension(archivePath);
                 _currentZipFs = new ZipFs(
                     fileStream,
                     mountPoint,
                     ErrorLoggerStatic.LogErrorSync,
-                    () => PromptForPassword(archivePath, archiveType), // Password callback using WPF dialog
+                    () => PromptForPassword(archivePath, archiveType),
                     archiveType,
-                    effectiveMaxMemoryBytes);
+                    effectiveMaxMemoryBytes,
+                    volumeLabel);
             }
             catch
             {

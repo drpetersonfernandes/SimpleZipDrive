@@ -21,14 +21,16 @@ Unlike traditional archive utilities that extract the entire archive to a tempor
 ## 🚀 Key Features
 
 *   **Multi-Format Support:** Mount ZIP, 7Z, and RAR archives seamlessly.
-*   **Virtual Drive Mounting:** Mount any supported archive as a dedicated drive letter (e.g., `M:\`) or a folder path.
+*   **Virtual Drive Mounting:** Mount any supported archive as a dedicated drive letter (e.g., `M:\`) or a folder path. The drive label automatically shows the archive name.
+*   **Mount Type Choice:** Choose between drive letter or NTFS folder mounting via Settings, or use the dedicated `Mount as Drive Letter` and `Mount as Folder` menu items.
 *   **Hybrid Caching Engine:**
     *   **Stored Entries (ZIP):** Uncompressed entries are read directly from the source archive with zero-copy, zero-cache performance — no RAM or disk overhead.
     *   **Small Files:** Cached in-memory for near-instantaneous access.
     *   **Large Files (≥512 MB by default):** Automatically offloaded to a temporary disk cache to prevent RAM exhaustion. The per-file memory threshold can be adjusted via the Settings window.
 *   **Streaming Architecture:** The source archive is accessed via a direct file stream, supporting archives of virtually any size.
-*   **Zero-Configuration UI:** Supports drag-and-drop functionality for automatic mounting to the first available drive letter (M-Q).
+*   **Zero-Configuration UI:** Supports drag-and-drop functionality for automatic mounting to the first available drive letter (M-Q). The mounted drive label displays the archive filename.
 *   **Configurable Cache:** Open `Settings > RAM Limit` to adjust the per-file RAM cache limit. The value is automatically clamped to 90% of available system memory to prevent out-of-memory errors.
+*   **Configurable Mount Type:** Open `Settings` to choose the default mount type: **Drive Letter** (auto-selects M-Q) or **Folder** (browse for an NTFS directory). You can also use `File > Mount as Drive Letter` or `File > Mount as Folder` for one-time selection.
 *   **Encrypted Archive Support:** Prompts for passwords when accessing protected archives.
 *   **Automated Maintenance:** Integrated update checker (with MessageBox prompt before opening the browser) and automatic cleanup of temporary cache files upon unmounting. Also cleans up orphaned temp directories from previous sessions on startup.
 *   **Enterprise Logging:** Comprehensive error tracking with local log rotation and remote diagnostic reporting.
@@ -62,7 +64,13 @@ Both variants share the same UI and feature set; only the underlying filesystem 
 ### Method 1: Drag-and-Drop (Recommended)
 Simply drag any `.zip`, `.7z`, or `.rar` file and drop it onto `SimpleZipDrive.exe`. The application will automatically attempt to mount the archive to the first available drive letter in the sequence: `M:`, `N:`, `O:`, `P:`, `Q:`.
 
-### Method 2: Command Line Interface (CLI)
+### Method 2: Menu
+Use the `File` menu to mount archives:
+*   **Mount Archive** (`Ctrl+M`) - Uses the default mount type from Settings.
+*   **Mount as Drive Letter** - Prompts for a file, then auto-selects a drive letter.
+*   **Mount as Folder** - Prompts for a file, then lets you browse for an NTFS folder.
+
+### Method 3: Command Line Interface (CLI)
 For advanced users or automation, use the following syntax:
 
 ```shell

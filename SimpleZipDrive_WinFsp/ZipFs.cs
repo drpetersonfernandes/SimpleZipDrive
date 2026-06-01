@@ -14,9 +14,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
     internal ZipFileSystemCore Core { get; }
 
-    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize)
+    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize, string? volumeLabel = null)
     {
-        Core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize);
+        Core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize, volumeLabel);
         _logErrorAction = logErrorAction;
 
         Core.DumpEntries(30);
@@ -37,7 +37,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             host.PostCleanupWhenModifiedOnly = true;
             host.PassQueryDirectoryPattern = true;
             host.FlushAndPurgeOnCleanup = true;
-            host.FileSystemName = "SimpleZipDrive";
+            host.FileSystemName = Core.VolumeLabel;
             host.VolumeCreationTime = DateTimeToFileTimeUtc(DateTime.Now);
             host.VolumeSerialNumber = (uint)Environment.TickCount;
         }
@@ -389,8 +389,8 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         VolumeInfo = default;
         VolumeInfo.TotalSize = (ulong)Core.TotalSize;
         VolumeInfo.FreeSize = 0;
-        VolumeInfo.SetVolumeLabel(ZipFileSystemCore.VolumeLabel);
-        DiagnosticLogger.Log($"  GetVolumeInfo: label={ZipFileSystemCore.VolumeLabel}, size={VolumeInfo.TotalSize / 1024.0 / 1024.0:F2} MB");
+        VolumeInfo.SetVolumeLabel(Core.VolumeLabel);
+        DiagnosticLogger.Log($"  GetVolumeInfo: label={Core.VolumeLabel}, size={VolumeInfo.TotalSize / 1024.0 / 1024.0:F2} MB");
         return STATUS_SUCCESS;
     }
 

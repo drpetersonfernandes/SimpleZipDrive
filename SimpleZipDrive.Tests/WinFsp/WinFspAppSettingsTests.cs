@@ -69,4 +69,20 @@ public class WinFspAppSettingsTests
 
         Assert.True(settings.MaxMemoryPerFileMb <= maxAllowedMb);
     }
+
+    [Fact]
+    public void DefaultMountType_IsDriveLetter()
+    {
+        var settings = new AppSettings();
+
+        Assert.Equal(MountType.DriveLetter, settings.DefaultMountType);
+    }
+
+    [Fact]
+    public void MountType_CanBeSetToFolder()
+    {
+        var settings = new AppSettings { DefaultMountType = MountType.Folder };
+
+        Assert.Equal(MountType.Folder, settings.DefaultMountType);
+    }
 }

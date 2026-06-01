@@ -347,13 +347,15 @@ public class MountService : IDisposable, IMountService
             try
             {
                 DiagnosticLogger.Log("  Creating ZipFs instance...");
+                var volumeLabel = Path.GetFileNameWithoutExtension(archivePath);
                 _currentZipFs = new ZipFs(
                     fileStream,
                     mountPoint,
                     ErrorLoggerStatic.LogErrorSync,
                     () => PromptForPassword(archivePath, archiveType),
                     archiveType,
-                    effectiveMaxMemoryBytes);
+                    effectiveMaxMemoryBytes,
+                    volumeLabel);
                 DiagnosticLogger.Log("  ZipFs created successfully.");
             }
             catch

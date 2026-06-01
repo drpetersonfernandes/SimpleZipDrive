@@ -1,12 +1,13 @@
 <Window x:Class="SimpleZipDrive.Core.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Settings - RAM Limit" Height="260" Width="420"
+        Title="Settings" Height="340" Width="420"
         WindowStartupLocation="CenterOwner"
          Style="{StaticResource ModernWindowStyle}">
 
     <Grid Margin="20">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -15,16 +16,16 @@
 
         <!-- Header -->
         <TextBlock Grid.Row="0" 
-                   Text="RAM Limit Per File" 
+                   Text="Settings" 
                    Style="{StaticResource HeaderTextBlockStyle}"
                    Margin="0,0,0,15"
-                   ToolTip="Configure memory usage limits for mounted archives" />
+                   ToolTip="Application settings" />
 
-        <!-- Settings Group -->
+        <!-- RAM Limit Group -->
         <GroupBox Grid.Row="1" 
                   Header="Memory Settings" 
                   Padding="15" 
-                  Margin="0,0,0,15"
+                  Margin="0,0,0,10"
                   ToolTip="Memory configuration settings">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -64,8 +65,35 @@
             </Grid>
         </GroupBox>
 
+        <!-- Mount Type Group -->
+        <GroupBox Grid.Row="2" 
+                  Header="Mount Settings" 
+                  Padding="15" 
+                  Margin="0,0,0,15"
+                  ToolTip="Mount type configuration settings">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Label Grid.Column="0" 
+                       Content="Default mount type:" 
+                       VerticalAlignment="Center" 
+                       Margin="0,0,10,0"
+                       ToolTip="Default method for mounting archives" />
+                
+                <ComboBox x:Name="MountTypeComboBox" 
+                          Grid.Column="1" 
+                          Width="180" 
+                          Height="32"
+                          VerticalContentAlignment="Center"
+                          ToolTip="Select the default mount type for archives" />
+            </Grid>
+        </GroupBox>
+
         <!-- Buttons -->
-        <StackPanel Grid.Row="3" 
+        <StackPanel Grid.Row="4" 
                     Orientation="Horizontal" 
                     HorizontalAlignment="Right">
             <Button Content="_Save" 
@@ -73,7 +101,7 @@
                     Width="85" 
                     Margin="0,0,10,0"
                     Style="{StaticResource PrimaryButtonStyle}"
-                    ToolTip="Save the RAM limit setting" />
+                    ToolTip="Save settings" />
             <Button Content="_Cancel" 
                     Click="Cancel_Click" 
                     Width="85"

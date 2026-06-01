@@ -74,7 +74,7 @@ public static class DiagnosticLogger
         try
         {
             Directory.CreateDirectory(dir);
-            LogFilePath = Path.Combine(dir, $"debug_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+            LogFilePath = Path.Combine(dir, $"debug_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.log");
             Initialized = true;
         }
         catch
@@ -99,7 +99,9 @@ public static class DiagnosticLogger
         {
             lock (Lock)
             {
-                File.AppendAllText(LogFilePath, line, Encoding.UTF8);
+                var bytes = Encoding.UTF8.GetBytes(line);
+                using var fs = new FileStream(LogFilePath, FileMode.Append, FileAccess.Write, FileShare.Read | FileShare.Delete);
+                fs.Write(bytes, 0, bytes.Length);
             }
         }
         catch

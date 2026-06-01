@@ -11,9 +11,9 @@ public class ZipFs : IDokanOperations, IDisposable
 {
     private readonly Action<Exception?, string?> _logErrorAction;
 
-    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize)
+    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize, string? volumeLabel = null)
     {
-        Core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize);
+        Core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize, volumeLabel);
         _logErrorAction = logErrorAction;
     }
 
@@ -346,7 +346,7 @@ public class ZipFs : IDokanOperations, IDisposable
         out string fileSystemName, out uint maximumComponentLength, IDokanFileInfo info)
     {
         DiagnosticLogger.Log("  GetVolumeInformation: ENTER");
-        volumeLabel = ZipFileSystemCore.VolumeLabel;
+        volumeLabel = Core.VolumeLabel;
         features = FileSystemFeatures.ReadOnlyVolume | FileSystemFeatures.CasePreservedNames | FileSystemFeatures.UnicodeOnDisk;
         fileSystemName = "ZipFS";
         maximumComponentLength = 255;

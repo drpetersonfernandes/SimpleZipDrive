@@ -2,6 +2,12 @@ using System.Text.Json;
 
 namespace SimpleZipDrive.Core.Models;
 
+public enum MountType
+{
+    DriveLetter,
+    Folder
+}
+
 public class AppSettings
 {
     private static readonly string SettingsDirectory = Path.Combine(
@@ -30,6 +36,8 @@ public class AppSettings
     }
 
     public long MaxMemoryPerFileBytes => MaxMemoryPerFileMb * 1024L * 1024L;
+
+    public MountType DefaultMountType { get; set; } = MountType.DriveLetter;
 
     public static AppSettings Load()
     {
