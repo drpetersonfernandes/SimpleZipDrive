@@ -18,10 +18,10 @@ public static class DiagnosticLogger
     /// <summary>
     /// Deletes all pre-existing log files (debug_*.log and error.log) from the application folder.
     /// </summary>
-    /// <param name="logDir">Directory to clean. Defaults to the application base directory.</param>
+    /// <param name="logDir">Directory to clean. Defaults to the log directory under the system temp folder.</param>
     public static void CleanupOldLogs(string? logDir = null)
     {
-        var dir = logDir ?? AppDomain.CurrentDomain.BaseDirectory;
+        var dir = logDir ?? GetDefaultLogDirectory();
         try
         {
             foreach (var file in Directory.GetFiles(dir, "debug_*.log"))
@@ -55,17 +55,22 @@ public static class DiagnosticLogger
         }
     }
 
+    private static string GetDefaultLogDirectory()
+    {
+        return Path.Combine(Path.GetTempPath(), "SimpleZipDrive", "Logs");
+    }
+
     /// <summary>
     /// Initializes the diagnostic logger with an optional directory and enabled flag.
     /// </summary>
-    /// <param name="logDir">Directory for the log file. Defaults to the application base directory.</param>
+    /// <param name="logDir">Directory for the log file. Defaults to the log directory under the system temp folder.</param>
     /// <param name="enabled">Whether logging is enabled.</param>
     public static void Initialize(string? logDir = null, bool enabled = true)
     {
         IsEnabled = enabled;
         if (!enabled) return;
 
-        var dir = logDir ?? AppDomain.CurrentDomain.BaseDirectory;
+        var dir = logDir ?? GetDefaultLogDirectory();
         try
         {
             Directory.CreateDirectory(dir);
