@@ -1,4 +1,5 @@
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -293,18 +294,16 @@ public partial class MainWindow : IDisposable
     {
         try
         {
-            Dispatcher.Invoke(() =>
+            // Update UI directly since we're on the UI thread context
+            IsEnabled = false;
+            if (_mountService.IsMounted)
             {
-                IsEnabled = false;
-                if (_mountService.IsMounted)
-                {
-                    StatusText.Text = "Unmounting drive and shutting down...";
-                }
-                else
-                {
-                    StatusText.Text = "Shutting down...";
-                }
-            });
+                StatusText.Text = "Unmounting drive and shutting down...";
+            }
+            else
+            {
+                StatusText.Text = "Shutting down...";
+            }
 
             if (_mountService.IsMounted)
             {
@@ -331,14 +330,9 @@ public partial class MainWindow : IDisposable
             App.ShutdownCts.Cancel();
 
             Closing -= MainWindow_Closing;
-            Application.Current.Shutdown();
 
-            // Safety net: if Shutdown() didn't work within 3 seconds, force exit
-            _ = Task.Run(static async () =>
-            {
-                await Task.Delay(TimeSpan.FromSeconds(3));
-                ForceExit();
-            });
+            // Force terminate the process to ensure full closure
+            ForceExit();
         }
         catch (Exception ex)
         {
@@ -351,11 +345,19 @@ public partial class MainWindow : IDisposable
     {
         try
         {
-            Environment.Exit(0);
+            // Kill the process to ensure full termination
+            Process.GetCurrentProcess().Kill();
         }
         catch
         {
-            Environment.FailFast(null);
+            try
+            {
+                Environment.Exit(0);
+            }
+            catch
+            {
+                Environment.FailFast(null);
+            }
         }
     }
 

@@ -520,19 +520,33 @@ public class ErrorLogger : IDisposable
 
         try
         {
-            var (version, _, _) = GetBasicEnvironmentInfo();
+            var (version, osDescription, _) = GetBasicEnvironmentInfo();
             var environmentDetails = GetEnvironmentDetails();
             var errorDetails = GetErrorDetails(ex, contextMessage);
             var exceptionDetails = GetExceptionDetails(ex);
 
+            // Combine all sections into the message field (API max 4000 chars)
+            var fullMessage = new StringBuilder();
+            fullMessage.Append(environmentDetails);
+            fullMessage.Append(errorDetails);
+            fullMessage.Append(exceptionDetails);
+            var messageText = fullMessage.ToString();
+
+            // Short environment summary for the environment field (API max 50 chars)
+            var bitness = Environment.Is64BitOperatingSystem ? "64-bit" : "32-bit";
+            var envSummary = $"{osDescription} {bitness}";
+            if (envSummary.Length > 50)
+            {
+                envSummary = envSummary[..47] + "...";
+            }
+
             var payload = new
             {
-                message = errorDetails,
+                message = messageText,
                 applicationName = ApplicationName,
                 version,
                 userInfo = contextMessage,
-                environment = environmentDetails,
-                exception = exceptionDetails,
+                environment = envSummary,
                 stackTrace = ex.StackTrace ?? "No stack trace available"
             };
             var jsonPayload = JsonSerializer.Serialize(payload);

@@ -1923,4 +1923,160 @@ public class ZipFsTests : IDisposable
         Assert.Throws<NotSupportedException>(() =>
             new ZipFs(zipStream, "M:\\", static (_, _) => { }, static () => null, ""));
     }
+
+    // ─── GetParentPath tests ───
+
+    [Fact]
+    public void GetParentPath_Root_ReturnsNull()
+    {
+        var result = ZipFsHelpers.GetParentPath("/");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetParentPath_DirectFileUnderRoot_ReturnsRoot()
+    {
+        var result = ZipFsHelpers.GetParentPath("/file.txt");
+
+        Assert.Equal("/", result);
+    }
+
+    [Fact]
+    public void GetParentPath_NestedFile_ReturnsParentDirectory()
+    {
+        var result = ZipFsHelpers.GetParentPath("/dir/subdir/file.txt");
+
+        Assert.Equal("/dir/subdir", result);
+    }
+
+    [Fact]
+    public void GetParentPath_SingleDirectoryLevel_ReturnsRoot()
+    {
+        var result = ZipFsHelpers.GetParentPath("/mydir");
+
+        Assert.Equal("/", result);
+    }
+
+    [Fact]
+    public void GetParentPath_TrailingSlash_StripsTrailingSlash()
+    {
+        var result = ZipFsHelpers.GetParentPath("/dir/subdir/");
+
+        Assert.Equal("/dir/subdir", result);
+    }
+
+    [Fact]
+    public void GetParentPath_DeeplyNested_ReturnsCorrectParent()
+    {
+        var result = ZipFsHelpers.GetParentPath("/a/b/c/d/e/f");
+
+        Assert.Equal("/a/b/c/d/e", result);
+    }
+
+    // ─── IsNameMatch tests ───
+
+    [Fact]
+    public void IsNameMatch_NullPattern_ReturnsTrue()
+    {
+        var result = ZipFsHelpers.IsNameMatch("file.txt", null!);
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_EmptyPattern_ReturnsTrue()
+    {
+        var result = ZipFsHelpers.IsNameMatch("file.txt", "");
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_StarPattern_ReturnsTrue()
+    {
+        var result = ZipFsHelpers.IsNameMatch("anything.here", "*");
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_StarDotStarPattern_ReturnsTrue()
+    {
+        var result = ZipFsHelpers.IsNameMatch("document.pdf", "*.*");
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_ExactMatch_ReturnsTrue()
+    {
+        var result = ZipFsHelpers.IsNameMatch("readme.txt", "readme.txt");
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_WildcardExtensionMatches()
+    {
+        var result = ZipFsHelpers.IsNameMatch("report.txt", "*.txt");
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_WildcardExtensionDoesNotMatch()
+    {
+        var result = ZipFsHelpers.IsNameMatch("report.bin", "*.txt");
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_WildcardPrefixMatches()
+    {
+        var result = ZipFsHelpers.IsNameMatch("data.csv", "data.*");
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_WildcardPrefixDoesNotMatch()
+    {
+        var result = ZipFsHelpers.IsNameMatch("info.csv", "data.*");
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_QuestionMarkMatchesSingleCharacter()
+    {
+        var result = ZipFsHelpers.IsNameMatch("abc.txt", "abc.tx?");
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_QuestionMarkNoMatchForExtraChar()
+    {
+        var result = ZipFsHelpers.IsNameMatch("abcd.txt", "abc.tx?");
+
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_ComplexPatternWithStarAndQuestionMark()
+    {
+        var result = ZipFsHelpers.IsNameMatch("log_2025_01_15.txt", "log_????_??_??.*");
+
+        Assert.True(result);
+    }
+
+    [Fact]
+    public void IsNameMatch_EmptyFileNameMatchesStar()
+    {
+        var result = ZipFsHelpers.IsNameMatch("", "*");
+
+        Assert.True(result);
+    }
 }

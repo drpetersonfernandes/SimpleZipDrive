@@ -245,8 +245,9 @@ public class MountService : IDisposable, IMountService
             {
                 dokan = new Dokan(logger);
             }
-            catch (DllNotFoundException)
+            catch (DllNotFoundException ex)
             {
+                ErrorLoggerStatic.ReportSilentException(ex, "Dokan driver not found during auto-mount");
                 _loggingService.LogError("Dokan driver not found. Unable to mount archive.");
                 ShowDokanNotInstalledDialog();
                 return;
@@ -282,8 +283,9 @@ public class MountService : IDisposable, IMountService
         {
             dokan = new Dokan(logger);
         }
-        catch (DllNotFoundException)
+        catch (DllNotFoundException ex)
         {
+            ErrorLoggerStatic.ReportSilentException(ex, "Dokan driver not found during specified mount");
             _loggingService.LogError("Dokan driver not found. Unable to mount archive.");
             ShowDokanNotInstalledDialog();
             return;

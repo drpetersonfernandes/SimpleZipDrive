@@ -313,6 +313,7 @@ public class MountService : IDisposable, IMountService
         }
         catch (Exception ex)
         {
+            ErrorLoggerStatic.ReportSilentException(ex, $"Failed to create mount directory '{mountPoint}'");
             DiagnosticLogger.Log(ex, $"Failed to create mount directory '{mountPoint}'");
             _loggingService.LogError($"Error: Failed to create mount directory '{mountPoint}'. {ex.Message}");
             return false;
@@ -429,6 +430,7 @@ public class MountService : IDisposable, IMountService
                 }
                 catch (Exception unmountEx)
                 {
+                    ErrorLoggerStatic.ReportSilentException(unmountEx, "host.Unmount() failed");
                     DiagnosticLogger.Log(unmountEx, "host.Unmount() failed (non-fatal)");
                 }
             }

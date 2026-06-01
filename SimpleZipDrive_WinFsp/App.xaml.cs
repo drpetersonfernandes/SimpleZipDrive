@@ -122,6 +122,7 @@ public partial class App
         }
         catch (Exception ex)
         {
+            ErrorLoggerStatic.ReportSilentException(ex, "WinFsp assembly preload failed");
             DiagnosticLogger.Log($"  WinFsp assembly preload failed: {ex.Message}");
         }
     }
