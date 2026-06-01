@@ -1,11 +1,18 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Text;
 
 if (args.Length == 0)
 {
     Console.WriteLine("Usage: drop a file onto this executable, or run: FileBenchmark <filepath> [--no-clear]");
+    Console.WriteLine();
+    Console.WriteLine("Options:");
+    Console.WriteLine("  --no-clear    Skip cache clearing (warm cache benchmark)");
+    Console.WriteLine();
+    Console.WriteLine("Note: Cache clearing requires Administrator privileges.");
+    Console.WriteLine("      Without admin, benchmarks run with warm cache automatically.");
     Console.WriteLine("Press any key to exit...");
     PauseIfConsole();
     return;
@@ -13,6 +20,16 @@ if (args.Length == 0)
 
 var filePath = Path.GetFullPath(args[0]);
 var skipCacheClear = args.Any(static a => a.Equals("--no-clear", StringComparison.OrdinalIgnoreCase));
+
+var isRunningAsAdmin = IsAdmin();
+Console.WriteLine($"[DEBUG] Running as admin: {isRunningAsAdmin}");
+
+if (!skipCacheClear && !isRunningAsAdmin)
+{
+    Console.WriteLine("WARNING: Not running as Administrator. Cache clearing will be skipped.");
+    Console.WriteLine("         Benchmarks will run with warm cache. Use --no-clear to suppress this warning.");
+    skipCacheClear = true;
+}
 
 Console.WriteLine($"[DEBUG] Raw arg: {args[0]}");
 Console.WriteLine($"[DEBUG] Full path: {filePath}");
@@ -88,6 +105,10 @@ if (!skipCacheClear)
 {
     sb.AppendLine("Cache: cleared before each test (Windows Standby List purged)");
 }
+else
+{
+    sb.AppendLine("Cache: warm (not cleared)");
+}
 
 // ===== 1. Raw Sequential Read =====
 if (!skipCacheClear) ClearWindowsFileCache();
@@ -123,6 +144,13 @@ PauseIfConsole();
 
 const int systemMemoryListInformation = 0x50;
 return;
+
+static bool IsAdmin()
+{
+    using var identity = WindowsIdentity.GetCurrent();
+    var principal = new WindowsPrincipal(identity);
+    return principal.IsInRole(WindowsBuiltInRole.Administrator);
+}
 
 static void PauseIfConsole()
 {
