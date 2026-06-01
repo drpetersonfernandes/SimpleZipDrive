@@ -137,7 +137,9 @@ public class MountService : IDisposable, IMountService
 
         _mountCancellation?.Dispose();
         _currentHost?.Dispose();
+        _currentHost = null;
         _currentZipFs?.Dispose();
+        _currentZipFs = null;
         GC.SuppressFinalize(this);
     }
 
@@ -456,7 +458,10 @@ public class MountService : IDisposable, IMountService
 
     private static bool IsDriveLetterMountPoint(string mountPoint)
     {
-        return mountPoint is [_, ':'] && char.IsLetter(mountPoint[0]);
+        if (mountPoint.Length < 2) return false;
+        if (!char.IsLetter(mountPoint[0])) return false;
+
+        return mountPoint[1] == ':';
     }
 
     private void OnMountStatusChanged()

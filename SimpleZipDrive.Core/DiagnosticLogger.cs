@@ -11,7 +11,7 @@ public static class DiagnosticLogger
     private static readonly object Lock = new();
     internal static volatile bool Initialized;
 
-    public static bool IsEnabled { get; internal set; } = true;
+    public static bool IsEnabled { get; internal set; }
 
     public static string? LogFilePath { get; internal set; }
 

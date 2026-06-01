@@ -161,6 +161,7 @@ public class MountService : IDisposable, IMountService
 
         _mountCancellation?.Dispose();
         _currentZipFs?.Dispose();
+        _currentZipFs = null;
         GC.SuppressFinalize(this);
     }
 
@@ -475,33 +476,33 @@ internal sealed class DokanPrefixedLogger : ILogger, IDisposable
 
     public void Debug(string message, params object[] args)
     {
-        Log(message, args);
+        Log("DEBUG", message, args);
     }
 
     public void Info(string message, params object[] args)
     {
-        Log(message, args);
+        Log("INFO", message, args);
     }
 
     public void Warn(string message, params object[] args)
     {
-        Log(message, args);
+        Log("WARN", message, args);
     }
 
     public void Error(string message, params object[] args)
     {
-        Log(message, args);
+        Log("ERROR", message, args);
     }
 
     public void Fatal(string message, params object[] args)
     {
-        Log(message, args);
+        Log("FATAL", message, args);
     }
 
-    private void Log(string message, params object[] args)
+    private void Log(string level, string message, params object[] args)
     {
         var formatted = args.Length > 0 ? string.Format(CultureInfo.InvariantCulture, message, args) : message;
-        Console.WriteLine(_prefix + formatted);
+        Console.WriteLine($"{_prefix}[{level}] {formatted}");
     }
 
     public void Dispose()

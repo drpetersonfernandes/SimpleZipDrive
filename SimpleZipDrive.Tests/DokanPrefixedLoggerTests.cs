@@ -31,7 +31,7 @@ public class DokanPrefixedLoggerTests : IDisposable
         if (_logger == null) return;
 
         _logger.Debug("test message");
-        Assert.Contains("[DRIVE] test message", _consoleOutCapture.ToString());
+        Assert.Contains("[DRIVE] [DEBUG] test message", _consoleOutCapture.ToString());
     }
 
     [Fact]
@@ -40,7 +40,7 @@ public class DokanPrefixedLoggerTests : IDisposable
         if (_logger == null) return;
 
         _logger.Info("info message");
-        Assert.Contains("[DRIVE] info message", _consoleOutCapture.ToString());
+        Assert.Contains("[DRIVE] [INFO] info message", _consoleOutCapture.ToString());
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public class DokanPrefixedLoggerTests : IDisposable
         if (_logger == null) return;
 
         _logger.Warn("warning!");
-        Assert.Contains("[DRIVE] warning!", _consoleOutCapture.ToString());
+        Assert.Contains("[DRIVE] [WARN] warning!", _consoleOutCapture.ToString());
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class DokanPrefixedLoggerTests : IDisposable
         if (_logger == null) return;
 
         _logger.Error("error occurred");
-        Assert.Contains("[DRIVE] error occurred", _consoleOutCapture.ToString());
+        Assert.Contains("[DRIVE] [ERROR] error occurred", _consoleOutCapture.ToString());
     }
 
     [Fact]
@@ -67,7 +67,7 @@ public class DokanPrefixedLoggerTests : IDisposable
         if (_logger == null) return;
 
         _logger.Fatal("fatal crash");
-        Assert.Contains("[DRIVE] fatal crash", _consoleOutCapture.ToString());
+        Assert.Contains("[DRIVE] [FATAL] fatal crash", _consoleOutCapture.ToString());
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class DokanPrefixedLoggerTests : IDisposable
         if (_logger == null) return;
 
         _logger.Debug("value is {0}", 42);
-        Assert.Contains("[DRIVE] value is 42", _consoleOutCapture.ToString());
+        Assert.Contains("[DRIVE] [DEBUG] value is 42", _consoleOutCapture.ToString());
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public class DokanPrefixedLoggerTests : IDisposable
         if (_logger == null) return;
 
         _logger.Info("{0} {1} {2}", "a", "b", "c");
-        Assert.Contains("[DRIVE] a b c", _consoleOutCapture.ToString());
+        Assert.Contains("[DRIVE] [INFO] a b c", _consoleOutCapture.ToString());
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public class DokanPrefixedLoggerTests : IDisposable
         if (_logger == null) return;
 
         _logger.Error("{0} not formatted");
-        Assert.Contains("[DRIVE] {0} not formatted", _consoleOutCapture.ToString());
+        Assert.Contains("[DRIVE] [ERROR] {0} not formatted", _consoleOutCapture.ToString());
     }
 
     [Fact]
@@ -107,9 +107,9 @@ public class DokanPrefixedLoggerTests : IDisposable
         _logger.Warn("third");
 
         var output = _consoleOutCapture.ToString();
-        Assert.Contains("[DRIVE] first", output);
-        Assert.Contains("[DRIVE] second", output);
-        Assert.Contains("[DRIVE] third", output);
+        Assert.Contains("[DRIVE] [DEBUG] first", output);
+        Assert.Contains("[DRIVE] [INFO] second", output);
+        Assert.Contains("[DRIVE] [WARN] third", output);
     }
 
     [Fact]
@@ -130,7 +130,7 @@ public class DokanPrefixedLoggerTests : IDisposable
         var logger = new DokanPrefixedLogger("[Custom] ");
 
         logger.Info("hello");
-        Assert.Contains("[Custom] hello", capture.ToString());
+        Assert.Contains("[Custom] [INFO] hello", capture.ToString());
     }
 
     public void Dispose()

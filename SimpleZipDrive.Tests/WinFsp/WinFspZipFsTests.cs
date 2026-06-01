@@ -228,6 +228,30 @@ public class WinFspZipFsTests : IDisposable
         Assert.Equal("/already/normalized", result);
     }
 
+    [Fact]
+    public void NormalizePath_StripsTrailingSlash()
+    {
+        var result = ZipFsHelpers.NormalizePath("/foo/bar/");
+
+        Assert.Equal("/foo/bar", result);
+    }
+
+    [Fact]
+    public void NormalizePath_StripsTrailingSlashWithoutLeadingSlash()
+    {
+        var result = ZipFsHelpers.NormalizePath("foo/bar/");
+
+        Assert.Equal("/foo/bar", result);
+    }
+
+    [Fact]
+    public void NormalizePath_RootUnchanged()
+    {
+        var result = ZipFsHelpers.NormalizePath("/");
+
+        Assert.Equal("/", result);
+    }
+
     // ─── IsPasswordRequiredException tests ───
 
     [Fact]
@@ -461,7 +485,7 @@ public class WinFspZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var entries = zipFs._archiveEntries;
+        var entries = zipFs.Core.ArchiveEntries;
         Assert.NotNull(entries);
 
         IArchiveEntry? dirEntry = null;
@@ -485,7 +509,7 @@ public class WinFspZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var entries = zipFs._archiveEntries;
+        var entries = zipFs.Core.ArchiveEntries;
         Assert.NotNull(entries);
 
         IArchiveEntry? fileEntry = null;
@@ -620,7 +644,7 @@ public class WinFspZipFsTests : IDisposable
         using var stream = CreateStoredZipStream();
         using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var entries = zipFs._archiveEntries;
+        var entries = zipFs.Core.ArchiveEntries;
         Assert.NotNull(entries);
 
         var storedKey = entries.Keys.FirstOrDefault(static k => k.Contains("stored.txt"));
@@ -636,7 +660,7 @@ public class WinFspZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new WinFspZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var entries = zipFs._archiveEntries;
+        var entries = zipFs.Core.ArchiveEntries;
         Assert.NotNull(entries);
 
         var readmeKey = entries.Keys.FirstOrDefault(static k => k.Contains("readme.txt"));

@@ -66,14 +66,21 @@ public partial class App
             var updateService = ServiceProvider.TryGet<IUpdateService>();
             if (updateService != null)
             {
-                try
+                _ = Task.Run(async () =>
                 {
-                    updateService.CheckForUpdateAsync(ShutdownCts.Token);
-                }
-                catch (Exception ex)
-                {
-                    ErrorLoggerStatic.ReportSilentException(ex, "App.OnStartup: Update check failed during startup", true);
-                }
+                    try
+                    {
+                        await updateService.CheckForUpdateAsync(ShutdownCts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected during shutdown
+                    }
+                    catch (Exception ex)
+                    {
+                        ErrorLoggerStatic.ReportSilentException(ex, "App.OnStartup: Update check failed during startup", true);
+                    }
+                });
             }
 
             loggingService.Log("");
@@ -169,6 +176,7 @@ public partial class App
 
     protected override void OnExit(ExitEventArgs e)
     {
+        DiagnosticLogger.LogSection("APPLICATION SHUTDOWN");
         try
         {
             // Signal all background tasks to cancel
@@ -214,17 +222,6 @@ public partial class App
                 ErrorLoggerStatic.ReportSilentException(ex, "App.OnExit: Failed to dispose services", true);
             }
 
-            // Dispose the singleton ErrorLogger (HttpClient connection pool)
-            try
-            {
-                ErrorLoggerStatic.Instance.Dispose();
-            }
-            catch (Exception ex)
-            {
-                // Last-resort: can't use ErrorLoggerStatic here since we just disposed it
-                System.Diagnostics.Debug.WriteLine($"Failed to dispose ErrorLogger: {ex.Message}");
-            }
-
             // Always dispose the shutdown token source to prevent resource leak
             ShutdownCts.Dispose();
 
@@ -237,6 +234,17 @@ public partial class App
         catch (Exception ex)
         {
             ErrorLoggerStatic.ReportSilentException(ex, "App.OnExit: Error during exit cleanup", true);
+        }
+
+        // Dispose the singleton ErrorLogger (HttpClient connection pool)
+        // Must be done AFTER the outer catch, which may still need to report errors
+        try
+        {
+            ErrorLoggerStatic.Instance.Dispose();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to dispose ErrorLogger: {ex.Message}");
         }
 
         base.OnExit(e);
@@ -291,18 +299,19 @@ internal class LogTextWriter : TextWriter
 
     public override void WriteLine()
     {
+        _channel.Writer.TryWrite(CoreNewLine.ToString() ?? Environment.NewLine);
         _channel.Writer.TryWrite(string.Empty); // Empty string signals end of line
     }
 
     public override void WriteLine(string? value)
     {
-        _channel.Writer.TryWrite(value ?? string.Empty);
+        _channel.Writer.TryWrite(string.Concat(value, CoreNewLine));
         _channel.Writer.TryWrite(string.Empty); // Signal end of line to flush buffer
     }
 
     public override void WriteLine(ReadOnlySpan<char> value)
     {
-        _channel.Writer.TryWrite(value.ToString());
+        _channel.Writer.TryWrite(string.Concat(value, CoreNewLine));
         _channel.Writer.TryWrite(string.Empty); // Signal end of line to flush buffer
     }
 

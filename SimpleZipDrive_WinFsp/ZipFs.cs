@@ -11,34 +11,33 @@ namespace SimpleZipDrive_WinFsp;
 [SuppressMessage("ReSharper", "InconsistentNaming")]
 public sealed class ZipFs : FileSystemBase, IDisposable
 {
-    private readonly ZipFileSystemCore _core;
     private readonly Action<Exception?, string?> _logErrorAction;
 
     internal long _currentMemoryUsage
     {
-        get => _core.CurrentMemoryUsage;
-        set => _core.CurrentMemoryUsage = value;
+        get => Core.CurrentMemoryUsage;
+        set => Core.CurrentMemoryUsage = value;
     }
 
-    internal long _maxTotalMemoryCache => _core.MaxTotalMemoryCache;
-    internal Dictionary<string, IArchiveEntry> _archiveEntries => _core.ArchiveEntries;
+    internal long _maxTotalMemoryCache => Core.MaxTotalMemoryCache;
+    internal ZipFileSystemCore Core { get; }
 
     internal bool IsStoredEntry(IArchiveEntry entry)
     {
-        return _core.IsStoredEntry(entry);
+        return Core.IsStoredEntry(entry);
     }
 
     public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize)
     {
-        _core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize);
+        Core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize);
         _logErrorAction = logErrorAction;
 
-        _core.DumpEntries(30);
+        Core.DumpEntries(30);
     }
 
     private int ValidatePathLength(string path, string operationName)
     {
-        return _core.ValidatePathLength(path, operationName) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
+        return Core.ValidatePathLength(path, operationName) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
     }
 
     public override int Init(object Host)
@@ -123,16 +122,16 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             return pathValidationResult;
         }
 
-        if (_core.IsDisposed)
+        if (Core.IsDisposed)
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_DEVICE_NOT_READY, "disposed");
             return STATUS_DEVICE_NOT_READY;
         }
 
-        _core.TryResolvePath(fileName, out var normalizedPath);
+        Core.TryResolvePath(fileName, out var normalizedPath);
         normalizedPath = ZipFsHelpers.ResolveSpecialPaths(normalizedPath);
 
-        var node = _core.GetEntryNode(normalizedPath);
+        var node = Core.GetEntryNode(normalizedPath);
         if (node == null)
         {
             if (fileName.Equals("\\", StringComparison.OrdinalIgnoreCase) || normalizedPath == "/")
@@ -174,7 +173,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         var entry = node.Entry;
 
-        if (_core.IsFailedEntry(normalizedPath))
+        if (Core.IsFailedEntry(normalizedPath))
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "in failed entries");
             return STATUS_UNSUCCESSFUL;
@@ -182,7 +181,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         try
         {
-            var stream = _core.OpenEntryStream(entry, normalizedPath);
+            var stream = Core.OpenEntryStream(entry, normalizedPath);
             if (stream == null)
             {
                 DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "stream creation returned null");
@@ -209,7 +208,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_DEVICE_NOT_READY, "IOException: source drive not ready (0x80070015)");
             var msg = $"CRITICAL ERROR: The source drive containing the archive file is no longer ready. " +
-                      $"Please check the connection to drive '{Path.GetPathRoot(_core.TempDirectoryPath)}'.";
+                      $"Please check the connection to drive '{Path.GetPathRoot(Core.TempDirectoryPath)}'.";
             ZipFileSystemCore.LogMessage($"{AppTheme.Critical} {msg}");
             _logErrorAction(ioEx, $"ZipFs.OpenOrCreateFile: Source drive not ready for '{normalizedPath}'");
             fileNode = null!;
@@ -238,7 +237,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             var contextMessage = $"ZipFs.Create: Deflate decompression error for '{normalizedPath}' ({entry.Size / 1024.0:F1} KB).";
             ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
             _logErrorAction(zlibEx, contextMessage);
-            _core.AddFailedEntry(normalizedPath);
+            Core.AddFailedEntry(normalizedPath);
             fileNode = null!;
             fileDesc = null!;
             return STATUS_UNSUCCESSFUL;
@@ -248,7 +247,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"ArgumentOutOfRangeException: {argEx.Message}");
             ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Corruption Error: Cannot read '{normalizedPath}'. The archive file may be damaged or incomplete.");
             _logErrorAction(argEx, $"ZipFs.Create: Invalid data offset for '{normalizedPath}'.");
-            _core.AddFailedEntry(normalizedPath);
+            Core.AddFailedEntry(normalizedPath);
             fileNode = null!;
             fileDesc = null!;
             return STATUS_UNSUCCESSFUL;
@@ -256,7 +255,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         catch (NullReferenceException nre)
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"NullReferenceException: {nre.Message}");
-            _core.AddFailedEntry(normalizedPath);
+            Core.AddFailedEntry(normalizedPath);
             _logErrorAction(nre, $"ZipFs.Create: NullReferenceException during decompression of '{normalizedPath}'.");
             ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
             fileNode = null!;
@@ -266,7 +265,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         catch (Exception ex) when (ZipFsHelpers.IsDataErrorException(ex))
         {
             DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"DataError: {ex.Message}");
-            _core.AddFailedEntry(normalizedPath);
+            Core.AddFailedEntry(normalizedPath);
             _logErrorAction(ex, $"ZipFs.Create: Data error for '{normalizedPath}'.");
             ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
             fileNode = null!;
@@ -304,7 +303,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         try
         {
             var readBuffer = new byte[Length];
-            var read = _core.ReadStream(stream, (long)Offset, readBuffer, 0, (int)Length);
+            var read = Core.ReadStream(stream, (long)Offset, readBuffer, 0, (int)Length);
             if (read > 0)
             {
                 System.Runtime.InteropServices.Marshal.Copy(readBuffer, 0, Buffer, read);
@@ -385,7 +384,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         var childPath = searchPrefix + normalizedFileName;
         childPath = ZipFsHelpers.ResolveSpecialPaths(childPath);
 
-        var childNode = _core.GetEntryNode(childPath);
+        var childNode = Core.GetEntryNode(childPath);
         if (childNode == null)
         {
             DiagnosticLogger.LogOperation("GetDirInfoByName", FileName, STATUS_OBJECT_NAME_NOT_FOUND, "not found");
@@ -401,7 +400,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
     public override int GetVolumeInfo(out VolumeInfo VolumeInfo)
     {
         VolumeInfo = default;
-        VolumeInfo.TotalSize = (ulong)_core.TotalSize;
+        VolumeInfo.TotalSize = (ulong)Core.TotalSize;
         VolumeInfo.FreeSize = 0;
         VolumeInfo.SetVolumeLabel(ZipFileSystemCore.VolumeLabel);
         DiagnosticLogger.Log($"  GetVolumeInfo: label={ZipFileSystemCore.VolumeLabel}, size={VolumeInfo.TotalSize / 1024.0 / 1024.0:F2} MB");
@@ -428,9 +427,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             if (pathValidationResult != STATUS_SUCCESS)
                 return pathValidationResult;
 
-            _core.TryResolvePath(FileName, out var normalizedPath);
+            Core.TryResolvePath(FileName, out var normalizedPath);
             normalizedPath = ZipFsHelpers.ResolveSpecialPaths(normalizedPath);
-            var node = _core.GetEntryNode(normalizedPath);
+            var node = Core.GetEntryNode(normalizedPath);
 
             if (node != null)
             {
@@ -493,7 +492,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
             if (Context is not (List<(string Name, Fsp.Interop.FileInfo Info)> entries, int currentIndex))
             {
-                var dirEntries = _core.ListDirectory(normalizedPath);
+                var dirEntries = Core.ListDirectory(normalizedPath);
                 if (dirEntries.Count == 0)
                 {
                     DiagnosticLogger.LogOperation("ReadDirectoryEntry", normalizedPath, false, "not a directory");
@@ -503,7 +502,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                 var seenFileNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 entries = new List<(string, Fsp.Interop.FileInfo)>();
 
-                var dotNode = _core.GetEntryNode(normalizedPath);
+                var dotNode = Core.GetEntryNode(normalizedPath);
                 if (dotNode != null)
                 {
                     if (string.IsNullOrEmpty(Marker))
@@ -515,7 +514,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
                     var parentPath = normalizedPath == "/" ? "/" : ZipFsHelpers.GetParentPath(normalizedPath);
                     if (parentPath != null)
                     {
-                        var dotdotNode = _core.GetEntryNode(parentPath);
+                        var dotdotNode = Core.GetEntryNode(parentPath);
                         if (dotdotNode != null &&
                             (string.IsNullOrEmpty(Marker) || string.Equals(Marker, ".", StringComparison.OrdinalIgnoreCase)))
                         {
@@ -706,6 +705,6 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
     public void Dispose()
     {
-        _core.Dispose();
+        Core.Dispose();
     }
 }

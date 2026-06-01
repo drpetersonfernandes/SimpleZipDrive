@@ -8,14 +8,27 @@ namespace SimpleZipDrive.Core.Services;
 /// </summary>
 public class StatsService : IStatsService, IDisposable
 {
-    internal HttpClient HttpClient = new()
-    {
-        Timeout = TimeSpan.FromSeconds(10)
-    };
+    private readonly HttpClient _httpClient;
 
     private const string StatsApiUrl = "https://www.purelogiccode.com/ApplicationStats/stats";
     private const string StatsApiKey = "hjh7yu6t56tyr540o9u8767676r5674534453235264c75b6t7ggghgg76trf564e";
     private bool _disposed;
+
+    /// <summary>
+    /// Initializes a new instance with a default HttpClient.
+    /// </summary>
+    public StatsService()
+    {
+        _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+    }
+
+    /// <summary>
+    /// Initializes a new instance with the specified HttpClient (for testing).
+    /// </summary>
+    public StatsService(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
 
     /// <inheritdoc />
     public async Task ReportStatsAsync(CancellationToken cancellationToken = default)
@@ -32,7 +45,7 @@ public class StatsService : IStatsService, IDisposable
                 version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "Unknown"
             });
 
-            var response = await HttpClient.SendAsync(request, cancellationToken);
+            var response = await _httpClient.SendAsync(request, cancellationToken);
 
             // Handle HTTP 429 (Too Many Requests) gracefully - this is expected from rate limiting
             if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
@@ -66,7 +79,7 @@ public class StatsService : IStatsService, IDisposable
     {
         if (_disposed) return;
 
-        HttpClient.Dispose();
+        _httpClient.Dispose();
         _disposed = true;
         GC.SuppressFinalize(this);
     }

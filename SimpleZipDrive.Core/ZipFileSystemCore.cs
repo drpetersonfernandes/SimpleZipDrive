@@ -62,7 +62,10 @@ public class ZipFileSystemCore : IDisposable
         MaxMemorySize = maxMemorySize;
         var availableMemory = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
         MaxTotalMemoryCache = (long)(availableMemory * 0.90);
-        TempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive", $"{Environment.ProcessId}_{Guid.NewGuid():N}");
+
+        var tempDirName = ZipFsHelpers.GenerateTempDirectoryName();
+        TempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive", tempDirName);
+        ZipFsHelpers.RegisterCurrentTempDirectory(tempDirName);
 
         try
         {
@@ -370,11 +373,7 @@ public class ZipFileSystemCore : IDisposable
 
         Thread.MemoryBarrier();
 
-        var searchPrefix = normalizedPath.TrimEnd('/') + (normalizedPath == "/" ? "" : "/");
-        if (normalizedPath == "/")
-        {
-            searchPrefix = "/";
-        }
+        var searchPrefix = normalizedPath == "/" ? "/" : normalizedPath.TrimEnd('/') + "/";
 
         foreach (var kvp in ArchiveEntries)
         {

@@ -94,33 +94,22 @@ internal sealed class StoredEntryStream : Stream
         var maxBytes = (int)Math.Min(count, Length - _position);
         if (maxBytes <= 0) return 0;
 
-        if (Monitor.TryEnter(_sourceLock))
-        {
-            try
-            {
-                if (_sourceStream.Position == _dataOffset + _position)
-                {
-                    var bytesRead = _sourceStream.Read(buffer, offset, maxBytes);
-                    _position += bytesRead;
-                    return bytesRead;
-                }
-            }
-            finally
-            {
-                Monitor.Exit(_sourceLock);
-            }
-        }
+        var targetPosition = _dataOffset + _position;
 
         if (_fileHandle != null)
         {
-            var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(offset, maxBytes), _dataOffset + _position);
+            var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(offset, maxBytes), targetPosition);
             _position += bytesRead;
             return bytesRead;
         }
 
         lock (_sourceLock)
         {
-            _sourceStream.Position = _dataOffset + _position;
+            if (_sourceStream.Position != targetPosition)
+            {
+                _sourceStream.Position = targetPosition;
+            }
+
             var bytesRead = _sourceStream.Read(buffer, offset, maxBytes);
             _position += bytesRead;
             return bytesRead;
@@ -134,33 +123,22 @@ internal sealed class StoredEntryStream : Stream
         var maxBytes = (int)Math.Min(buffer.Length, Length - _position);
         if (maxBytes <= 0) return 0;
 
-        if (Monitor.TryEnter(_sourceLock))
-        {
-            try
-            {
-                if (_sourceStream.Position == _dataOffset + _position)
-                {
-                    var bytesRead = _sourceStream.Read(buffer[..maxBytes]);
-                    _position += bytesRead;
-                    return bytesRead;
-                }
-            }
-            finally
-            {
-                Monitor.Exit(_sourceLock);
-            }
-        }
+        var targetPosition = _dataOffset + _position;
 
         if (_fileHandle != null)
         {
-            var bytesRead = RandomAccess.Read(_fileHandle, buffer[..maxBytes], _dataOffset + _position);
+            var bytesRead = RandomAccess.Read(_fileHandle, buffer[..maxBytes], targetPosition);
             _position += bytesRead;
             return bytesRead;
         }
 
         lock (_sourceLock)
         {
-            _sourceStream.Position = _dataOffset + _position;
+            if (_sourceStream.Position != targetPosition)
+            {
+                _sourceStream.Position = targetPosition;
+            }
+
             var bytesRead = _sourceStream.Read(buffer[..maxBytes]);
             _position += bytesRead;
             return bytesRead;
@@ -177,33 +155,22 @@ internal sealed class StoredEntryStream : Stream
         var maxBytes = (int)Math.Min(count, Length - fileOffset);
         if (maxBytes <= 0) return 0;
 
-        if (Monitor.TryEnter(_sourceLock))
-        {
-            try
-            {
-                if (_sourceStream.Position == _dataOffset + fileOffset)
-                {
-                    var bytesRead = _sourceStream.Read(buffer, bufferOffset, maxBytes);
-                    _position = fileOffset + bytesRead;
-                    return bytesRead;
-                }
-            }
-            finally
-            {
-                Monitor.Exit(_sourceLock);
-            }
-        }
+        var targetPosition = _dataOffset + fileOffset;
 
         if (_fileHandle != null)
         {
-            var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, maxBytes), _dataOffset + fileOffset);
+            var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, maxBytes), targetPosition);
             _position = fileOffset + bytesRead;
             return bytesRead;
         }
 
         lock (_sourceLock)
         {
-            _sourceStream.Position = _dataOffset + fileOffset;
+            if (_sourceStream.Position != targetPosition)
+            {
+                _sourceStream.Position = targetPosition;
+            }
+
             var bytesRead = _sourceStream.Read(buffer, bufferOffset, maxBytes);
             _position = fileOffset + bytesRead;
             return bytesRead;

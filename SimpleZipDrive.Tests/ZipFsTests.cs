@@ -984,6 +984,30 @@ public class ZipFsTests : IDisposable
         Assert.Equal("/already/normalized", result);
     }
 
+    [Fact]
+    public void NormalizePathStripsTrailingSlash()
+    {
+        var result = ZipFsHelpers.NormalizePath("/foo/bar/");
+
+        Assert.Equal("/foo/bar", result);
+    }
+
+    [Fact]
+    public void NormalizePathStripsTrailingSlashWithoutLeadingSlash()
+    {
+        var result = ZipFsHelpers.NormalizePath("foo/bar/");
+
+        Assert.Equal("/foo/bar", result);
+    }
+
+    [Fact]
+    public void NormalizePathRootUnchanged()
+    {
+        var result = ZipFsHelpers.NormalizePath("/");
+
+        Assert.Equal("/", result);
+    }
+
     // ─── IsPasswordRequiredException tests ───
 
     [Fact]
@@ -1026,10 +1050,10 @@ public class ZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        System.Collections.IDictionary entries = zipFs.ArchiveEntries;
+        var entries = zipFs.Core.ArchiveEntries;
         Assert.NotNull(entries);
 
-        var result = ZipFsHelpers.IsDirectory((entries["/empty/"] as IArchiveEntry)!);
+        var result = ZipFsHelpers.IsDirectory((entries["/empty/"] as IArchiveEntry));
 
         Assert.True(result);
     }
@@ -1040,10 +1064,10 @@ public class ZipFsTests : IDisposable
         using var stream = CreateZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        System.Collections.IDictionary entries = zipFs.ArchiveEntries;
+        var entries = zipFs.Core.ArchiveEntries;
         Assert.NotNull(entries);
 
-        var result = ZipFsHelpers.IsDirectory((entries["/readme.txt"] as IArchiveEntry)!);
+        var result = ZipFsHelpers.IsDirectory((entries["/readme.txt"] as IArchiveEntry));
 
         Assert.False(result);
     }
@@ -1337,7 +1361,7 @@ public class ZipFsTests : IDisposable
         zipFs.CreateFile("\\stored.txt", FileAccess.ReadData, FileShare.Read,
             FileMode.Open, FileOptions.None, FileAttributes.Normal, info);
 
-        var cache = zipFs.LargeFileCache;
+        var cache = zipFs.Core.LargeFileCache;
         Assert.DoesNotContain(cache, static kvp => kvp.Key.Contains("stored.txt", StringComparison.OrdinalIgnoreCase));
 
         zipFs.CloseFile("\\stored.txt", info);
@@ -1406,7 +1430,7 @@ public class ZipFsTests : IDisposable
         using var stream = CreateStoredZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "zip");
 
-        var entries = zipFs.ArchiveEntries;
+        var entries = zipFs.Core.ArchiveEntries;
         Assert.NotNull(entries);
         Assert.True(entries.ContainsKey("/stored.txt"));
 

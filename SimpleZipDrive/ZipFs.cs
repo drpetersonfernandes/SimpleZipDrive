@@ -10,33 +10,31 @@ namespace SimpleZipDrive;
 
 public class ZipFs : IDokanOperations, IDisposable
 {
-    private readonly ZipFileSystemCore _core;
     private readonly Action<Exception?, string?> _logErrorAction;
 
     public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize)
     {
-        _core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize);
+        Core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize);
         _logErrorAction = logErrorAction;
     }
 
     public long CurrentMemoryUsage
     {
-        get => _core.CurrentMemoryUsage;
-        internal set => _core.CurrentMemoryUsage = value;
+        get => Core.CurrentMemoryUsage;
+        internal set => Core.CurrentMemoryUsage = value;
     }
 
-    public long MaxTotalMemoryCache => _core.MaxTotalMemoryCache;
-    internal Dictionary<string, IArchiveEntry> ArchiveEntries => _core.ArchiveEntries;
-    internal Dictionary<string, string> LargeFileCache => _core.LargeFileCache;
+    public long MaxTotalMemoryCache => Core.MaxTotalMemoryCache;
+    internal ZipFileSystemCore Core { get; }
 
     internal bool IsStoredEntry(IArchiveEntry entry)
     {
-        return _core.IsStoredEntry(entry);
+        return Core.IsStoredEntry(entry);
     }
 
     private NtStatus ValidatePathLength(string path, string operationName)
     {
-        return _core.ValidatePathLength(path, operationName) ? DokanResult.Success : DokanResult.Error;
+        return Core.ValidatePathLength(path, operationName) ? DokanResult.Success : DokanResult.Error;
     }
 
     public NtStatus CreateFile(
@@ -54,12 +52,12 @@ public class ZipFs : IDokanOperations, IDisposable
         if (pathValidationResult != DokanResult.Success)
             return pathValidationResult;
 
-        if (_core.IsDisposed)
+        if (Core.IsDisposed)
             return DokanResult.NotReady;
 
-        _core.TryResolvePath(fileName, out var normalizedPath);
+        Core.TryResolvePath(fileName, out var normalizedPath);
 
-        var node = _core.GetEntryNode(normalizedPath);
+        var node = Core.GetEntryNode(normalizedPath);
         bool isImplicitDir;
         if (node == null)
         {
@@ -75,7 +73,7 @@ public class ZipFs : IDokanOperations, IDisposable
             // It's a file
             info.IsDirectory = false;
 
-            if (_core.IsFailedEntry(normalizedPath))
+            if (Core.IsFailedEntry(normalizedPath))
             {
                 return DokanResult.Error;
             }
@@ -95,7 +93,7 @@ public class ZipFs : IDokanOperations, IDisposable
             try
             {
                 var entry = node.Entry!;
-                var stream = _core.OpenEntryStream(entry, normalizedPath);
+                var stream = Core.OpenEntryStream(entry, normalizedPath);
                 if (stream == null)
                 {
                     _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: Context was not a Stream for file '{normalizedPath}' after caching attempt."), "ZipFs.CreateFile: Context invalid post-caching.");
@@ -103,8 +101,6 @@ public class ZipFs : IDokanOperations, IDisposable
                 }
 
                 info.Context = stream;
-                ZipFileSystemCore.LogMessage($"Stored entry detected: '{normalizedPath}' ({entry.Size / 1024.0 / 1024.0:F2} MB). Using direct-read mode (no cache).");
-                ZipFileSystemCore.LogMessage("");
                 return DokanResult.Success;
             }
             catch (CryptographicException cryptoEx)
@@ -119,7 +115,7 @@ public class ZipFs : IDokanOperations, IDisposable
             catch (IOException ioEx) when ((uint)ioEx.HResult == 0x80070015)
             {
                 var msg = $"CRITICAL ERROR: The source drive containing the archive file is no longer ready. " +
-                          $"Please check the connection to drive '{Path.GetPathRoot(_core.TempDirectoryPath)}'.";
+                          $"Please check the connection to drive '{Path.GetPathRoot(Core.TempDirectoryPath)}'.";
                 ZipFileSystemCore.LogMessage($"{AppTheme.Critical} {msg}");
                 _logErrorAction(ioEx, $"ZipFs.CreateFile: Source drive not ready for '{normalizedPath}'");
                 (info.Context as IDisposable)?.Dispose();
@@ -149,7 +145,7 @@ public class ZipFs : IDokanOperations, IDisposable
                 ZipFileSystemCore.LogMessage("The archive file itself is likely fine - this is a library limitation, not file corruption.");
                 ZipFileSystemCore.LogMessage($"{AppTheme.Bullet}Try extracting this file directly with WinRAR or 7-Zip instead.");
                 _logErrorAction(zlibEx, contextMessage);
-                _core.AddFailedEntry(normalizedPath);
+                Core.AddFailedEntry(normalizedPath);
                 (info.Context as IDisposable)?.Dispose();
                 info.Context = null;
                 return DokanResult.Error;
@@ -159,14 +155,14 @@ public class ZipFs : IDokanOperations, IDisposable
                 var contextMessage = $"ZipFs.CreateFile: Invalid data offset for '{normalizedPath}' ({node.Entry!.Size / 1024.0:F1} KB). The zip archive appears to be corrupted or truncated — the entry header points to an invalid file position.";
                 ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Corruption Error: Cannot read '{normalizedPath}'. The archive file may be damaged or incomplete.");
                 _logErrorAction(argEx, contextMessage);
-                _core.AddFailedEntry(normalizedPath);
+                Core.AddFailedEntry(normalizedPath);
                 (info.Context as IDisposable)?.Dispose();
                 info.Context = null;
                 return DokanResult.Error;
             }
             catch (NullReferenceException nre)
             {
-                _core.AddFailedEntry(normalizedPath);
+                Core.AddFailedEntry(normalizedPath);
                 _logErrorAction(nre, $"ZipFs.CreateFile: NullReferenceException during decompression of '{normalizedPath}' (likely SharpCompress RAR V1 unpacker bug). Entry marked as failed to prevent retries.");
                 ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The entry may use an unsupported or buggy compression method.");
                 (info.Context as IDisposable)?.Dispose();
@@ -175,7 +171,7 @@ public class ZipFs : IDokanOperations, IDisposable
             }
             catch (Exception ex) when (ZipFsHelpers.IsDataErrorException(ex))
             {
-                _core.AddFailedEntry(normalizedPath);
+                Core.AddFailedEntry(normalizedPath);
                 var contextMessage = $"ZipFs.CreateFile: Data error (corrupted or unsupported compression) for '{normalizedPath}' ({node.Entry!.Size / 1024.0:F1} KB). The archive entry may be damaged or uses an unsupported compression method.";
                 _logErrorAction(ex, contextMessage);
                 ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data appears to be corrupted or uses an unsupported compression method.");
@@ -243,7 +239,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
         try
         {
-            bytesRead = _core.ReadStream(stream, offset, buffer, 0, buffer.Length);
+            bytesRead = Core.ReadStream(stream, offset, buffer, 0, buffer.Length);
             return DokanResult.Success;
         }
         catch (Exception ex)
@@ -262,9 +258,9 @@ public class ZipFs : IDokanOperations, IDisposable
         if (pathValidationResult != DokanResult.Success)
             return pathValidationResult;
 
-        _core.TryResolvePath(fileName, out var normalizedPath);
+        Core.TryResolvePath(fileName, out var normalizedPath);
 
-        var node = _core.GetEntryNode(normalizedPath);
+        var node = Core.GetEntryNode(normalizedPath);
         if (node != null)
         {
             if (node.IsDir)
@@ -315,12 +311,12 @@ public class ZipFs : IDokanOperations, IDisposable
             return pathValidationResult;
         }
 
-        _core.TryResolvePath(fileName, out var normalizedPath);
+        Core.TryResolvePath(fileName, out var normalizedPath);
         var resultFiles = new List<FileInformation>();
 
         try
         {
-            var entries = _core.ListDirectory(normalizedPath);
+            var entries = Core.ListDirectory(normalizedPath);
             if (entries.Count == 0)
             {
                 files = Array.Empty<FileInformation>();
@@ -389,7 +385,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public NtStatus GetDiskFreeSpace(out long freeBytesAvailable, out long totalNumberOfBytes, out long totalNumberOfFreeBytes, IDokanFileInfo info)
     {
-        totalNumberOfBytes = _core.TotalSize;
+        totalNumberOfBytes = Core.TotalSize;
         freeBytesAvailable = 0;
         totalNumberOfFreeBytes = 0;
         return DokanResult.Success;
@@ -503,8 +499,8 @@ public class ZipFs : IDokanOperations, IDisposable
 
         try
         {
-            _core.TryResolvePath(fileName, out var normalizedPath);
-            var node = _core.GetEntryNode(normalizedPath);
+            Core.TryResolvePath(fileName, out var normalizedPath);
+            var node = Core.GetEntryNode(normalizedPath);
             var isDirectory = node?.IsDir ?? normalizedPath == "/";
 
             var everyoneSid = new SecurityIdentifier("S-1-1-0");
@@ -544,7 +540,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     public void Dispose()
     {
-        _core.Dispose();
+        Core.Dispose();
         GC.SuppressFinalize(this);
     }
 }

@@ -181,11 +181,7 @@ public class StatsServiceTests
 
     private static StatsService CreateStatsServiceWithClient(HttpClient client)
     {
-        var service = new StatsService();
-        var oldClient = service.HttpClient;
-        oldClient.Dispose();
-        service.HttpClient = client;
-        return service;
+        return new StatsService(client);
     }
 
     private sealed class TestHandler : HttpMessageHandler

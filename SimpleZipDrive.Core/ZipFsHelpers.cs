@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using SharpCompress.Archives;
 
@@ -26,9 +27,39 @@ public static class ZipFsHelpers
     // Static flag to ensure cleanup runs only once
     private static int _cleanupPerformed;
 
+    private static readonly string CurrentProcessName = Process.GetCurrentProcess().ProcessName;
+    private static volatile string? _currentInstanceDirName;
+
+    /// <summary>
+    /// Registers the current instance's temp directory name so cleanup can skip it.
+    /// </summary>
+    public static void RegisterCurrentTempDirectory(string dirName)
+    {
+        _currentInstanceDirName = dirName;
+    }
+
+    private const string TempDirNameSeparator = "_";
+
+    public static string GenerateTempDirectoryName()
+    {
+        return string.Concat(Environment.ProcessId.ToString(CultureInfo.InvariantCulture), TempDirNameSeparator, Guid.NewGuid().ToString("N"));
+    }
+
+    public static bool TryParseProcessIdFromTempDirectoryName(string dirName, out int processId)
+    {
+        processId = 0;
+        var separatorIndex = dirName.IndexOf(TempDirNameSeparator, StringComparison.Ordinal);
+        if (separatorIndex <= 0)
+            return false;
+
+        return int.TryParse(dirName.AsSpan(0, separatorIndex), out processId);
+    }
+
     /// <summary>
     /// Cleans up orphaned temp directories from previous crashed sessions.
     /// Directories associated with non-running processes are deleted.
+    /// For running PIDs, validates the process name to avoid misinterpreting
+    /// PID reuse by an unrelated process as a live SimpleZipDrive instance.
     /// </summary>
     public static void CleanupOrphanedTempDirectories()
     {
@@ -43,28 +74,35 @@ public static class ZipFsHelpers
             {
                 try
                 {
-                    // Extract PID from directory name (format: {PID}_{Guid})
                     var dirName = Path.GetFileName(dir);
-                    var underscoreIndex = dirName.IndexOf('_');
-                    if (underscoreIndex <= 0)
+                    if (!TryParseProcessIdFromTempDirectoryName(dirName, out var pid))
                         continue;
 
-                    if (!int.TryParse(dirName.AsSpan(0, underscoreIndex), out var pid))
+                    // Skip the directory belonging to this running instance
+                    if (dirName.Equals(_currentInstanceDirName, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    // Check if process is still running
-                    bool processExists;
+                    bool shouldDelete;
                     try
                     {
-                        _ = Process.GetProcessById(pid);
-                        processExists = true;
+                        using var process = Process.GetProcessById(pid);
+                        // PID exists – verify it belongs to a SimpleZipDrive variant.
+                        // If the process name doesn't match, the original owner crashed
+                        // and the PID was reassigned by the OS, so the directory is orphaned.
+                        shouldDelete = !process.ProcessName.Equals(CurrentProcessName, StringComparison.OrdinalIgnoreCase);
                     }
                     catch (ArgumentException)
                     {
-                        processExists = false;
+                        // Process no longer exists – safe to clean up
+                        shouldDelete = true;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Process already exited between check and access
+                        shouldDelete = true;
                     }
 
-                    if (!processExists)
+                    if (shouldDelete)
                     {
                         Directory.Delete(dir, true);
                     }
@@ -112,6 +150,11 @@ public static class ZipFsHelpers
         if (!path.StartsWith('/'))
         {
             path = "/" + path;
+        }
+
+        if (path.Length > 1)
+        {
+            path = path.TrimEnd('/');
         }
 
         return path;

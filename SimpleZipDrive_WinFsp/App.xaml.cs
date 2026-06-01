@@ -70,14 +70,21 @@ public partial class App
             var updateService = ServiceProvider.TryGet<IUpdateService>();
             if (updateService != null)
             {
-                try
+                _ = Task.Run(async () =>
                 {
-                    updateService.CheckForUpdateAsync(ShutdownCts.Token);
-                }
-                catch (Exception ex)
-                {
-                    ErrorLoggerStatic.ReportSilentException(ex, "App.OnStartup: Update check failed during startup", true);
-                }
+                    try
+                    {
+                        await updateService.CheckForUpdateAsync(ShutdownCts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected during shutdown
+                    }
+                    catch (Exception ex)
+                    {
+                        ErrorLoggerStatic.ReportSilentException(ex, "App.OnStartup: Update check failed during startup", true);
+                    }
+                });
             }
 
             loggingService.Log("");
@@ -248,15 +255,6 @@ public partial class App
                 ErrorLoggerStatic.ReportSilentException(ex, "App.OnExit: Failed to dispose services", true);
             }
 
-            try
-            {
-                ErrorLoggerStatic.Instance.Dispose();
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Failed to dispose ErrorLogger: {ex.Message}");
-            }
-
             if (_originalConsoleOut != null)
                 Console.SetOut(_originalConsoleOut);
             if (_originalConsoleError != null)
@@ -265,6 +263,17 @@ public partial class App
         catch (Exception ex)
         {
             ErrorLoggerStatic.ReportSilentException(ex, "App.OnExit: Error during exit cleanup", true);
+        }
+
+        // Dispose the singleton ErrorLogger (HttpClient connection pool)
+        // Must be done AFTER the outer catch, which may still need to report errors
+        try
+        {
+            ErrorLoggerStatic.Instance.Dispose();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to dispose ErrorLogger: {ex.Message}");
         }
 
         base.OnExit(e);
