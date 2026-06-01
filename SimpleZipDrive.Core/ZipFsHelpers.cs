@@ -31,6 +31,11 @@ public static class ZipFsHelpers
     private static volatile string? _currentInstanceDirName;
 
     /// <summary>
+    /// The base temp directory path for SimpleZipDrive (%TEMP%\SimpleZipDrive).
+    /// </summary>
+    internal static string BaseTempPath { get; } = Path.Combine(Path.GetTempPath(), "SimpleZipDrive");
+
+    /// <summary>
     /// Registers the current instance's temp directory name so cleanup can skip it.
     /// </summary>
     public static void RegisterCurrentTempDirectory(string dirName)
@@ -65,7 +70,7 @@ public static class ZipFsHelpers
     {
         try
         {
-            var baseTempPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive");
+            var baseTempPath = BaseTempPath;
             if (!Directory.Exists(baseTempPath))
                 return;
 

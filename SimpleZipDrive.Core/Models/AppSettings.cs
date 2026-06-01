@@ -10,7 +10,7 @@ public enum MountType
 
 public class AppSettings
 {
-    private static readonly string SettingsDirectory = Path.Combine(
+    internal static readonly string SettingsDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "SimpleZipDrive");
 

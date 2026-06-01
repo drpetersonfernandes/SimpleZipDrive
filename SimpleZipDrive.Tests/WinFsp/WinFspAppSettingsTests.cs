@@ -5,7 +5,7 @@ namespace SimpleZipDrive.Tests.WinFsp;
 public class WinFspAppSettingsTests
 {
     [Fact]
-    public void DefaultConstructor_CreatesSettingsWithDefaultValues()
+    public void DefaultConstructorCreatesSettingsWithDefaultValues()
     {
         var settings = new AppSettings();
 
@@ -13,7 +13,7 @@ public class WinFspAppSettingsTests
     }
 
     [Fact]
-    public void MaxMemoryPerFileBytes_CalculatesCorrectly()
+    public void MaxMemoryPerFileBytesCalculatesCorrectly()
     {
         var settings = new AppSettings { MaxMemoryPerFileMb = 100 };
 
@@ -25,7 +25,7 @@ public class WinFspAppSettingsTests
     [InlineData(512, 512L * 1024L * 1024L)]
     [InlineData(1024, 1024L * 1024L * 1024L)]
     [InlineData(2048, 2048L * 1024L * 1024L)]
-    public void MaxMemoryPerFileBytes_CalculatesForVariousValues(int memoryMb, long expectedBytes)
+    public void MaxMemoryPerFileBytesCalculatesForVariousValues(int memoryMb, long expectedBytes)
     {
         var settings = new AppSettings { MaxMemoryPerFileMb = memoryMb };
 
@@ -33,7 +33,7 @@ public class WinFspAppSettingsTests
     }
 
     [Fact]
-    public void Properties_CanBeModified()
+    public void PropertiesCanBeModified()
     {
         var settings = new AppSettings { MaxMemoryPerFileMb = 256 };
 
@@ -41,7 +41,7 @@ public class WinFspAppSettingsTests
     }
 
     [Fact]
-    public void NewInstance_HasDefaultMaxMemory()
+    public void NewInstanceHasDefaultMaxMemory()
     {
         var settings = new AppSettings();
 
@@ -50,7 +50,7 @@ public class WinFspAppSettingsTests
     }
 
     [Fact]
-    public void ZeroMemoryLimit_CalculatesToOneMegabyte()
+    public void ZeroMemoryLimitCalculatesToOneMegabyte()
     {
         var settings = new AppSettings { MaxMemoryPerFileMb = 0 };
 
@@ -59,7 +59,7 @@ public class WinFspAppSettingsTests
     }
 
     [Fact]
-    public void MaxMemoryPerFileMb_ClampedByAvailableMemory()
+    public void MaxMemoryPerFileMbClampedByAvailableMemory()
     {
         var settings = new AppSettings();
         var availableMemoryMb = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / 1024 / 1024;
@@ -71,7 +71,7 @@ public class WinFspAppSettingsTests
     }
 
     [Fact]
-    public void DefaultMountType_IsDriveLetter()
+    public void DefaultMountTypeIsDriveLetter()
     {
         var settings = new AppSettings();
 
@@ -79,7 +79,7 @@ public class WinFspAppSettingsTests
     }
 
     [Fact]
-    public void MountType_CanBeSetToFolder()
+    public void MountTypeCanBeSetToFolder()
     {
         var settings = new AppSettings { DefaultMountType = MountType.Folder };
 

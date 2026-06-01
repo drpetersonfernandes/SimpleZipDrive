@@ -19,6 +19,13 @@ public class WinFspDiagnosticLoggerTests : IDisposable
         DiagnosticLogger.IsEnabled = true;
     }
 
+    private static string ReadFileText(string path)
+    {
+        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(fs);
+        return reader.ReadToEnd();
+    }
+
     [Fact]
     public void IsEnabled_DefaultsToTrue()
     {
@@ -74,7 +81,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
 
         Assert.NotNull(DiagnosticLogger.LogFilePath);
         Assert.True(File.Exists(DiagnosticLogger.LogFilePath));
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath);
         Assert.Contains("Test log message", content);
     }
 
@@ -86,7 +93,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
 
         DiagnosticLogger.Log("Timestamped message");
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.Matches(@"\[\d{2}:\d{2}:\d{2}\.\d{3}\]", content);
     }
 
@@ -98,7 +105,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
 
         DiagnosticLogger.Log("Thread message");
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.Contains($"T{Environment.CurrentManagedThreadId}", content);
     }
 
@@ -121,7 +128,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
         var testEx = new InvalidOperationException("test error details");
         DiagnosticLogger.Log(testEx, "test context");
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.Contains("test context", content);
         Assert.Contains("InvalidOperationException", content);
         Assert.Contains("test error details", content);
@@ -142,7 +149,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
             DiagnosticLogger.Log(ex, "stack trace context");
         }
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.Contains("Stack:", content);
     }
 
@@ -154,7 +161,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
 
         DiagnosticLogger.LogOperation("Read", "test.txt", 0, "detail");
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.Contains("Read", content);
         Assert.Contains("test.txt", content);
         Assert.Contains("SUCCESS", content);
@@ -169,7 +176,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
 
         DiagnosticLogger.LogOperation("Write", "bad.txt", unchecked((int)0xC0000022));
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.Contains("0xC0000022", content);
     }
 
@@ -181,7 +188,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
 
         DiagnosticLogger.LogOperation("Check", "file.txt", true);
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.Contains("true", content);
     }
 
@@ -193,7 +200,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
 
         DiagnosticLogger.LogOperation("Check", "file.txt", false);
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.Contains("false", content);
     }
 
@@ -205,7 +212,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
 
         DiagnosticLogger.LogOperation("Read", "file.txt", 0);
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.DoesNotContain("[]", content);
     }
 
@@ -217,7 +224,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
 
         DiagnosticLogger.LogSection("TEST SECTION");
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.Contains("TEST SECTION", content);
         Assert.Contains(new string('=', 80), content);
     }
@@ -230,7 +237,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
 
         DiagnosticLogger.LogHeader("My Header");
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.Contains("--- My Header ---", content);
     }
 
@@ -243,7 +250,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
         DiagnosticLogger.Log("First line");
         DiagnosticLogger.Log("Second line");
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.Contains("First line", content);
         Assert.Contains("Second line", content);
     }
@@ -256,7 +263,7 @@ public class WinFspDiagnosticLoggerTests : IDisposable
 
         DiagnosticLogger.LogOperation("Test", "path", 0);
 
-        var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+        var content = ReadFileText(DiagnosticLogger.LogFilePath!);
         Assert.DoesNotContain("[null]", content);
         Assert.DoesNotContain("[]", content);
     }

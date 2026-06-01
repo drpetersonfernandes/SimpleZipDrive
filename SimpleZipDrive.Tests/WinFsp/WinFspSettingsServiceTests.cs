@@ -6,7 +6,7 @@ namespace SimpleZipDrive.Tests.WinFsp;
 public class WinFspSettingsServiceTests
 {
     [Fact]
-    public void Constructor_LoadsSettings()
+    public void ConstructorLoadsSettings()
     {
         var service = new SettingsService();
 
@@ -15,7 +15,7 @@ public class WinFspSettingsServiceTests
     }
 
     [Fact]
-    public void Constructor_SetsDefaultMemoryLimit()
+    public void ConstructorSetsDefaultMemoryLimit()
     {
         var service = new SettingsService();
 
@@ -23,7 +23,7 @@ public class WinFspSettingsServiceTests
     }
 
     [Fact]
-    public void SaveSettings_DoesNotThrow()
+    public void SaveSettingsDoesNotThrow()
     {
         var service = new SettingsService
         {
@@ -36,7 +36,7 @@ public class WinFspSettingsServiceTests
     }
 
     [Fact]
-    public void ReloadSettings_RefreshesInstance()
+    public void ReloadSettingsRefreshesInstance()
     {
         var service = new SettingsService();
 
@@ -51,7 +51,7 @@ public class WinFspSettingsServiceTests
     [InlineData(256)]
     [InlineData(512)]
     [InlineData(1024)]
-    public void UpdateRamLimit_PositiveValues_UpdateSettings(int memoryMb)
+    public void UpdateRamLimitPositiveValuesUpdateSettings(int memoryMb)
     {
         var service = new SettingsService
         {
@@ -67,7 +67,7 @@ public class WinFspSettingsServiceTests
     [InlineData(0)]
     [InlineData(-1)]
     [InlineData(-100)]
-    public void UpdateRamLimit_NonPositiveValues_DoNotUpdateSettings(int memoryMb)
+    public void UpdateRamLimitNonPositiveValuesDoNotUpdateSettings(int memoryMb)
     {
         var service = new SettingsService();
         var originalValue = service.Settings.MaxMemoryPerFileMb;
@@ -78,7 +78,7 @@ public class WinFspSettingsServiceTests
     }
 
     [Fact]
-    public void UpdateRamLimit_SavesAfterUpdate()
+    public void UpdateRamLimitSavesAfterUpdate()
     {
         var service = new SettingsService();
 

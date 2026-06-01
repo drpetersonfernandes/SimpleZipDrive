@@ -170,6 +170,40 @@ public partial class MainWindow : IDisposable
         dialog.ShowDialog();
     }
 
+    private void OpenConfigPath_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var configPath = AppSettings.SettingsDirectory;
+            if (!Directory.Exists(configPath))
+            {
+                Directory.CreateDirectory(configPath);
+            }
+
+            Process.Start("explorer.exe", configPath);
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError($"Error opening configuration path: {ex.Message}");
+        }
+    }
+
+    private void CleanTempFiles_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _loggingService.Log($"{AppTheme.Section("CLEANUP")}");
+            _loggingService.Log("Cleaning orphaned temporary files...");
+            ZipFsHelpers.CleanupOrphanedTempDirectories();
+            _loggingService.Log("Temporary files cleaned successfully.");
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError($"Error cleaning temp files: {ex.Message}");
+            ErrorLoggerStatic.ReportSilentException(ex, "CleanTempFiles_Click: Error cleaning temp files");
+        }
+    }
+
     private void About_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new AboutWindow { Owner = this, WindowStartupLocation = WindowStartupLocation.CenterOwner };

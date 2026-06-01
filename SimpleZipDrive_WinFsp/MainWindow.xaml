@@ -17,15 +17,16 @@
         <!-- Top Menu -->
         <Menu Grid.Row="0">
             <MenuItem Header="File" ToolTip="File operations">
-                <MenuItem Header="Mount Archive..." Click="Mount_ClickAsync" InputGestureText="Ctrl+M" ToolTip="Mount using the default mount type from settings" />
-                <Separator />
                 <MenuItem Header="Mount as Drive Letter..." Click="MountAsDrive_ClickAsync" ToolTip="Select an archive and mount as a virtual drive letter" />
                 <MenuItem Header="Mount as Folder..." Click="MountAsFolder_ClickAsync" ToolTip="Select an archive and mount as an NTFS folder" />
-                <Separator ToolTip="Separates mount and exit actions" />
+                <Separator />
                 <MenuItem Header="Exit" Click="Exit_Click" InputGestureText="Alt+F4" ToolTip="Close the application" />
             </MenuItem>
-            <MenuItem Header="Settings" ToolTip="Application tools and settings">
-                <MenuItem Header="RAM Limit..." Click="SettingsRamLimit_Click" InputGestureText="Ctrl+R" ToolTip="Configure maximum RAM usage per file" />
+            <MenuItem Header="Settings" ToolTip="Application settings">
+                <MenuItem Header="Settings..." Click="SettingsRamLimit_Click" InputGestureText="Ctrl+R" ToolTip="Application settings" />
+                <Separator />
+                <MenuItem Header="Open Configuration Path" Click="OpenConfigPath_Click" ToolTip="Open the folder where settings are stored" />
+                <MenuItem Header="Clean Temp Files" Click="CleanTempFiles_Click" ToolTip="Clean temporary cache files from previous sessions" />
             </MenuItem>
             <MenuItem Header="Help" ToolTip="Help and information">
                 <MenuItem Header="About" Click="About_Click" InputGestureText="F1" ToolTip="View application information and credits" />

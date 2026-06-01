@@ -1722,7 +1722,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_Constructor_Succeeds()
+    public void SevenZipConstructorSucceeds()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1731,7 +1731,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_GetVolumeInformation_ReturnsExpectedValues()
+    public void SevenZipGetVolumeInformationReturnsExpectedValues()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1745,7 +1745,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_GetFileInformation_ReturnsFile()
+    public void SevenZipGetFileInformationReturnsFile()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1759,7 +1759,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_GetFileInformation_RootReturnsDirectory()
+    public void SevenZipGetFileInformationRootReturnsDirectory()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1773,7 +1773,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_FindFiles_RootReturnsChildren()
+    public void SevenZipFindFilesRootReturnsChildren()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1787,7 +1787,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_CreateFile_ReturnsSuccess()
+    public void SevenZipCreateFileReturnsSuccess()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1801,7 +1801,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_ReadFile_ReadsContent()
+    public void SevenZipReadFileReadsContent()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1820,7 +1820,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_NonExistentFile_ReturnsPathNotFound()
+    public void SevenZipNonExistentFileReturnsPathNotFound()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1832,7 +1832,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_WriteFile_ReturnsAccessDenied()
+    public void SevenZipWriteFileReturnsAccessDenied()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1844,7 +1844,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_DeleteFile_ReturnsAccessDenied()
+    public void SevenZipDeleteFileReturnsAccessDenied()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1856,7 +1856,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_Mounted_ReturnsSuccess()
+    public void SevenZipMountedReturnsSuccess()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1868,7 +1868,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_Unmounted_ReturnsSuccess()
+    public void SevenZipUnmountedReturnsSuccess()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1880,7 +1880,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_GetDiskFreeSpace_ReturnsArchiveLength()
+    public void SevenZipGetDiskFreeSpaceReturnsArchiveLength()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1895,7 +1895,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_LockUnlockFile_ReturnsSuccess()
+    public void SevenZipLockUnlockFileReturnsSuccess()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1909,7 +1909,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void SevenZip_FindStreams_ReturnsNotImplemented()
+    public void SevenZipFindStreamsReturnsNotImplemented()
     {
         using var stream = CreateSevenZipStream();
         using var zipFs = new ZipFs(stream, "M:\\", static (_, _) => { }, static () => null, "7z");
@@ -1923,7 +1923,7 @@ public class ZipFsTests : IDisposable
     // Archive type error tests
 
     [Fact]
-    public void Constructor_UnsupportedArchiveType_ThrowsNotSupportedException()
+    public void ConstructorUnsupportedArchiveTypeThrowsNotSupportedException()
     {
         using var zipStream = CreateZipStream();
         Assert.Throws<NotSupportedException>(() =>
@@ -1931,7 +1931,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void Constructor_WrongArchiveTypeForFormat_Throws()
+    public void ConstructorWrongArchiveTypeForFormatThrows()
     {
         using var zipStream = CreateZipStream();
         Assert.Throws<InvalidOperationException>(() =>
@@ -1941,7 +1941,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void Constructor_EmptyArchiveType_ThrowsNotSupportedException()
+    public void ConstructorEmptyArchiveTypeThrowsNotSupportedException()
     {
         using var zipStream = CreateZipStream();
         Assert.Throws<NotSupportedException>(() =>
@@ -1951,7 +1951,7 @@ public class ZipFsTests : IDisposable
     // ─── GetParentPath tests ───
 
     [Fact]
-    public void GetParentPath_Root_ReturnsNull()
+    public void GetParentPathRootReturnsNull()
     {
         var result = ZipFsHelpers.GetParentPath("/");
 
@@ -1959,7 +1959,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void GetParentPath_DirectFileUnderRoot_ReturnsRoot()
+    public void GetParentPathDirectFileUnderRootReturnsRoot()
     {
         var result = ZipFsHelpers.GetParentPath("/file.txt");
 
@@ -1967,7 +1967,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void GetParentPath_NestedFile_ReturnsParentDirectory()
+    public void GetParentPathNestedFileReturnsParentDirectory()
     {
         var result = ZipFsHelpers.GetParentPath("/dir/subdir/file.txt");
 
@@ -1975,7 +1975,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void GetParentPath_SingleDirectoryLevel_ReturnsRoot()
+    public void GetParentPathSingleDirectoryLevelReturnsRoot()
     {
         var result = ZipFsHelpers.GetParentPath("/mydir");
 
@@ -1983,7 +1983,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void GetParentPath_TrailingSlash_StripsTrailingSlash()
+    public void GetParentPathTrailingSlashStripsTrailingSlash()
     {
         var result = ZipFsHelpers.GetParentPath("/dir/subdir/");
 
@@ -1991,7 +1991,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void GetParentPath_DeeplyNested_ReturnsCorrectParent()
+    public void GetParentPathDeeplyNestedReturnsCorrectParent()
     {
         var result = ZipFsHelpers.GetParentPath("/a/b/c/d/e/f");
 
@@ -2001,7 +2001,7 @@ public class ZipFsTests : IDisposable
     // ─── IsNameMatch tests ───
 
     [Fact]
-    public void IsNameMatch_NullPattern_ReturnsTrue()
+    public void IsNameMatchNullPatternReturnsTrue()
     {
         var result = ZipFsHelpers.IsNameMatch("file.txt", null!);
 
@@ -2009,7 +2009,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_EmptyPattern_ReturnsTrue()
+    public void IsNameMatchEmptyPatternReturnsTrue()
     {
         var result = ZipFsHelpers.IsNameMatch("file.txt", "");
 
@@ -2017,7 +2017,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_StarPattern_ReturnsTrue()
+    public void IsNameMatchStarPatternReturnsTrue()
     {
         var result = ZipFsHelpers.IsNameMatch("anything.here", "*");
 
@@ -2025,7 +2025,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_StarDotStarPattern_ReturnsTrue()
+    public void IsNameMatchStarDotStarPatternReturnsTrue()
     {
         var result = ZipFsHelpers.IsNameMatch("document.pdf", "*.*");
 
@@ -2033,7 +2033,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_ExactMatch_ReturnsTrue()
+    public void IsNameMatchExactMatchReturnsTrue()
     {
         var result = ZipFsHelpers.IsNameMatch("readme.txt", "readme.txt");
 
@@ -2041,7 +2041,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_WildcardExtensionMatches()
+    public void IsNameMatchWildcardExtensionMatches()
     {
         var result = ZipFsHelpers.IsNameMatch("report.txt", "*.txt");
 
@@ -2049,7 +2049,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_WildcardExtensionDoesNotMatch()
+    public void IsNameMatchWildcardExtensionDoesNotMatch()
     {
         var result = ZipFsHelpers.IsNameMatch("report.bin", "*.txt");
 
@@ -2057,7 +2057,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_WildcardPrefixMatches()
+    public void IsNameMatchWildcardPrefixMatches()
     {
         var result = ZipFsHelpers.IsNameMatch("data.csv", "data.*");
 
@@ -2065,7 +2065,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_WildcardPrefixDoesNotMatch()
+    public void IsNameMatchWildcardPrefixDoesNotMatch()
     {
         var result = ZipFsHelpers.IsNameMatch("info.csv", "data.*");
 
@@ -2073,7 +2073,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_QuestionMarkMatchesSingleCharacter()
+    public void IsNameMatchQuestionMarkMatchesSingleCharacter()
     {
         var result = ZipFsHelpers.IsNameMatch("abc.txt", "abc.tx?");
 
@@ -2081,7 +2081,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_QuestionMarkNoMatchForExtraChar()
+    public void IsNameMatchQuestionMarkNoMatchForExtraChar()
     {
         var result = ZipFsHelpers.IsNameMatch("abcd.txt", "abc.tx?");
 
@@ -2089,7 +2089,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_ComplexPatternWithStarAndQuestionMark()
+    public void IsNameMatchComplexPatternWithStarAndQuestionMark()
     {
         var result = ZipFsHelpers.IsNameMatch("log_2025_01_15.txt", "log_????_??_??.*");
 
@@ -2097,7 +2097,7 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void IsNameMatch_EmptyFileNameMatchesStar()
+    public void IsNameMatchEmptyFileNameMatchesStar()
     {
         var result = ZipFsHelpers.IsNameMatch("", "*");
 
