@@ -118,9 +118,9 @@ public class ZipFileSystemCore : IDisposable
         {
             var archiveWithoutPassword = ArchiveType switch
             {
-                "zip" => ZipArchive.OpenArchive(stream, new ReaderOptions()),
-                "7z" => SevenZipArchive.OpenArchive(stream, new ReaderOptions()),
-                "rar" => RarArchive.OpenArchive(stream, new ReaderOptions()),
+                "zip" => ZipArchive.OpenArchive(stream, new ReaderOptions { LeaveStreamOpen = true }),
+                "7z" => SevenZipArchive.OpenArchive(stream, new ReaderOptions { LeaveStreamOpen = true }),
+                "rar" => RarArchive.OpenArchive(stream, new ReaderOptions { LeaveStreamOpen = true }),
                 _ => throw new NotSupportedException($"Archive type '{ArchiveType}' is not supported.")
             };
 
@@ -174,9 +174,9 @@ public class ZipFileSystemCore : IDisposable
 
         return ArchiveType switch
         {
-            "zip" => ZipArchive.OpenArchive(stream, new ReaderOptions { Password = password }),
-            "7z" => SevenZipArchive.OpenArchive(stream, new ReaderOptions { Password = password }),
-            "rar" => RarArchive.OpenArchive(stream, new ReaderOptions { Password = password }),
+            "zip" => ZipArchive.OpenArchive(stream, new ReaderOptions { Password = password, LeaveStreamOpen = true }),
+            "7z" => SevenZipArchive.OpenArchive(stream, new ReaderOptions { Password = password, LeaveStreamOpen = true }),
+            "rar" => RarArchive.OpenArchive(stream, new ReaderOptions { Password = password, LeaveStreamOpen = true }),
             _ => throw new NotSupportedException($"Archive type '{ArchiveType}' is not supported.")
         };
     }
