@@ -8,6 +8,8 @@ namespace SimpleZipDrive_WinFsp.Services;
 
 public class MountService : IDisposable, IMountService
 {
+    private static readonly Version RequiredWinFspVersion = new(2, 2);
+
     private readonly ILoggingService _loggingService;
     private readonly ISettingsService _settingsService;
     private CancellationTokenSource? _mountCancellation;
@@ -214,6 +216,40 @@ public class MountService : IDisposable, IMountService
         }
     }
 
+    private static Version? GetInstalledWinFspVersion()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\WinFsp")
+                            ?? Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WinFsp");
+            if (key == null)
+                return null;
+
+            var versionStr = key.GetValue("Version") as string;
+            if (!string.IsNullOrEmpty(versionStr) && Version.TryParse(versionStr, out var version))
+                return version;
+
+            var installDir = key.GetValue("InstallDir") as string;
+            if (!string.IsNullOrEmpty(installDir))
+            {
+                var dllName = Environment.Is64BitProcess ? "winfsp-x64.dll" : "winfsp-x86.dll";
+                var dllPath = Path.Combine(installDir, "bin", dllName);
+                if (File.Exists(dllPath))
+                {
+                    var fvi = FileVersionInfo.GetVersionInfo(dllPath);
+                    if (fvi.FileVersion != null && Version.TryParse(fvi.FileVersion, out var fileVersion))
+                        return fileVersion;
+                }
+            }
+        }
+        catch
+        {
+            // Best-effort; version detection failure is non-fatal
+        }
+
+        return null;
+    }
+
     private static string GetDeepestMessage(Exception ex)
     {
         var current = ex;
@@ -265,6 +301,33 @@ public class MountService : IDisposable, IMountService
                 UseShellExecute = true
             });
         }
+    }
+
+    private static void ShowWinFspVersionMismatchDialog(Version installed, Version required)
+    {
+        var message = $"The installed WinFsp version ({installed.Major}.{installed.Minor}) is older than " +
+                      $"the required version ({required.Major}.{required.Minor}). Mounting will likely fail.\n\n" +
+                      "Would you like to open the WinFsp download page to update?";
+
+        var result = MessageBox.Show(message, "WinFsp Version Mismatch",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "https://github.com/winfsp/winfsp/releases",
+                UseShellExecute = true
+            });
+        }
+    }
+
+    private static bool IsVersionMismatchError(Exception ex)
+    {
+        var deepest = GetDeepestMessage(ex);
+        return deepest.Contains("incorrect dll version", StringComparison.OrdinalIgnoreCase)
+               || (deepest.Contains("TypeInitializationException", StringComparison.OrdinalIgnoreCase)
+                   && deepest.Contains("Fsp.Interop", StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task MountWithAutoDriveLetterAsync(string archivePath, string archiveType)
@@ -386,6 +449,21 @@ public class MountService : IDisposable, IMountService
                     DiagnosticLogger.Log($"  WinFsp debug log setup failed (non-fatal): {debugLogEx.Message}");
                 }
 
+                var installedVersion = GetInstalledWinFspVersion();
+                if (installedVersion != null)
+                {
+                    DiagnosticLogger.Log($"  Installed WinFsp version: {installedVersion}, Required: {RequiredWinFspVersion}");
+                    if (installedVersion < RequiredWinFspVersion)
+                    {
+                        _loggingService.Log($"WARNING: WinFsp version mismatch: installed {installedVersion.Major}.{installedVersion.Minor}, required {RequiredWinFspVersion.Major}.{RequiredWinFspVersion.Minor}. Updating WinFsp is recommended.");
+                        ShowWinFspVersionMismatchDialog(installedVersion, RequiredWinFspVersion);
+                    }
+                }
+                else
+                {
+                    DiagnosticLogger.Log("  Could not determine installed WinFsp version.");
+                }
+
                 DiagnosticLogger.Log($"  Calling host.Mount(\"{mountPoint}\", DebugLog=-1)...");
                 var mountStatus = host.Mount(mountPoint, null, false, unchecked((uint)-1));
 
@@ -408,7 +486,20 @@ public class MountService : IDisposable, IMountService
                 host.Dispose();
                 var detail = GetDeepestMessage(ex);
                 _loggingService.LogError($"WinFsp mount error: {detail}");
-                ShowWinFspDriverErrorDialog(detail);
+
+                if (IsVersionMismatchError(ex))
+                {
+                    var installed = GetInstalledWinFspVersion();
+                    if (installed != null)
+                        ShowWinFspVersionMismatchDialog(installed, RequiredWinFspVersion);
+                    else
+                        ShowWinFspDriverErrorDialog(detail);
+                }
+                else
+                {
+                    ShowWinFspDriverErrorDialog(detail);
+                }
+
                 ErrorLoggerStatic.ReportSilentException(ex, $"MountService.AttemptMountLifecycleAsync: Error mounting '{archivePath}' to '{mountPoint}'", true);
                 return false;
             }
