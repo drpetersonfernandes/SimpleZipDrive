@@ -8,7 +8,7 @@ namespace SimpleZipDrive_WinFsp.Services;
 
 public class MountService : IDisposable, IMountService
 {
-    private static readonly Version RequiredWinFspVersion = new(2, 2);
+    private static readonly Version RequiredWinFspVersion = new(2, 1);
 
     private readonly ILoggingService _loggingService;
     private readonly ISettingsService _settingsService;
@@ -457,6 +457,10 @@ public class MountService : IDisposable, IMountService
                     {
                         _loggingService.Log($"WARNING: WinFsp version mismatch: installed {installedVersion.Major}.{installedVersion.Minor}, required {RequiredWinFspVersion.Major}.{RequiredWinFspVersion.Minor}. Updating WinFsp is recommended.");
                         ShowWinFspVersionMismatchDialog(installedVersion, RequiredWinFspVersion);
+                        _currentZipFs?.Dispose();
+                        _currentZipFs = null;
+                        host.Dispose();
+                        return false;
                     }
                 }
                 else

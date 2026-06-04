@@ -157,6 +157,13 @@ public partial class App
         var pfCandidate = Path.Combine(programFiles, "WinFsp", "bin", "winfsp-msil.dll");
         if (File.Exists(pfCandidate)) return pfCandidate;
 
+        var programFiles64 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if (!string.Equals(programFiles64, programFiles, StringComparison.OrdinalIgnoreCase))
+        {
+            var pf64Candidate = Path.Combine(programFiles64, "WinFsp", "bin", "winfsp-msil.dll");
+            if (File.Exists(pf64Candidate)) return pf64Candidate;
+        }
+
         return null;
     }
 
