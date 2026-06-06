@@ -75,7 +75,7 @@ public class ZipFileSystemCore : IDisposable
         MaxTotalMemoryCache = (long)(availableMemory * 0.90);
 
         var tempDirName = ZipFsHelpers.GenerateTempDirectoryName();
-        TempDirectoryPath = Path.Combine(Path.GetTempPath(), "SimpleZipDrive", tempDirName);
+        TempDirectoryPath = Path.Combine(ZipFsHelpers.BaseTempPath, tempDirName);
         ZipFsHelpers.RegisterCurrentTempDirectory(tempDirName);
 
         try

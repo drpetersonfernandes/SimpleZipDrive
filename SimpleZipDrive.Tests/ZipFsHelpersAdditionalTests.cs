@@ -369,15 +369,16 @@ public class ZipFsHelpersTests
     // ─── BaseTempPath tests ───
 
     [Fact]
-    public void BaseTempPath_EndsWithSimpleZipDrive()
+    public void BaseTempPath_EndsWithTemp()
     {
-        Assert.EndsWith("SimpleZipDrive", ZipFsHelpers.BaseTempPath);
+        Assert.EndsWith(Path.Combine("SimpleZipDrive", "Temp"), ZipFsHelpers.BaseTempPath);
     }
 
     [Fact]
-    public void BaseTempPath_IsUnderTempPath()
+    public void BaseTempPath_IsUnderLocalAppData()
     {
-        Assert.StartsWith(Path.GetTempPath(), ZipFsHelpers.BaseTempPath);
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        Assert.StartsWith(localAppData, ZipFsHelpers.BaseTempPath);
     }
 
     // ─── RegisterCurrentTempDirectory tests ───

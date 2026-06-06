@@ -59,7 +59,7 @@ public static class DiagnosticLogger
 
     private static string GetDefaultLogDirectory()
     {
-        return Path.Combine(Path.GetTempPath(), "SimpleZipDrive", "Logs");
+        return Path.Combine(AppSettings.SettingsDirectory, "Temp", "Logs");
     }
 
     /// <summary>

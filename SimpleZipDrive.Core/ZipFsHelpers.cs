@@ -35,7 +35,7 @@ public static class ZipFsHelpers
     /// <summary>
     /// The base temp directory path for SimpleZipDrive (%TEMP%\SimpleZipDrive).
     /// </summary>
-    internal static string BaseTempPath { get; } = Path.Combine(Path.GetTempPath(), "SimpleZipDrive");
+    internal static string BaseTempPath { get; } = Path.Combine(AppSettings.SettingsDirectory, "Temp");
 
     /// <summary>
     /// Registers the current instance's temp directory name so cleanup can skip it.

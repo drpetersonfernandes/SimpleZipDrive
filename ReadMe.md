@@ -108,7 +108,7 @@ To safely unmount the drive and clean up temporary resources:
 *   **Read-Only Integrity:** The filesystem is strictly read-only. No modifications are made to the source archive.
 *   **Memory Efficiency:** The application does not load the entire archive into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested. Stored (uncompressed) entries in ZIP archives bypass caching entirely using direct-read with Windows `RandomAccess` for near-zero overhead. The per-file RAM cache limit is configurable via `Settings > RAM Limit` and is automatically clamped to 90% of available system memory. A global memory cap at 90% of available free memory ensures stability even under heavy load.
 *   **Permissions:** Mounting to drive letters or system-protected directories may require **Administrator Privileges**. If you encounter "Access Denied" errors, right-click the executable and select "Run as Administrator." When running as Administrator with the WinFsp variant, cross-integrity folder mount is automatically enabled so that standard user processes can access the mounted drive.
-*   **Temporary Storage:** Disk-based caching for large files occurs in `%TEMP%\SimpleZipDrive`. These files are purged automatically during graceful shutdown, and orphaned directories from crashed sessions are cleaned up on application startup.
+*   **Temporary Storage:** Disk-based caching for large files occurs in `%LOCALAPPDATA%\SimpleZipDrive\Temp`. These files are purged automatically during graceful shutdown, and orphaned directories from crashed sessions are cleaned up on application startup.
 
 ---
 
