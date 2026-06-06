@@ -8,7 +8,7 @@ namespace SimpleZipDrive_WinFsp.Services;
 
 public class MountService : IDisposable, IMountService
 {
-    private static readonly Version RequiredWinFspVersion = new(2, 1);
+    private static readonly Version RequiredWinFspVersion = new(2, 2);
 
     private readonly ILoggingService _loggingService;
     private readonly ISettingsService _settingsService;
