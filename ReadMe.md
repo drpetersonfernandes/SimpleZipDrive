@@ -32,6 +32,7 @@ Unlike traditional archive utilities that extract the entire archive to a tempor
 *   **Configurable Cache:** Open `Settings > RAM Limit` to adjust the per-file RAM cache limit. The value is automatically clamped to 90% of available system memory to prevent out-of-memory errors.
 *   **Configurable Mount Type:** Open `Settings` to choose the default mount type: **Drive Letter** (auto-selects M-Q) or **Folder** (browse for an NTFS directory). You can also use `File > Mount as Drive Letter` or `File > Mount as Folder` for one-time selection.
 *   **Encrypted Archive Support:** Prompts for passwords when accessing protected archives.
+*   **Cross-Integrity Mount (WinFsp):** When enabled in Settings, mounts archives to a folder path with a permissive security descriptor so that both standard and elevated (Administrator) processes can access the mounted drive. When SimpleZipDrive_WinFsp runs as Administrator, this mode is automatically enforced. Drive letter mounts remain isolated by Windows UAC — this is an OS limitation, not a WinFsp limitation.
 *   **Automated Maintenance:** Integrated update checker (with MessageBox prompt before opening the browser) and automatic cleanup of temporary cache files upon unmounting. Also cleans up orphaned temp directories from previous sessions on startup.
 *   **Enterprise Logging:** Comprehensive error tracking with local log rotation and remote diagnostic reporting.
 
@@ -106,7 +107,7 @@ To safely unmount the drive and clean up temporary resources:
 
 *   **Read-Only Integrity:** The filesystem is strictly read-only. No modifications are made to the source archive.
 *   **Memory Efficiency:** The application does not load the entire archive into RAM. It reads the Central Directory into a dictionary for fast lookups and streams file data only when requested. Stored (uncompressed) entries in ZIP archives bypass caching entirely using direct-read with Windows `RandomAccess` for near-zero overhead. The per-file RAM cache limit is configurable via `Settings > RAM Limit` and is automatically clamped to 90% of available system memory. A global memory cap at 90% of available free memory ensures stability even under heavy load.
-*   **Permissions:** Mounting to drive letters or system-protected directories may require **Administrator Privileges**. If you encounter "Access Denied" errors, right-click the executable and select "Run as Administrator."
+*   **Permissions:** Mounting to drive letters or system-protected directories may require **Administrator Privileges**. If you encounter "Access Denied" errors, right-click the executable and select "Run as Administrator." When running as Administrator with the WinFsp variant, cross-integrity folder mount is automatically enabled so that standard user processes can access the mounted drive.
 *   **Temporary Storage:** Disk-based caching for large files occurs in `%TEMP%\SimpleZipDrive`. These files are purged automatically during graceful shutdown, and orphaned directories from crashed sessions are cleaned up on application startup.
 
 ---
@@ -121,6 +122,7 @@ To safely unmount the drive and clean up temporary resources:
 | **Out of Memory**                 | Occurs if too many large files are opened simultaneously. Close applications accessing the virtual drive to free up cache.    |
 | **Archive File Error**            | Simple Zip Drive supports standard ZIP, 7Z, and RAR formats. Other formats like `.tar.gz` or `.bz2` are not supported.        |
 | **Password Prompt Not Appearing** | Some encrypted archives may use unsupported encryption methods. Ensure your archive uses standard ZIP, 7Z, or RAR encryption. |
+| **Drive invisible to elevated/standard processes** | This is Windows UAC isolation. Enable `Settings > Security Settings > Cross-integrity mount` (WinFsp only). When running as Administrator, this is enforced automatically. |
 
 ---
 
