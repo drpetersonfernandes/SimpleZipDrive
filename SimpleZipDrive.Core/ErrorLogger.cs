@@ -15,6 +15,7 @@ public class ErrorLogger : IDisposable
     private const string ApiKey = "hjh7yu6t56tyr540o9u8767676r5674534453235264c75b6t7ggghgg76trf564e";
     private const string BugReportApiUrl = "https://www.purelogiccode.com/bugreport/api/send-bug-report";
 
+    /// <summary>Gets or sets the application name included in bug report payloads.</summary>
     public static string ApplicationName { get; set; } = Assembly.GetEntryAssembly()?.GetName().Name ?? "SimpleZipDrive";
 
     private readonly HttpClient _httpClient;

@@ -3,10 +3,17 @@ using System.Windows;
 
 namespace SimpleZipDrive.Core.Views;
 
+/// <summary>
+/// WPF dialog for editing application settings such as RAM cache limit, mount type, and auto-open behavior.
+/// </summary>
 public partial class SettingsWindow
 {
     private readonly ISettingsService _settingsService;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="SettingsWindow"/> class,
+    /// populating controls with the current persisted settings.
+    /// </summary>
     public SettingsWindow()
     {
         InitializeComponent();

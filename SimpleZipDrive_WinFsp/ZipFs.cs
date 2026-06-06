@@ -9,6 +9,10 @@ using SharpCompress.Compressors.Deflate;
 
 namespace SimpleZipDrive_WinFsp;
 
+/// <summary>
+/// WinFsp-based virtual filesystem that exposes archive entries as read-only files and directories.
+/// Delegates core logic to <see cref="ZipFileSystemCore"/>.
+/// </summary>
 [SuppressMessage("ReSharper", "InconsistentNaming")]
 public sealed class ZipFs : FileSystemBase, IDisposable
 {
@@ -16,6 +20,16 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
     internal ZipFileSystemCore Core { get; }
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ZipFs"/> class.
+    /// </summary>
+    /// <param name="archiveStream">Seekable stream containing the archive data.</param>
+    /// <param name="mountPoint">WinFsp mount point (drive letter or folder path).</param>
+    /// <param name="logErrorAction">Callback invoked when an error is logged.</param>
+    /// <param name="passwordProvider">Function that returns the archive password, or <see langword="null"/> if not encrypted.</param>
+    /// <param name="archiveType">Archive format identifier (e.g., "zip", "7z", "rar").</param>
+    /// <param name="maxMemorySize">Maximum in-memory cache size per entry in bytes.</param>
+    /// <param name="volumeLabel">Optional volume label. Defaults to <see cref="ZipFileSystemCore.DefaultVolumeLabel"/>.</param>
     public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize, string? volumeLabel = null)
     {
         Core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize, volumeLabel);
@@ -29,6 +43,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return Core.ValidatePathLength(path, operationName) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
     }
 
+    /// <inheritdoc/>
     public override int Init(object Host)
     {
         if (Host is FileSystemHost host)
@@ -47,6 +62,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_SUCCESS;
     }
 
+    /// <inheritdoc/>
     [SuppressMessage("ReSharper", "ConditionalAccessQualifierIsNonNullableAccordingToAPIContract")]
     public override int Create(
         string FileName,
@@ -65,6 +81,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return result;
     }
 
+    /// <inheritdoc/>
     [SuppressMessage("ReSharper", "ConditionalAccessQualifierIsNonNullableAccordingToAPIContract")]
     public override int Open(
         string FileName,
@@ -80,6 +97,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return result;
     }
 
+    /// <inheritdoc/>
     public override int Overwrite(
         object FileNode,
         object FileDesc,
@@ -173,7 +191,16 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             var stream = Core.OpenEntryStream(entry, normalizedPath);
             if (stream == null)
             {
-                DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "stream creation returned null");
+                // Race condition: entry may have been marked as failed by a concurrent thread
+                // between the IsFailedEntry check above and the OpenEntryStream call.
+                if (Core.IsFailedEntry(normalizedPath))
+                {
+                    DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "stream null - entry marked failed (race)");
+                    return STATUS_UNSUCCESSFUL;
+                }
+
+                DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, "stream creation returned null unexpectedly");
+                _logErrorAction(new InvalidOperationException($"ZipFs.OpenOrCreateFile: OpenEntryStream returned null for '{normalizedPath}' but entry is not in the failed list."), "ZipFs.OpenOrCreateFile: Unexpected null stream.");
                 return STATUS_UNSUCCESSFUL;
             }
 
@@ -216,6 +243,17 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             ZipFileSystemCore.LogMessage($"{AppTheme.Bullet}The source device is no longer available or has errors");
             ZipFileSystemCore.LogMessage("Please verify the drive is connected and the file has not been altered.");
             _logErrorAction(ioEx, $"ZipFs.Create: Source file inaccessible for entry '{normalizedPath}'");
+            fileNode = null!;
+            fileDesc = null!;
+            return STATUS_UNSUCCESSFUL;
+        }
+        catch (IOException ioEx)
+        {
+            // Disk space exhaustion, temp file open failure, or other IO errors during caching.
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"IOException (disk/cache): {ioEx.Message}");
+            ZipFileSystemCore.LogMessage($"{AppTheme.Warning} IO Error: Cannot cache '{normalizedPath}'.");
+            ZipFileSystemCore.LogMessage($"Details: {ioEx.Message}");
+            _logErrorAction(ioEx, $"ZipFs.OpenOrCreateFile: IO error caching entry '{normalizedPath}'.");
             fileNode = null!;
             fileDesc = null!;
             return STATUS_UNSUCCESSFUL;
@@ -271,6 +309,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public override int Read(
         object FileNode,
         object FileDesc,
@@ -316,6 +355,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public override int ReadDirectory(
         object FileNode,
         object FileDesc,
@@ -341,6 +381,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public override int GetFileInfo(
         object FileNode,
         object FileDesc,
@@ -358,6 +399,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_UNSUCCESSFUL;
     }
 
+    /// <inheritdoc/>
     public override int GetDirInfoByName(
         object FileNode,
         object FileDesc,
@@ -393,6 +435,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_SUCCESS;
     }
 
+    /// <inheritdoc/>
     public override int GetVolumeInfo(out VolumeInfo VolumeInfo)
     {
         VolumeInfo = default;
@@ -403,12 +446,14 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_SUCCESS;
     }
 
+    /// <inheritdoc/>
     public override int SetVolumeLabel(string VolumeLabel, out VolumeInfo VolumeInfo)
     {
         VolumeInfo = default;
         return STATUS_ACCESS_DENIED;
     }
 
+    /// <inheritdoc/>
     public override int GetSecurityByName(
         string FileName,
         out uint FileAttributes,
@@ -460,6 +505,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public override bool ReadDirectoryEntry(
         object FileNode,
         object FileDesc,
@@ -581,6 +627,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public override void Cleanup(
         object FileNode,
         object FileDesc,
@@ -590,6 +637,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         DiagnosticLogger.LogOperation("Cleanup", FileName, STATUS_SUCCESS);
     }
 
+    /// <inheritdoc/>
     public override void Close(
         object FileNode,
         object FileDesc)
@@ -602,6 +650,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
     }
 
+    /// <inheritdoc/>
     public override int Flush(
         object FileNode,
         object FileDesc,
@@ -611,6 +660,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_ACCESS_DENIED;
     }
 
+    /// <inheritdoc/>
     public override int SetBasicInfo(
         object FileNode,
         object FileDesc,
@@ -625,6 +675,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_ACCESS_DENIED;
     }
 
+    /// <inheritdoc/>
     public override int SetFileSize(
         object FileNode,
         object FileDesc,
@@ -636,6 +687,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_ACCESS_DENIED;
     }
 
+    /// <inheritdoc/>
     public override int CanDelete(
         object FileNode,
         object FileDesc,
@@ -644,6 +696,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_ACCESS_DENIED;
     }
 
+    /// <inheritdoc/>
     public override int Rename(
         object FileNode,
         object FileDesc,
@@ -654,6 +707,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_ACCESS_DENIED;
     }
 
+    /// <inheritdoc/>
     public override int GetSecurity(
         object FileNode,
         object FileDesc,
@@ -663,6 +717,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return STATUS_SUCCESS;
     }
 
+    /// <inheritdoc/>
     public override int SetSecurity(
         object FileNode,
         object FileDesc,
@@ -699,6 +754,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         return fi;
     }
 
+    /// <summary>
+    /// Releases all resources used by the <see cref="ZipFs"/> instance, including the underlying archive and temp files.
+    /// </summary>
     public void Dispose()
     {
         Core.Dispose();

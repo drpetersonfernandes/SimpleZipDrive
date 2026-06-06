@@ -2,12 +2,20 @@ using System.Text.Json;
 
 namespace SimpleZipDrive.Core.Models;
 
+/// <summary>
+/// Specifies how the archive virtual drive is mounted in the filesystem.
+/// </summary>
 public enum MountType
 {
+    /// <summary>Mount as a standard drive letter (e.g., <c>Z:\</c>).</summary>
     DriveLetter,
+    /// <summary>Mount as a directory within an existing drive.</summary>
     Folder
 }
 
+/// <summary>
+/// Persists user-configurable application settings to disk as JSON.
+/// </summary>
 public class AppSettings
 {
     internal static readonly string SettingsDirectory = Path.Combine(
@@ -20,6 +28,10 @@ public class AppSettings
 
     private long _maxMemoryPerFileMb = 512;
 
+    /// <summary>
+    /// Gets or sets the maximum memory (in megabytes) used to cache a single archive entry in RAM.
+    /// Values are clamped between 1 MB and 90% of available system memory.
+    /// </summary>
     public long MaxMemoryPerFileMb
     {
         get => _maxMemoryPerFileMb;
@@ -35,12 +47,20 @@ public class AppSettings
         }
     }
 
+    /// <summary>Gets the maximum memory per file converted to bytes.</summary>
     public long MaxMemoryPerFileBytes => MaxMemoryPerFileMb * 1024L * 1024L;
 
+    /// <summary>Gets or sets the default mount type used when opening archives.</summary>
     public MountType DefaultMountType { get; set; } = MountType.DriveLetter;
 
+    /// <summary>Gets or sets a value indicating whether the mounted drive should be opened in Explorer automatically.</summary>
     public bool AutoOpenMountedDrive { get; set; }
 
+    /// <summary>
+    /// Loads settings from the persistent settings file, applying system-memory validation.
+    /// Returns default settings if the file is missing, corrupted, or inaccessible.
+    /// </summary>
+    /// <returns>The loaded or default <see cref="AppSettings"/> instance.</returns>
     public static AppSettings Load()
     {
         AppSettings? settings = null;
@@ -104,6 +124,9 @@ public class AppSettings
         return settings;
     }
 
+    /// <summary>
+    /// Persists the current settings to disk. Errors are reported silently without throwing.
+    /// </summary>
     public void Save()
     {
         try

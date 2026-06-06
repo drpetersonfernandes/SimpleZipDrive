@@ -28,6 +28,9 @@ public class ZipFileSystemCore : IDisposable
     // Cache for large files extracted to disk.
     internal readonly Dictionary<string, string> LargeFileCache = new(StringComparer.OrdinalIgnoreCase);
 
+    // Per-entry semaphores for extraction synchronization (Fix: reduce global lock contention).
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _entryLocks = new(StringComparer.OrdinalIgnoreCase);
+
     // Cache for entries that failed to decompress.
     private readonly HashSet<string> _failedEntries = new(StringComparer.OrdinalIgnoreCase);
 
@@ -39,9 +42,13 @@ public class ZipFileSystemCore : IDisposable
     private readonly Func<string?> _passwordProvider;
     private int _disposedInt;
 
+    /// <summary>Default volume label displayed in Windows Explorer.</summary>
     public const string DefaultVolumeLabel = "SimpleZipDrive";
+
+    /// <summary>Default maximum size (512 MB) for in-memory caching of a single archive entry.</summary>
     public const long DefaultMaxMemorySize = 512L * 1024 * 1024;
 
+    /// <summary>Gets the volume label displayed for the mounted archive.</summary>
     public string VolumeLabel { get; }
 
     /// <summary>
@@ -103,13 +110,19 @@ public class ZipFileSystemCore : IDisposable
         }
     }
 
+    /// <summary>Gets a value indicating whether this instance has been disposed.</summary>
     public bool IsDisposed => Volatile.Read(ref _disposedInt) != 0;
+
+    /// <summary>Gets the archive type identifier (e.g., "zip", "7z", "rar").</summary>
     public string ArchiveType { get; }
 
+    /// <summary>Gets the path to the temporary directory used for disk-cached entries.</summary>
     public string TempDirectoryPath { get; }
 
+    /// <summary>Gets the maximum size (in bytes) of a single entry that can be cached in memory.</summary>
     public long MaxMemorySize { get; }
 
+    /// <summary>Gets the total size in bytes of the source archive stream, or 0 if the stream is not seekable.</summary>
     public long TotalSize => _sourceArchiveStream.CanSeek ? _sourceArchiveStream.Length : 0;
 
     private IArchive OpenArchive(Stream stream)
@@ -243,6 +256,12 @@ public class ZipFileSystemCore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Determines whether the specified archive entry is stored (uncompressed) and can be
+    /// read directly from the source stream without extraction.
+    /// </summary>
+    /// <param name="entry">The archive entry to check.</param>
+    /// <returns><see langword="true"/> if the entry is stored uncompressed in a seekable zip archive; otherwise, <see langword="false"/>.</returns>
     public bool IsStoredEntry(IArchiveEntry entry)
     {
         if (ArchiveType != "zip")
@@ -258,6 +277,12 @@ public class ZipFileSystemCore : IDisposable
         };
     }
 
+    /// <summary>
+    /// Determines whether the specified entry has previously failed to decompress and is
+    /// excluded from further open attempts.
+    /// </summary>
+    /// <param name="normalizedPath">The normalized archive path of the entry.</param>
+    /// <returns><see langword="true"/> if the entry is in the failed list; otherwise, <see langword="false"/>.</returns>
     public bool IsFailedEntry(string normalizedPath)
     {
         lock (_archiveLock)
@@ -266,6 +291,10 @@ public class ZipFileSystemCore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Marks an entry as failed so subsequent open attempts return immediately without retrying extraction.
+    /// </summary>
+    /// <param name="normalizedPath">The normalized archive path of the entry to mark as failed.</param>
     public void AddFailedEntry(string normalizedPath)
     {
         lock (_archiveLock)
@@ -473,8 +502,9 @@ public class ZipFileSystemCore : IDisposable
 
     /// <summary>
     /// Opens a stream for reading an archive entry with caching.
-    /// Returns null if the entry is in the failed list or if stream creation fails silently.
-    /// May throw exceptions on extraction errors.
+    /// Returns null only if the entry is in the failed list.
+    /// Throws <see cref="IOException"/> on disk space or cache file errors.
+    /// May throw other exceptions on extraction errors.
     /// </summary>
     public Stream? OpenEntryStream(IArchiveEntry entry, string normalizedPath)
     {
@@ -560,7 +590,7 @@ public class ZipFileSystemCore : IDisposable
         });
     }
 
-    private FileStream? OpenDiskCachedStream(IArchiveEntry entry, string normalizedPath, long entrySize, bool isLargeFile)
+    private FileStream OpenDiskCachedStream(IArchiveEntry entry, string normalizedPath, long entrySize, bool isLargeFile)
     {
         string? cachedPath = null;
         lock (_archiveLock)
@@ -577,73 +607,89 @@ public class ZipFileSystemCore : IDisposable
         }
         else
         {
-            if (isLargeFile)
+            var entrySemaphore = _entryLocks.GetOrAdd(normalizedPath, static _ => new SemaphoreSlim(1, 1));
+            entrySemaphore.Wait();
+            try
             {
-                LogMessage($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
-                LogMessage("");
-            }
-
-            var newTempFilePath = CreateSecureTempFile();
-
-            if (entrySize >= 0)
-            {
-                try
+                // Double-check after acquiring per-entry lock.
+                lock (_archiveLock)
                 {
-                    var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath) ?? "C:\\";
-                    var tempDrive = new DriveInfo(tempDrivePathRoot);
-                    if (tempDrive.AvailableFreeSpace < entrySize)
+                    if (LargeFileCache.TryGetValue(normalizedPath, out var existingPath))
                     {
-                        try
-                        {
-                            File.Delete(newTempFilePath);
-                        }
-                        catch (Exception ex)
-                        {
-                            ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.OpenDiskCachedStream: Failed to delete temp file '{newTempFilePath}' during disk space check", true);
-                        }
-
-                        var errorMessage = $"Insufficient disk space to extract file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB).";
-                        _logErrorAction(new IOException(errorMessage), "ZipFs.OpenDiskCachedStream: Disk space check failed.");
-                        return null;
+                        cachedPath = existingPath;
                     }
                 }
-                catch (Exception driveEx)
-                {
-                    _logErrorAction(driveEx, $"Error checking disk space for file extraction of '{normalizedPath}'.");
-                }
-            }
 
-            lock (_archiveLock)
-            {
-                if (LargeFileCache.TryGetValue(normalizedPath, out var existingPath))
+                if (cachedPath != null)
                 {
-                    cachedPath = existingPath;
-                    try
-                    {
-                        File.Delete(newTempFilePath);
-                    }
-                    catch
-                    {
-                        /* best effort */
-                    }
+                    LogMessage($"Reusing existing temporary cache for '{normalizedPath}'.");
                 }
                 else
                 {
-                    using var entryStream = entry.OpenEntryStream();
-                    using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None);
-                    entryStream.CopyTo(tempFileStream);
-                    LargeFileCache[normalizedPath] = newTempFilePath;
+                    if (isLargeFile)
+                    {
+                        LogMessage($"Large file detected: '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Extracting to temporary disk cache...");
+                        LogMessage("");
+                    }
+
+                    var newTempFilePath = CreateSecureTempFile();
+
+                    if (entrySize >= 0)
+                    {
+                        try
+                        {
+                            var tempDrivePathRoot = Path.GetPathRoot(newTempFilePath) ?? "C:\\";
+                            var tempDrive = new DriveInfo(tempDrivePathRoot);
+                            if (tempDrive.AvailableFreeSpace < entrySize)
+                            {
+                                try
+                                {
+                                    File.Delete(newTempFilePath);
+                                }
+                                catch (Exception ex)
+                                {
+                                    ErrorLoggerStatic.ReportSilentException(ex, $"ZipFs.OpenDiskCachedStream: Failed to delete temp file '{newTempFilePath}' during disk space check", true);
+                                }
+
+                                var errorMessage = $"Insufficient disk space to extract file '{normalizedPath}' ({entrySize / 1024.0 / 1024.0:F2} MB). Available: {tempDrive.AvailableFreeSpace / 1024.0 / 1024.0:F2} MB, Required: {entrySize / 1024.0 / 1024.0:F2} MB.";
+                                throw new IOException(errorMessage);
+                            }
+                        }
+                        catch (IOException)
+                        {
+                            throw;
+                        }
+                        catch (Exception driveEx)
+                        {
+                            _logErrorAction(driveEx, $"Error checking disk space for file extraction of '{normalizedPath}'.");
+                        }
+                    }
+
+                    // Extract outside the global archive lock — only per-entry lock is held.
+                    using (var entryStream = entry.OpenEntryStream())
+                    using (var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None))
+                    {
+                        entryStream.CopyTo(tempFileStream);
+                    }
+
+                    lock (_archiveLock)
+                    {
+                        LargeFileCache[normalizedPath] = newTempFilePath;
+                    }
+
                     cachedPath = newTempFilePath;
+                    LogMessage($"Extraction complete for '{normalizedPath}'. Temp file: '{cachedPath}'");
                 }
             }
-
-            LogMessage($"Extraction complete for '{normalizedPath}'. Temp file: '{cachedPath}'");
+            finally
+            {
+                entrySemaphore.Release();
+            }
         }
 
         if (string.IsNullOrEmpty(cachedPath))
         {
-            _logErrorAction(new InvalidOperationException($"ZipFs.OpenDiskCachedStream: cachedPath is null/empty for file '{normalizedPath}' after caching attempt."), "ZipFs.OpenDiskCachedStream: Disk caching failed silently.");
-            return null;
+            throw new IOException($"Disk caching failed for file '{normalizedPath}'. The cached path is unexpectedly null after extraction.");
         }
 
         try
@@ -652,8 +698,7 @@ public class ZipFileSystemCore : IDisposable
         }
         catch (Exception fsEx)
         {
-            _logErrorAction(fsEx, $"ZipFs.OpenDiskCachedStream: Failed to open cached temp file '{cachedPath}' for reading.");
-            return null;
+            throw new IOException($"Failed to open cached temp file '{cachedPath}' for reading file '{normalizedPath}'.", fsEx);
         }
     }
 
@@ -767,6 +812,11 @@ public class ZipFileSystemCore : IDisposable
         return tempFilePath;
     }
 
+    /// <summary>
+    /// Dumps a diagnostic listing of all archive entries, implicit directories, and failed entries
+    /// to the <see cref="DiagnosticLogger"/> output.
+    /// </summary>
+    /// <param name="maxEntries">Maximum number of entries to display per category.</param>
     public void DumpEntries(int maxEntries = 100)
     {
         try
@@ -836,6 +886,10 @@ public class ZipFileSystemCore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Releases all resources used by the <see cref="ZipFileSystemCore"/>, including the archive,
+    /// source stream, cached temp files, and the temporary directory.
+    /// </summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposedInt, 1) != 0)
@@ -873,6 +927,13 @@ public class ZipFileSystemCore : IDisposable
             LargeFileCache.Clear();
         }
 
+        foreach (var semaphore in _entryLocks.Values)
+        {
+            semaphore.Dispose();
+        }
+
+        _entryLocks.Clear();
+
         try
         {
             if (Directory.Exists(TempDirectoryPath))
@@ -907,12 +968,27 @@ public class ZipFileSystemCore : IDisposable
 /// </summary>
 public sealed class EntryNode
 {
+    /// <summary>Gets or sets the normalized forward-slash-separated path (e.g., "/folder/file.txt").</summary>
     public string NormalizedPath { get; set; } = null!;
+
+    /// <summary>Gets or sets the canonical path as it appears in the archive entry key.</summary>
     public string CanonicalPath { get; set; } = null!;
+
+    /// <summary>Gets or sets a value indicating whether this node represents a directory.</summary>
     public bool IsDir { get; set; }
+
+    /// <summary>Gets or sets the underlying archive entry, or <see langword="null"/> for implicit directories.</summary>
     public IArchiveEntry? Entry { get; set; }
+
+    /// <summary>Gets or sets the uncompressed file size in bytes (0 for directories).</summary>
     public long FileSize { get; set; }
+
+    /// <summary>Gets or sets the creation timestamp of this entry.</summary>
     public DateTime CreationTime { get; set; }
+
+    /// <summary>Gets or sets the last-modified timestamp of this entry.</summary>
     public DateTime LastWriteTime { get; set; }
+
+    /// <summary>Gets or sets the last-accessed timestamp of this entry.</summary>
     public DateTime LastAccessTime { get; set; }
 }

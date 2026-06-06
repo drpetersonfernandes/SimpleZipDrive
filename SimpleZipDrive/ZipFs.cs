@@ -7,22 +7,38 @@ using DokanFileAccess = DokanNet.FileAccess;
 
 namespace SimpleZipDrive;
 
+/// <summary>
+/// Dokan-based virtual filesystem that exposes archive entries as read-only files and directories.
+/// Delegates core logic to <see cref="ZipFileSystemCore"/>.
+/// </summary>
 public class ZipFs : IDokanOperations, IDisposable
 {
     private readonly Action<Exception?, string?> _logErrorAction;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ZipFs"/> class.
+    /// </summary>
+    /// <param name="archiveStream">Seekable stream containing the archive data.</param>
+    /// <param name="mountPoint">Dokan mount point (drive letter or folder path).</param>
+    /// <param name="logErrorAction">Callback invoked when an error is logged.</param>
+    /// <param name="passwordProvider">Function that returns the archive password, or <see langword="null"/> if not encrypted.</param>
+    /// <param name="archiveType">Archive format identifier (e.g., "zip", "7z", "rar").</param>
+    /// <param name="maxMemorySize">Maximum in-memory cache size per entry in bytes.</param>
+    /// <param name="volumeLabel">Optional volume label. Defaults to <see cref="ZipFileSystemCore.DefaultVolumeLabel"/>.</param>
     public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize, string? volumeLabel = null)
     {
         Core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize, volumeLabel);
         _logErrorAction = logErrorAction;
     }
 
+    /// <summary>Gets or sets the current total memory consumed by in-memory cached entries.</summary>
     public long CurrentMemoryUsage
     {
         get => Core.CurrentMemoryUsage;
         internal set => Core.CurrentMemoryUsage = value;
     }
 
+    /// <summary>Gets the maximum total memory that can be used for in-memory caching.</summary>
     public long MaxTotalMemoryCache => Core.MaxTotalMemoryCache;
     internal ZipFileSystemCore Core { get; }
 
@@ -31,6 +47,7 @@ public class ZipFs : IDokanOperations, IDisposable
         return Core.ValidatePathLength(path, operationName) ? DokanResult.Success : DokanResult.Error;
     }
 
+    /// <inheritdoc cref="IDokanOperations.CreateFile"/>
     public NtStatus CreateFile(
         string fileName,
         DokanFileAccess access,
@@ -90,7 +107,14 @@ public class ZipFs : IDokanOperations, IDisposable
                 var stream = Core.OpenEntryStream(entry, normalizedPath);
                 if (stream == null)
                 {
-                    _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: Context was not a Stream for file '{normalizedPath}' after caching attempt."), "ZipFs.CreateFile: Context invalid post-caching.");
+                    // Race condition: entry may have been marked as failed by a concurrent thread
+                    // between the IsFailedEntry check above and the OpenEntryStream call.
+                    if (Core.IsFailedEntry(normalizedPath))
+                    {
+                        return DokanResult.Error;
+                    }
+
+                    _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: OpenEntryStream returned null for '{normalizedPath}' but entry is not in the failed list."), "ZipFs.CreateFile: Unexpected null stream.");
                     return DokanResult.Error;
                 }
 
@@ -127,6 +151,16 @@ public class ZipFs : IDokanOperations, IDisposable
                 ZipFileSystemCore.LogMessage($"{AppTheme.Bullet}The source device is no longer available or has errors");
                 ZipFileSystemCore.LogMessage("Please verify the drive is connected and the file has not been altered.");
                 _logErrorAction(ioEx, $"ZipFs.CreateFile: Source file inaccessible for entry '{normalizedPath}'");
+                (info.Context as IDisposable)?.Dispose();
+                info.Context = null;
+                return DokanResult.Error;
+            }
+            catch (IOException ioEx)
+            {
+                // Disk space exhaustion, temp file open failure, or other IO errors during caching.
+                ZipFileSystemCore.LogMessage($"{AppTheme.Warning} IO Error: Cannot cache '{normalizedPath}'.");
+                ZipFileSystemCore.LogMessage($"Details: {ioEx.Message}");
+                _logErrorAction(ioEx, $"ZipFs.CreateFile: IO error caching entry '{normalizedPath}'.");
                 (info.Context as IDisposable)?.Dispose();
                 info.Context = null;
                 return DokanResult.Error;
@@ -202,6 +236,7 @@ public class ZipFs : IDokanOperations, IDisposable
         return DokanResult.PathNotFound;
     }
 
+    /// <inheritdoc cref="IDokanOperations.ReadFile"/>
     public NtStatus ReadFile(
         string fileName,
         byte[] buffer,
@@ -243,6 +278,7 @@ public class ZipFs : IDokanOperations, IDisposable
         }
     }
 
+    /// <inheritdoc cref="IDokanOperations.GetFileInformation"/>
     public NtStatus GetFileInformation(string fileName, out FileInformation fileInfo, IDokanFileInfo info)
     {
         DiagnosticLogger.Log($"  GetFileInformation: ENTER \"{fileName}\"");
@@ -294,6 +330,7 @@ public class ZipFs : IDokanOperations, IDisposable
         return DokanResult.PathNotFound;
     }
 
+    /// <inheritdoc cref="IDokanOperations.FindFiles"/>
     public NtStatus FindFiles(string fileName, out IList<FileInformation> files, IDokanFileInfo info)
     {
         DiagnosticLogger.Log($"  FindFiles: ENTER \"{fileName}\"");
@@ -342,6 +379,7 @@ public class ZipFs : IDokanOperations, IDisposable
         return DokanResult.Success;
     }
 
+    /// <inheritdoc cref="IDokanOperations.GetVolumeInformation"/>
     public NtStatus GetVolumeInformation(out string volumeLabel, out FileSystemFeatures features,
         out string fileSystemName, out uint maximumComponentLength, IDokanFileInfo info)
     {
@@ -353,20 +391,24 @@ public class ZipFs : IDokanOperations, IDisposable
         return DokanResult.Success;
     }
 
+    /// <inheritdoc cref="IDokanOperations.Mounted"/>
     public NtStatus Mounted(string mountPoint, IDokanFileInfo info)
     {
         return DokanResult.Success;
     }
 
+    /// <inheritdoc cref="IDokanOperations.Unmounted"/>
     public NtStatus Unmounted(IDokanFileInfo info)
     {
         return DokanResult.Success;
     }
 
+    /// <inheritdoc cref="IDokanOperations.Cleanup"/>
     public void Cleanup(string fileName, IDokanFileInfo info)
     {
     }
 
+    /// <inheritdoc cref="IDokanOperations.CloseFile"/>
     public void CloseFile(string fileName, IDokanFileInfo info)
     {
         if (info.Context is IDisposable disposableContext)
@@ -377,6 +419,7 @@ public class ZipFs : IDokanOperations, IDisposable
         info.Context = null;
     }
 
+    /// <inheritdoc cref="IDokanOperations.GetDiskFreeSpace"/>
     public NtStatus GetDiskFreeSpace(out long freeBytesAvailable, out long totalNumberOfBytes, out long totalNumberOfFreeBytes, IDokanFileInfo info)
     {
         totalNumberOfBytes = Core.TotalSize;
@@ -385,68 +428,81 @@ public class ZipFs : IDokanOperations, IDisposable
         return DokanResult.Success;
     }
 
+    /// <inheritdoc cref="IDokanOperations.WriteFile"/>
     public NtStatus WriteFile(string fileName, byte[] buffer, out int bytesWritten, long offset, IDokanFileInfo info)
     {
         bytesWritten = 0;
         return DokanResult.AccessDenied;
     }
 
+    /// <inheritdoc cref="IDokanOperations.FlushFileBuffers"/>
     public NtStatus FlushFileBuffers(string fileName, IDokanFileInfo info)
     {
         return DokanResult.AccessDenied;
     }
 
+    /// <inheritdoc cref="IDokanOperations.SetFileAttributes"/>
     public NtStatus SetFileAttributes(string fileName, FileAttributes attributes, IDokanFileInfo info)
     {
         return DokanResult.AccessDenied;
     }
 
+    /// <inheritdoc cref="IDokanOperations.SetFileTime"/>
     public NtStatus SetFileTime(string fileName, DateTime? creationTime, DateTime? lastAccessTime, DateTime? lastWriteTime, IDokanFileInfo info)
     {
         return DokanResult.AccessDenied;
     }
 
+    /// <inheritdoc cref="IDokanOperations.DeleteFile"/>
     public NtStatus DeleteFile(string fileName, IDokanFileInfo info)
     {
         return DokanResult.AccessDenied;
     }
 
+    /// <inheritdoc cref="IDokanOperations.DeleteDirectory"/>
     public NtStatus DeleteDirectory(string fileName, IDokanFileInfo info)
     {
         return DokanResult.AccessDenied;
     }
 
+    /// <inheritdoc cref="IDokanOperations.MoveFile"/>
     public NtStatus MoveFile(string oldName, string newName, bool replace, IDokanFileInfo info)
     {
         return DokanResult.AccessDenied;
     }
 
+    /// <inheritdoc cref="IDokanOperations.SetEndOfFile"/>
     public NtStatus SetEndOfFile(string fileName, long length, IDokanFileInfo info)
     {
         return DokanResult.AccessDenied;
     }
 
+    /// <inheritdoc cref="IDokanOperations.SetAllocationSize"/>
     public NtStatus SetAllocationSize(string fileName, long length, IDokanFileInfo info)
     {
         return DokanResult.AccessDenied;
     }
 
+    /// <inheritdoc cref="IDokanOperations.LockFile"/>
     public NtStatus LockFile(string fileName, long offset, long length, IDokanFileInfo info)
     {
         return DokanResult.Success;
     }
 
+    /// <inheritdoc cref="IDokanOperations.UnlockFile"/>
     public NtStatus UnlockFile(string fileName, long offset, long length, IDokanFileInfo info)
     {
         return DokanResult.Success;
     }
 
+    /// <inheritdoc cref="IDokanOperations.FindStreams"/>
     public NtStatus FindStreams(string fileName, out IList<FileInformation> streams, IDokanFileInfo info)
     {
         streams = Array.Empty<FileInformation>();
         return DokanResult.NotImplemented;
     }
 
+    /// <inheritdoc cref="IDokanOperations.FindFilesWithPattern"/>
     public NtStatus FindFilesWithPattern(string fileName, string searchPattern, out IList<FileInformation> files, IDokanFileInfo info)
     {
         var pathValidationResult = ValidatePathLength(fileName, nameof(FindFilesWithPattern));
@@ -483,6 +539,7 @@ public class ZipFs : IDokanOperations, IDisposable
         return DokanResult.Success;
     }
 
+    /// <inheritdoc cref="IDokanOperations.GetFileSecurity"/>
     public NtStatus GetFileSecurity(string fileName, out FileSystemSecurity? security, AccessControlSections sections, IDokanFileInfo info)
     {
         security = null;
@@ -527,11 +584,15 @@ public class ZipFs : IDokanOperations, IDisposable
         }
     }
 
+    /// <inheritdoc cref="IDokanOperations.SetFileSecurity"/>
     public NtStatus SetFileSecurity(string fileName, FileSystemSecurity security, AccessControlSections sections, IDokanFileInfo info)
     {
         return DokanResult.AccessDenied;
     }
 
+    /// <summary>
+    /// Releases all resources used by the <see cref="ZipFs"/> instance, including the underlying archive and temp files.
+    /// </summary>
     public void Dispose()
     {
         Core.Dispose();

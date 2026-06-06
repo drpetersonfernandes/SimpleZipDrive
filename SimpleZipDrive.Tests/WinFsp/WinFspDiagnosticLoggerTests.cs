@@ -2,6 +2,7 @@ using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 
+[Collection("DiagnosticLogger")]
 public class WinFspDiagnosticLoggerTests : IDisposable
 {
     private readonly string _tempDir;

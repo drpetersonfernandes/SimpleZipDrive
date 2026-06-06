@@ -11,8 +11,10 @@ public static class DiagnosticLogger
     internal static volatile bool Initialized;
     private static StreamWriter? _writer;
 
+    /// <summary>Gets a value indicating whether diagnostic logging is enabled.</summary>
     public static bool IsEnabled { get; internal set; }
 
+    /// <summary>Gets the file path of the current diagnostic log, or <see langword="null"/> if not initialized.</summary>
     public static string? LogFilePath { get; internal set; }
 
     /// <summary>
