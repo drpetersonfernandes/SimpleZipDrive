@@ -3,6 +3,7 @@ using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests;
 
+[Collection("ErrorLogger")]
 public class ErrorLoggerAdditionalTests
 {
     // ─── IsUserError: DokanNet namespace exceptions ───

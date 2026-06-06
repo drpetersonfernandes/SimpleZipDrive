@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows;
+using Microsoft.Win32;
 
 namespace SimpleZipDrive.Core.Views;
 
@@ -25,6 +26,8 @@ public partial class SettingsWindow
         MountTypeComboBox.SelectedIndex = _settingsService.Settings.DefaultMountType == MountType.Folder ? 1 : 0;
 
         AutoOpenCheckBox.IsChecked = _settingsService.Settings.AutoOpenMountedDrive;
+        CrossIntegrityCheckBox.IsChecked = _settingsService.Settings.CrossIntegrityMount;
+        MountFolderTextBox.Text = _settingsService.Settings.CrossIntegrityMountFolder;
     }
 
     private void Save_Click(object sender, RoutedEventArgs e)
@@ -36,6 +39,8 @@ public partial class SettingsWindow
                 _settingsService.Settings.MaxMemoryPerFileMb = value;
                 _settingsService.Settings.DefaultMountType = MountTypeComboBox.SelectedIndex == 1 ? MountType.Folder : MountType.DriveLetter;
                 _settingsService.Settings.AutoOpenMountedDrive = AutoOpenCheckBox.IsChecked == true;
+                _settingsService.Settings.CrossIntegrityMount = CrossIntegrityCheckBox.IsChecked == true;
+                _settingsService.Settings.CrossIntegrityMountFolder = MountFolderTextBox.Text.Trim();
                 _settingsService.SaveSettings();
 
                 var actualValue = _settingsService.Settings.MaxMemoryPerFileMb;
@@ -58,6 +63,14 @@ public partial class SettingsWindow
 
                 loggingService?.Log($"Auto-open mounted drive: {(_settingsService.Settings.AutoOpenMountedDrive ? "Enabled" : "Disabled")}.");
 
+                loggingService?.Log($"Cross-integrity mount: {(_settingsService.Settings.CrossIntegrityMount ? "Enabled (folder mount with permissive DACL)" : "Disabled")}.");
+
+                var mountFolder = _settingsService.Settings.CrossIntegrityMountFolder;
+                if (_settingsService.Settings.CrossIntegrityMount)
+                {
+                    loggingService?.Log($"Cross-integrity mount folder: {(string.IsNullOrWhiteSpace(mountFolder) ? @"Default (%LOCALAPPDATA%\SimpleZipDrive\Mounts)" : mountFolder)}.");
+                }
+
                 DialogResult = true;
                 Close();
             }
@@ -73,6 +86,25 @@ public partial class SettingsWindow
             ErrorLoggerStatic.LogErrorSync(ex, context);
             MessageBox.Show($"Error saving settings: {ex.Message}", "Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void BrowseMountFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "Select Cross-Integrity Mount Folder"
+        };
+
+        var currentPath = MountFolderTextBox.Text.Trim();
+        if (!string.IsNullOrEmpty(currentPath) && Directory.Exists(currentPath))
+        {
+            dialog.InitialDirectory = currentPath;
+        }
+
+        if (dialog.ShowDialog() == true)
+        {
+            MountFolderTextBox.Text = dialog.FolderName;
         }
     }
 

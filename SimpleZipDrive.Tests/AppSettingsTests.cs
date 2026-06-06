@@ -130,4 +130,29 @@ public class AppSettingsTests
 
         Assert.False(settings.AutoOpenMountedDrive);
     }
+
+    [Fact]
+    public void CrossIntegrityMountDefaultsToFalse()
+    {
+        var settings = new AppSettings();
+
+        Assert.False(settings.CrossIntegrityMount);
+    }
+
+    [Fact]
+    public void CrossIntegrityMountCanBeSetToTrue()
+    {
+        var settings = new AppSettings { CrossIntegrityMount = true };
+
+        Assert.True(settings.CrossIntegrityMount);
+    }
+
+    [Fact]
+    public void CrossIntegrityMountCanBeToggled()
+    {
+        var settings = new AppSettings { CrossIntegrityMount = true };
+        settings.CrossIntegrityMount = false;
+
+        Assert.False(settings.CrossIntegrityMount);
+    }
 }

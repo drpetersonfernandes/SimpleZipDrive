@@ -66,6 +66,7 @@
                             Width="90" 
                             Margin="0,0,8,0"
                             IsEnabled="False"
+                            Style="{StaticResource PrimaryButtonStyle}"
                             ToolTip="Unmount the currently mounted drive" />
                     
                     <Separator Style="{StaticResource {x:Static StatusBar.SeparatorStyleKey}}" Margin="0,0,16,0" ToolTip="Separates drive actions from log actions" />

@@ -3,7 +3,7 @@ using WinFspErrorLoggerStatic = SimpleZipDrive.Core.ErrorLoggerStatic;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 
-[Collection("WinFspErrorLogger")]
+[Collection("ErrorLogger")]
 public class WinFspErrorLoggerTests : IDisposable
 {
     private readonly WinFspErrorLogger _logger;

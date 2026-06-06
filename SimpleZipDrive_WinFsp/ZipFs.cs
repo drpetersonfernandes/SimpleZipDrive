@@ -17,6 +17,7 @@ namespace SimpleZipDrive_WinFsp;
 public sealed class ZipFs : FileSystemBase, IDisposable
 {
     private readonly Action<Exception?, string?> _logErrorAction;
+    private readonly bool _persistentAcls;
 
     internal ZipFileSystemCore Core { get; }
 
@@ -30,10 +31,12 @@ public sealed class ZipFs : FileSystemBase, IDisposable
     /// <param name="archiveType">Archive format identifier (e.g., "zip", "7z", "rar").</param>
     /// <param name="maxMemorySize">Maximum in-memory cache size per entry in bytes.</param>
     /// <param name="volumeLabel">Optional volume label. Defaults to <see cref="ZipFileSystemCore.DefaultVolumeLabel"/>.</param>
-    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize, string? volumeLabel = null)
+    /// <param name="persistentAcls">When <see langword="true"/>, the volume reports persistent ACLs, enabling the security descriptor passed to <c>Mount()</c> to be honored.</param>
+    public ZipFs(Stream archiveStream, string mountPoint, Action<Exception?, string?> logErrorAction, Func<string?> passwordProvider, string archiveType, long maxMemorySize = ZipFileSystemCore.DefaultMaxMemorySize, string? volumeLabel = null, bool persistentAcls = false)
     {
         Core = new ZipFileSystemCore(archiveStream, mountPoint, logErrorAction, passwordProvider, archiveType, maxMemorySize, volumeLabel);
         _logErrorAction = logErrorAction;
+        _persistentAcls = persistentAcls;
 
         Core.DumpEntries(30);
     }
@@ -50,7 +53,7 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         {
             host.CasePreservedNames = true;
             host.UnicodeOnDisk = true;
-            host.PersistentAcls = false;
+            host.PersistentAcls = _persistentAcls;
             host.PostCleanupWhenModifiedOnly = true;
             host.PassQueryDirectoryPattern = true;
             host.FlushAndPurgeOnCleanup = true;

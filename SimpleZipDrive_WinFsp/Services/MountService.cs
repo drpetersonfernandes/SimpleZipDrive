@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Security.AccessControl;
 using System.Windows;
 using Fsp;
 using Microsoft.Win32;
@@ -67,12 +68,26 @@ public class MountService : IDisposable, IMountService
 
         CurrentArchivePath = archivePath;
 
+        var crossIntegrity = _settingsService.Settings.CrossIntegrityMount;
+
         if (string.IsNullOrEmpty(mountPoint))
         {
+            if (crossIntegrity)
+            {
+                return MountWithCrossIntegrityFolderAsync(archivePath, archiveType);
+            }
+
             return MountWithAutoDriveLetterAsync(archivePath, archiveType);
         }
         else
         {
+            if (crossIntegrity && IsDriveLetterMountPoint(mountPoint))
+            {
+                _loggingService.Log("Cross-integrity mode: Drive letter mounts are not supported. Redirecting to folder mount.");
+                var folderPath = GetCrossIntegrityMountPath(archivePath);
+                return MountWithSpecifiedPointAsync(archivePath, folderPath, archiveType);
+            }
+
             return MountWithSpecifiedPointAsync(archivePath, mountPoint, archiveType);
         }
     }
@@ -395,6 +410,18 @@ public class MountService : IDisposable, IMountService
     }
 
     [RequiresAssemblyFiles("Calls SimpleZipDrive_WinFsp.Services.MountService.AttemptMountLifecycleAsync(String, String, String)")]
+    private async Task MountWithCrossIntegrityFolderAsync(string archivePath, string archiveType)
+    {
+        var mountPoint = GetCrossIntegrityMountPath(archivePath);
+        _loggingService.Log($"Cross-integrity mode: mounting to folder '{mountPoint}'.");
+
+        if (!await AttemptMountLifecycleAsync(archivePath, mountPoint, archiveType))
+        {
+            _loggingService.Log($"Error: Failed to cross-integrity mount on '{mountPoint}'.");
+        }
+    }
+
+    [RequiresAssemblyFiles("Calls SimpleZipDrive_WinFsp.Services.MountService.AttemptMountLifecycleAsync(String, String, String)")]
     private async Task MountWithSpecifiedPointAsync(string archivePath, string mountPoint, string archiveType)
     {
         if (mountPoint.Length == 1 && char.IsLetter(mountPoint[0]))
@@ -447,6 +474,8 @@ public class MountService : IDisposable, IMountService
             _loggingService.Log($"RAM cache limit: {effectiveMaxMemoryMb:F0} MB (Available system memory: {availableMemoryMb:F0} MB)");
             _loggingService.Log("");
 
+            var crossIntegrity = _settingsService.Settings.CrossIntegrityMount && !isDriveLetter;
+
             Stream fileStream = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
 
             try
@@ -460,7 +489,8 @@ public class MountService : IDisposable, IMountService
                     () => PromptForPassword(archivePath, archiveType),
                     archiveType,
                     effectiveMaxMemoryBytes,
-                    volumeLabel);
+                    volumeLabel,
+                    crossIntegrity);
                 DiagnosticLogger.Log("  ZipFs created successfully.");
             }
             catch
@@ -511,7 +541,10 @@ public class MountService : IDisposable, IMountService
                 }
 
                 DiagnosticLogger.Log($"  Calling host.Mount(\"{mountPoint}\", DebugLog=-1)...");
-                var mountStatus = host.Mount(mountPoint, null, false, unchecked((uint)-1));
+                var securityDescriptor = crossIntegrity ? CreateCrossIntegritySecurityDescriptor() : null;
+                if (securityDescriptor != null)
+                    DiagnosticLogger.Log("  Cross-integrity: using permissive DACL (Everyone Full Access).");
+                var mountStatus = host.Mount(mountPoint, securityDescriptor, false, unchecked((uint)-1));
 
                 if (mountStatus != 0)
                 {
@@ -617,6 +650,27 @@ public class MountService : IDisposable, IMountService
         if (!char.IsLetter(mountPoint[0])) return false;
 
         return mountPoint[1] == ':';
+    }
+
+    private string GetCrossIntegrityMountPath(string archivePath)
+    {
+        var configuredFolder = _settingsService.Settings.CrossIntegrityMountFolder;
+        var baseDir = string.IsNullOrWhiteSpace(configuredFolder)
+            ? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "SimpleZipDrive", "Mounts")
+            : configuredFolder;
+        var folderName = Path.GetFileNameWithoutExtension(archivePath);
+        return Path.Combine(baseDir, ZipFsHelpers.SanitizeFolderName(folderName));
+    }
+
+    private static byte[] CreateCrossIntegritySecurityDescriptor()
+    {
+        const string sddl = "D:P(A;;FA;;;WD)";
+        var sd = new RawSecurityDescriptor(sddl);
+        var bytes = new byte[sd.BinaryLength];
+        sd.GetBinaryForm(bytes, 0);
+        return bytes;
     }
 
     private void OnMountStatusChanged()

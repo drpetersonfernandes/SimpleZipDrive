@@ -81,13 +81,23 @@ public static class ZipFsHelpers
     /// </summary>
     public static void CleanupOrphanedTempDirectories()
     {
+        CleanupOrphanedTempDirectoriesIn(BaseTempPath);
+        CleanupOrphanedTempDirectoriesIn(AppSettings.SettingsDirectory);
+    }
+
+    /// <summary>
+    /// Cleans up orphaned temp directories matching the <c>{pid}_{guid}</c> pattern
+    /// in the specified base directory. Known files (e.g. <c>settings.dat</c>) and
+    /// known subdirectories (e.g. <c>Mounts</c>) are preserved.
+    /// </summary>
+    private static void CleanupOrphanedTempDirectoriesIn(string baseDir)
+    {
         try
         {
-            var baseTempPath = BaseTempPath;
-            if (!Directory.Exists(baseTempPath))
+            if (!Directory.Exists(baseDir))
                 return;
 
-            var tempDirs = Directory.GetDirectories(baseTempPath);
+            var tempDirs = Directory.GetDirectories(baseDir);
             foreach (var dir in tempDirs)
             {
                 try
@@ -127,13 +137,13 @@ public static class ZipFsHelpers
                 }
                 catch (Exception ex)
                 {
-                    ErrorLoggerStatic.ReportSilentException(ex, $"ZipFsHelpers.CleanupOrphanedTempDirectories: Error cleaning directory '{dir}'", true);
+                    ErrorLoggerStatic.ReportSilentException(ex, $"ZipFsHelpers.CleanupOrphanedTempDirectoriesIn: Error cleaning directory '{dir}'", true);
                 }
             }
         }
         catch (Exception ex)
         {
-            ErrorLoggerStatic.ReportSilentException(ex, "ZipFsHelpers.CleanupOrphanedTempDirectories: Error during cleanup", true);
+            ErrorLoggerStatic.ReportSilentException(ex, $"ZipFsHelpers.CleanupOrphanedTempDirectoriesIn: Error during cleanup of '{baseDir}'", true);
         }
     }
 
@@ -294,6 +304,7 @@ public static class ZipFsHelpers
     }
 
     private const int MaxVolumeLabelLength = 32;
+    private const int MaxFolderNameLength = 200;
     private static readonly char[] InvalidVolumeLabelChars = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 
     /// <summary>
@@ -327,6 +338,51 @@ public static class ZipFsHelpers
         if (written > MaxVolumeLabelLength)
         {
             written = MaxVolumeLabelLength;
+        }
+
+        // Final trim in case truncation exposed trailing spaces/dots
+        while (written > 0 && (buffer[written - 1] == ' ' || buffer[written - 1] == '.'))
+        {
+            written--;
+        }
+
+        if (written == 0)
+            return ZipFileSystemCore.DefaultVolumeLabel;
+
+        return new string(buffer[..written]);
+    }
+
+    /// <summary>
+    /// Sanitizes a string for use as a folder name.
+    /// Strips invalid path characters, trims whitespace and trailing dots,
+    /// and truncates to <see cref="MaxFolderNameLength"/> characters.
+    /// Falls back to <see cref="ZipFileSystemCore.DefaultVolumeLabel"/> if the result is empty.
+    /// </summary>
+    internal static string SanitizeFolderName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return ZipFileSystemCore.DefaultVolumeLabel;
+
+        Span<char> buffer = stackalloc char[name.Length];
+        var written = 0;
+
+        foreach (var ch in name)
+        {
+            if (Array.IndexOf(InvalidVolumeLabelChars, ch) < 0)
+            {
+                buffer[written++] = ch;
+            }
+        }
+
+        // Trim trailing spaces/dots
+        while (written > 0 && (buffer[written - 1] == ' ' || buffer[written - 1] == '.'))
+        {
+            written--;
+        }
+
+        if (written > MaxFolderNameLength)
+        {
+            written = MaxFolderNameLength;
         }
 
         // Final trim in case truncation exposed trailing spaces/dots

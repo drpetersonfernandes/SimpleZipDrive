@@ -58,6 +58,21 @@ public class AppSettings
     public bool AutoOpenMountedDrive { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether to use a permissive volume security descriptor
+    /// so that both standard and elevated (Administrator) processes can access the mounted drive.
+    /// When enabled, folder-based mounting is used with a DACL granting Full Access to Everyone.
+    /// Drive letter mounts cannot bypass UAC isolation due to Windows OS limitations.
+    /// </summary>
+    public bool CrossIntegrityMount { get; set; }
+
+    /// <summary>
+    /// Gets or sets the base folder path used for cross-integrity folder mounts.
+    /// When empty, defaults to <c>%LOCALAPPDATA%\SimpleZipDrive\Mounts</c>.
+    /// Each archive is mounted in a subfolder named after the archive file.
+    /// </summary>
+    public string CrossIntegrityMountFolder { get; set; } = string.Empty;
+
+    /// <summary>
     /// Loads settings from the persistent settings file, applying system-memory validation.
     /// Returns default settings if the file is missing, corrupted, or inaccessible.
     /// </summary>

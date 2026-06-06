@@ -388,4 +388,75 @@ public class ZipFsHelpersTests
         var ex = Record.Exception(static () => ZipFsHelpers.RegisterCurrentTempDirectory("test_dir"));
         Assert.Null(ex);
     }
+
+    // ─── SanitizeFolderName tests ───
+
+    [Fact]
+    public void SanitizeFolderName_Null_ReturnsDefault()
+    {
+        var result = ZipFsHelpers.SanitizeFolderName(null);
+
+        Assert.Equal("SimpleZipDrive", result);
+    }
+
+    [Fact]
+    public void SanitizeFolderName_Empty_ReturnsDefault()
+    {
+        var result = ZipFsHelpers.SanitizeFolderName("");
+
+        Assert.Equal("SimpleZipDrive", result);
+    }
+
+    [Fact]
+    public void SanitizeFolderName_ValidName_ReturnsAsIs()
+    {
+        var result = ZipFsHelpers.SanitizeFolderName("MyArchive");
+
+        Assert.Equal("MyArchive", result);
+    }
+
+    [Fact]
+    public void SanitizeFolderName_InvalidChars_StripsThem()
+    {
+        var result = ZipFsHelpers.SanitizeFolderName(@"My\Folder/Test");
+
+        Assert.Equal("MyFolderTest", result);
+    }
+
+    [Fact]
+    public void SanitizeFolderName_LongName_DoesNotTruncateAt32()
+    {
+        const string longName = "Assassin's Creed III (USA) (En,Fr,Es,Pt)";
+
+        var result = ZipFsHelpers.SanitizeFolderName(longName);
+
+        Assert.Equal(longName, result);
+        Assert.True(result.Length > 32);
+    }
+
+    [Fact]
+    public void SanitizeFolderName_VeryLongName_TruncatesAt200()
+    {
+        var veryLongName = new string('A', 250);
+
+        var result = ZipFsHelpers.SanitizeFolderName(veryLongName);
+
+        Assert.Equal(200, result.Length);
+    }
+
+    [Fact]
+    public void SanitizeFolderName_TrailingDots_Trims()
+    {
+        var result = ZipFsHelpers.SanitizeFolderName("Folder...");
+
+        Assert.Equal("Folder", result);
+    }
+
+    [Fact]
+    public void SanitizeFolderName_TrailingSpaces_Trims()
+    {
+        var result = ZipFsHelpers.SanitizeFolderName("Folder   ");
+
+        Assert.Equal("Folder", result);
+    }
 }

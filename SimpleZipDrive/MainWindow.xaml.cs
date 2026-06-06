@@ -516,7 +516,7 @@ public partial class MainWindow : IDisposable
             {
                 try
                 {
-                    Process.Start("explorer.exe", mountPoint);
+                    Process.Start("explorer.exe", $"/root,\"{mountPoint}\"");
                 }
                 catch (Exception ex)
                 {

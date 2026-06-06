@@ -85,4 +85,20 @@ public class WinFspAppSettingsTests
 
         Assert.Equal(MountType.Folder, settings.DefaultMountType);
     }
+
+    [Fact]
+    public void CrossIntegrityMountDefaultsToFalse()
+    {
+        var settings = new AppSettings();
+
+        Assert.False(settings.CrossIntegrityMount);
+    }
+
+    [Fact]
+    public void CrossIntegrityMountCanBeEnabled()
+    {
+        var settings = new AppSettings { CrossIntegrityMount = true };
+
+        Assert.True(settings.CrossIntegrityMount);
+    }
 }
