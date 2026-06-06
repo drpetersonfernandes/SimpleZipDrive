@@ -56,7 +56,14 @@ public class AppSettingsAdditionalTests
         }
         finally
         {
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -68,7 +75,7 @@ public class AppSettingsAdditionalTests
         // Save should not throw even if directory doesn't exist
         var settings = new AppSettings { MaxMemoryPerFileMb = 256 };
 
-        var ex = Record.Exception(() => settings.Save());
+        var ex = Record.Exception(settings.Save);
         Assert.Null(ex);
     }
 

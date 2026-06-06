@@ -1,3 +1,4 @@
+using System.Globalization;
 using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests;
@@ -9,7 +10,6 @@ public class ErrorLoggerAdditionalTests
     [Fact]
     public void IsUserError_DokanNetDriveException_ReturnsTrue()
     {
-        var ex = new Exception("test") { Source = "DokanNet" };
         // The method checks fullName.StartsWith("DokanNet.") and typeName.Contains("Drive")
         // We can't easily create a DokanNet exception, but we can test the message-based path
         var result = ErrorLogger.IsUserError(new InvalidOperationException("drive letter is in use"));
@@ -163,7 +163,7 @@ public class ErrorLoggerAdditionalTests
         var result = logger.GetEnvironmentDetails();
 
         Assert.Contains("Processor Count:", result);
-        Assert.Contains(Environment.ProcessorCount.ToString(), result);
+        Assert.Contains(Environment.ProcessorCount.ToString(CultureInfo.InvariantCulture), result);
     }
 
     // ─── ReportSilentException: non-silent mode writes to console ───
@@ -178,7 +178,7 @@ public class ErrorLoggerAdditionalTests
             using var capture = new StringWriter();
             Console.SetError(capture);
 
-            logger.ReportSilentException(new InvalidOperationException("test"), "test context", false);
+            logger.ReportSilentException(new InvalidOperationException("test"), "test context");
 
             var output = capture.ToString();
             Assert.Contains("SILENT EXCEPTION CAUGHT", output);

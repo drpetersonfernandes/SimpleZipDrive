@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Windows;
 using Fsp;
@@ -30,6 +31,7 @@ public class MountService : IDisposable, IMountService
         _settingsService = settingsService ?? throw new ArgumentNullException(nameof(settingsService));
     }
 
+    [RequiresAssemblyFiles]
     public Task MountAsync(string archivePath, string? mountPoint = null)
     {
         if (IsMounted)
@@ -250,6 +252,7 @@ public class MountService : IDisposable, IMountService
         return null;
     }
 
+    [RequiresAssemblyFiles("Calls System.Reflection.Assembly.Location")]
     private static Version? GetWinFspLibraryVersion()
     {
         try
@@ -262,7 +265,9 @@ public class MountService : IDisposable, IMountService
                 var baseDir = AppContext.BaseDirectory;
                 var candidate = Path.Combine(baseDir, "winfsp-msil.dll");
                 if (File.Exists(candidate))
+                {
                     location = candidate;
+                }
             }
 
             if (!string.IsNullOrEmpty(location) && File.Exists(location))
@@ -359,6 +364,7 @@ public class MountService : IDisposable, IMountService
         return deepest.Contains("incorrect dll version", StringComparison.OrdinalIgnoreCase);
     }
 
+    [RequiresAssemblyFiles("Calls SimpleZipDrive_WinFsp.Services.MountService.AttemptMountLifecycleAsync(String, String, String)")]
     private async Task MountWithAutoDriveLetterAsync(string archivePath, string archiveType)
     {
         DiagnosticLogger.Log("  Auto-mount: trying drive letters...");
@@ -388,6 +394,7 @@ public class MountService : IDisposable, IMountService
         _loggingService.Log("Error: Failed to auto-mount on any preferred drive letters.");
     }
 
+    [RequiresAssemblyFiles("Calls SimpleZipDrive_WinFsp.Services.MountService.AttemptMountLifecycleAsync(String, String, String)")]
     private async Task MountWithSpecifiedPointAsync(string archivePath, string mountPoint, string archiveType)
     {
         if (mountPoint.Length == 1 && char.IsLetter(mountPoint[0]))
@@ -401,6 +408,7 @@ public class MountService : IDisposable, IMountService
         }
     }
 
+    [RequiresAssemblyFiles("Calls SimpleZipDrive_WinFsp.Services.MountService.GetWinFspLibraryVersion()")]
     private async Task<bool> AttemptMountLifecycleAsync(string archivePath, string mountPoint, string archiveType)
     {
         var isDriveLetter = IsDriveLetterMountPoint(mountPoint);

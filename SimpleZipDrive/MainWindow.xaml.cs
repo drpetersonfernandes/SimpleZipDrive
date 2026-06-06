@@ -158,7 +158,9 @@ public partial class MainWindow : IDisposable
 
         try
         {
+#pragma warning disable IL3002
             await _mountService.MountAsync(zipFilePath, mountPointArg);
+#pragma warning restore IL3002
         }
         catch (Exception ex)
         {
@@ -248,7 +250,9 @@ public partial class MainWindow : IDisposable
                 }
                 else
                 {
+#pragma warning disable IL3002
                     await _mountService.MountAsync(openFileDialog.FileName);
+#pragma warning restore IL3002
                 }
             }
         }
@@ -282,7 +286,9 @@ public partial class MainWindow : IDisposable
 
             if (openFileDialog.ShowDialog() == true)
             {
+#pragma warning disable IL3002
                 await _mountService.MountAsync(openFileDialog.FileName);
+#pragma warning restore IL3002
             }
         }
         catch (Exception ex)
@@ -336,7 +342,9 @@ public partial class MainWindow : IDisposable
 
         if (folderDialog.ShowDialog() == true)
         {
+#pragma warning disable IL3002
             return _mountService.MountAsync(archivePath, folderDialog.FolderName);
+#pragma warning restore IL3002
         }
 
         return Task.CompletedTask;

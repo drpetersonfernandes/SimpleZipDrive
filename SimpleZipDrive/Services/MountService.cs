@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -41,6 +42,7 @@ public class MountService : IDisposable, IMountService
     }
 
     /// <inheritdoc />
+    [RequiresAssemblyFiles]
     public Task MountAsync(string archivePath, string? mountPoint = null)
     {
         if (IsMounted)

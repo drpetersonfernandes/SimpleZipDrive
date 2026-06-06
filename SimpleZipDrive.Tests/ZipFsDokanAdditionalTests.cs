@@ -128,7 +128,7 @@ public class ZipFsDokanAdditionalTests : IDisposable
         var result = zipFs.ReadFile("\\readme.txt", buffer, out var bytesRead, 0, info);
 
         // After disposing the stream, read may return InvalidHandle or Error
-        Assert.True(result == DokanResult.InvalidHandle || result == DokanResult.Error);
+        Assert.True(result is DokanResult.InvalidHandle or DokanResult.Error);
         Assert.Equal(0, bytesRead);
     }
 
@@ -141,10 +141,10 @@ public class ZipFsDokanAdditionalTests : IDisposable
         var info = new FakeDokanFileInfo();
 
         // Extremely long pattern that would cause regex to fail
-        var result = zipFs.FindFilesWithPattern("\\", "[invalid", out var files, info);
+        var result = zipFs.FindFilesWithPattern("\\", "[invalid", out _, info);
 
         // The pattern "[" might be caught as ArgumentException
-        Assert.True(result == DokanResult.Success || result == DokanResult.InvalidParameter);
+        Assert.True(result is DokanResult.Success or DokanResult.InvalidParameter);
     }
 
     // ─── GetFileSecurity: directory returns DirectorySecurity ───
@@ -159,7 +159,7 @@ public class ZipFsDokanAdditionalTests : IDisposable
 
         Assert.Equal(DokanResult.Success, result);
         Assert.NotNull(security);
-        Assert.IsAssignableFrom<System.Security.AccessControl.DirectorySecurity>(security);
+        Assert.IsAssignableFrom<DirectorySecurity>(security);
     }
 
     // ─── GetFileSecurity: file returns FileSecurity ───
@@ -174,7 +174,7 @@ public class ZipFsDokanAdditionalTests : IDisposable
 
         Assert.Equal(DokanResult.Success, result);
         Assert.NotNull(security);
-        Assert.IsAssignableFrom<System.Security.AccessControl.FileSecurity>(security);
+        Assert.IsAssignableFrom<FileSecurity>(security);
     }
 
     // ─── GetFileInformation: root returns directory ───
@@ -248,8 +248,14 @@ public class ZipFsDokanAdditionalTests : IDisposable
     {
         foreach (var d in _disposables)
         {
-            try { d.Dispose(); }
-            catch { /* best effort */ }
+            try
+            {
+                d.Dispose();
+            }
+            catch
+            {
+                /* best effort */
+            }
         }
 
         GC.SuppressFinalize(this);

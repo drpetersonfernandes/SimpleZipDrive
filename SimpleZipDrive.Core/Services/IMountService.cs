@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace SimpleZipDrive.Core.Services;
 
 /// <summary>
@@ -52,6 +54,7 @@ public interface IMountService
     /// <param name="archivePath">The path to the archive file.</param>
     /// <param name="mountPoint">The mount point (optional, auto-selected if null).</param>
     /// <returns>A task representing the asynchronous operation.</returns>
+    [RequiresAssemblyFiles]
     Task MountAsync(string archivePath, string? mountPoint = null);
 
     /// <summary>

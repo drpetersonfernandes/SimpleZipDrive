@@ -78,7 +78,7 @@ public class MountServiceAdditionalTests : IDisposable
         var service = new MountService(_loggingService, _settingsService);
         var eventRaised = false;
 
-        service.MountStatusChanged += (_, _) => eventRaised = true;
+        service.MountStatusChanged += (_, _) => { eventRaised = true; };
 
         // Event should be subscribable
         Assert.False(eventRaised);
@@ -109,27 +109,57 @@ public class MountServiceAdditionalTests : IDisposable
 
     public void Dispose()
     {
-        (_loggingService as IDisposable)?.Dispose();
-        (_settingsService as IDisposable)?.Dispose();
+        (_loggingService as IDisposable).Dispose();
+        (_settingsService as IDisposable).Dispose();
         GC.SuppressFinalize(this);
     }
 
     private class FakeLoggingService : ILoggingService, IDisposable
     {
         public ObservableCollection<LogEntry> LogEntries { get; } = [];
-        public void Log(string message) { }
-        public void LogError(string message) { }
-        public void Clear() { }
-        public string GetAllLogsAsText() => string.Empty;
-        public void Dispose() { GC.SuppressFinalize(this); }
+
+        public void Log(string message)
+        {
+        }
+
+        public void LogError(string message)
+        {
+        }
+
+        public void Clear()
+        {
+        }
+
+        public string GetAllLogsAsText()
+        {
+            return string.Empty;
+        }
+
+        public void Dispose()
+        {
+            GC.SuppressFinalize(this);
+        }
     }
 
     private class FakeSettingsService : ISettingsService, IDisposable
     {
         public AppSettings Settings { get; } = new();
-        public void SaveSettings() { }
-        public void ReloadSettings() { }
-        public void UpdateRamLimit(int maxMemoryPerFileMb) { }
-        public void Dispose() { GC.SuppressFinalize(this); }
+
+        public void SaveSettings()
+        {
+        }
+
+        public void ReloadSettings()
+        {
+        }
+
+        public void UpdateRamLimit(int maxMemoryPerFileMb)
+        {
+        }
+
+        public void Dispose()
+        {
+            GC.SuppressFinalize(this);
+        }
     }
 }

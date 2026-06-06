@@ -12,7 +12,7 @@ public class ErrorLoggerStaticAdditionalTests
         var ex = new InvalidOperationException("test non-silent");
 
         var thrownEx = Record.Exception(() =>
-            ErrorLoggerStatic.ReportSilentException(ex, "test context", false));
+            ErrorLoggerStatic.ReportSilentException(ex, "test context"));
 
         Assert.Null(thrownEx);
     }

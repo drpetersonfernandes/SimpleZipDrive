@@ -124,7 +124,14 @@ public class ZipFsStreamsAdditionalTests
         }
         finally
         {
-            try { File.Delete(tempPath); } catch { }
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -153,7 +160,14 @@ public class ZipFsStreamsAdditionalTests
         }
         finally
         {
-            try { File.Delete(tempPath); } catch { }
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -165,7 +179,7 @@ public class ZipFsStreamsAdditionalTests
         var tempPath = Path.Combine(Path.GetTempPath(), $"StoredEntryStream_test_{Guid.NewGuid():N}.bin");
         try
         {
-            var data = new byte[] { 100, 101, 102, 103, 104, 105 };
+            var data = "defghi"u8.ToArray();
             File.WriteAllBytes(tempPath, data);
 
             using var fs = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -183,7 +197,14 @@ public class ZipFsStreamsAdditionalTests
         }
         finally
         {
-            try { File.Delete(tempPath); } catch { }
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -247,7 +268,7 @@ public class ZipFsStreamsAdditionalTests
         var memoryLock = new object();
         using var stream = new TrackedMemoryStream(data, memoryLock, static _ => { });
 
-        Assert.Throws<NotSupportedException>(() => stream.Write(new byte[] { 4 }, 0, 1));
+        Assert.Throws<NotSupportedException>(() => stream.Write([4], 0, 1));
     }
 
     // ─── TrackedMemoryStream: SetLength throws ───
@@ -299,7 +320,14 @@ public class ZipFsStreamsAdditionalTests
         }
         finally
         {
-            try { File.Delete(tempPath); } catch { }
+            try
+            {
+                File.Delete(tempPath);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 }

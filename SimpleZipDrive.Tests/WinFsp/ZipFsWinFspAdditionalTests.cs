@@ -2,7 +2,6 @@ using SimpleZipDrive.Core;
 using System.IO.Compression;
 using System.Security.AccessControl;
 using System.Text;
-using FileInfo = Fsp.Interop.FileInfo;
 using WinFspZipFs = SimpleZipDrive_WinFsp.ZipFs;
 
 namespace SimpleZipDrive.Tests.WinFsp;
@@ -15,8 +14,7 @@ public class ZipFsWinFspAdditionalTests : IDisposable
     private const int StatusAccessDenied = unchecked((int)0xC0000022);
     private const int StatusObjectNameNotFound = unchecked((int)0xC0000034);
     private const int StatusUnsuccessful = unchecked((int)0xC0000001);
-    private const int StatusDeviceNotReady = unchecked((int)0xC00000A0);
-    private const int StatusInvalidHandle = unchecked((int)0xC0000008);
+
 
     private WinFspZipFs CreateZipFs(Stream? stream = null, long maxMemory = ZipFileSystemCore.DefaultMaxMemorySize)
     {
@@ -61,8 +59,8 @@ public class ZipFsWinFspAdditionalTests : IDisposable
 
         var result = zipFs.OpenOrCreateFile(
             "\\readme.txt",
-            out var fileNode,
-            out var fileDesc,
+            out _,
+            out _,
             out _,
             out _);
 
@@ -100,7 +98,7 @@ public class ZipFsWinFspAdditionalTests : IDisposable
             "\\data",
             out var fileNode,
             out var fileDesc,
-            out var fileInfo,
+            out _,
             out _);
 
         Assert.Equal(StatusSuccess, result);
@@ -441,8 +439,14 @@ public class ZipFsWinFspAdditionalTests : IDisposable
     {
         foreach (var d in _disposables)
         {
-            try { d.Dispose(); }
-            catch { /* best effort */ }
+            try
+            {
+                d.Dispose();
+            }
+            catch
+            {
+                /* best effort */
+            }
         }
 
         GC.SuppressFinalize(this);

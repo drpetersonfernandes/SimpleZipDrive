@@ -225,9 +225,16 @@ public class ZipFileSystemCoreAdditionalTests : IDisposable
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, true))
         {
             var e1 = zip.CreateEntry("dir1/file.txt");
-            using (var w = new StreamWriter(e1.Open())) w.Write("content1");
+            using (var w = new StreamWriter(e1.Open()))
+            {
+                w.Write("content1");
+            }
+
             var e2 = zip.CreateEntry("dir2/file.txt");
-            using (var w = new StreamWriter(e2.Open())) w.Write("content2");
+            using (var w = new StreamWriter(e2.Open()))
+            {
+                w.Write("content2");
+            }
         }
 
         ms.Position = 0;
@@ -260,8 +267,6 @@ public class ZipFileSystemCoreAdditionalTests : IDisposable
     [Fact]
     public void ReadStream_StoredEntryStream_DelegatesToReadAt()
     {
-        var core = CreateCore();
-
         // Create a StoredEntryStream via the stored entry path
         var storedData = CreateStoredZipStream();
         _disposables.Add(storedData);
@@ -316,8 +321,23 @@ public class ZipFileSystemCoreAdditionalTests : IDisposable
         Assert.True(core.IsDisposed);
 
         // Cleanup
-        try { File.Delete(lockedFile); } catch { }
-        try { Directory.Delete(tempDir, true); } catch { }
+        try
+        {
+            File.Delete(lockedFile);
+        }
+        catch
+        {
+            // ignored
+        }
+
+        try
+        {
+            Directory.Delete(tempDir, true);
+        }
+        catch
+        {
+            // ignored
+        }
     }
 
     private static MemoryStream CreateStoredZipStream()
@@ -327,7 +347,7 @@ public class ZipFileSystemCoreAdditionalTests : IDisposable
         var data = "Hello World Stored"u8.ToArray();
 
         var offset = ms.Position;
-        var nameBytes = Encoding.UTF8.GetBytes("stored.txt");
+        var nameBytes = "stored.txt"u8.ToArray();
         var crc = ComputeCrc32(data);
         var len = (uint)data.Length;
 
@@ -386,7 +406,9 @@ public class ZipFileSystemCoreAdditionalTests : IDisposable
         {
             crc ^= b;
             for (var j = 0; j < 8; j++)
+            {
                 crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+            }
         }
 
         return ~crc;
@@ -415,16 +437,37 @@ public class ZipFileSystemCoreAdditionalTests : IDisposable
     private sealed class TempFileDeleter : IDisposable
     {
         private readonly string _path;
-        public TempFileDeleter(string path) => _path = path;
-        public void Dispose() { try { File.Delete(_path); } catch { } }
+
+        public TempFileDeleter(string path)
+        {
+            _path = path;
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                File.Delete(_path);
+            }
+            catch
+            {
+                // ignored
+            }
+        }
     }
 
     public void Dispose()
     {
         foreach (var d in _disposables)
         {
-            try { d.Dispose(); }
-            catch { /* best effort */ }
+            try
+            {
+                d.Dispose();
+            }
+            catch
+            {
+                /* best effort */
+            }
         }
 
         GC.SuppressFinalize(this);

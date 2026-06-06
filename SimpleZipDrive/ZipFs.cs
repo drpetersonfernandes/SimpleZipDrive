@@ -40,6 +40,7 @@ public class ZipFs : IDokanOperations, IDisposable
 
     /// <summary>Gets the maximum total memory that can be used for in-memory caching.</summary>
     public long MaxTotalMemoryCache => Core.MaxTotalMemoryCache;
+
     internal ZipFileSystemCore Core { get; }
 
     private NtStatus ValidatePathLength(string path, string operationName)

@@ -13,7 +13,7 @@ public class DiagnosticLoggerTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"DiagnosticLogger_test_{Guid.NewGuid():N}");
         try
         {
-            DiagnosticLogger.Initialize(tempDir, true);
+            DiagnosticLogger.Initialize(tempDir);
             Assert.True(DiagnosticLogger.Initialized);
 
             DiagnosticLogger.Log("before close");
@@ -29,7 +29,14 @@ public class DiagnosticLoggerTests
         finally
         {
             DiagnosticLogger.Close();
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -41,9 +48,9 @@ public class DiagnosticLoggerTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"DiagnosticLogger_test_{Guid.NewGuid():N}");
         try
         {
-            DiagnosticLogger.Initialize(tempDir, true);
+            DiagnosticLogger.Initialize(tempDir);
 
-            var ex = Record.Exception(() =>
+            var ex = Record.Exception(static () =>
             {
                 DiagnosticLogger.Close();
                 DiagnosticLogger.Close();
@@ -54,7 +61,14 @@ public class DiagnosticLoggerTests
         }
         finally
         {
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -81,7 +95,14 @@ public class DiagnosticLoggerTests
         }
         finally
         {
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -118,7 +139,14 @@ public class DiagnosticLoggerTests
         }
         finally
         {
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -130,7 +158,7 @@ public class DiagnosticLoggerTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"DiagnosticLogger_test_{Guid.NewGuid():N}");
         try
         {
-            DiagnosticLogger.Initialize(tempDir, true);
+            DiagnosticLogger.Initialize(tempDir);
 
             Assert.True(DiagnosticLogger.Initialized);
             Assert.NotNull(DiagnosticLogger.LogFilePath);
@@ -139,7 +167,14 @@ public class DiagnosticLoggerTests
         finally
         {
             DiagnosticLogger.Close();
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -160,7 +195,14 @@ public class DiagnosticLoggerTests
         finally
         {
             DiagnosticLogger.Close();
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -175,14 +217,21 @@ public class DiagnosticLoggerTests
         {
             File.WriteAllText(tempFile, "not a directory");
 
-            DiagnosticLogger.Initialize(tempFile, true);
+            DiagnosticLogger.Initialize(tempFile);
 
             Assert.False(DiagnosticLogger.Initialized);
         }
         finally
         {
             DiagnosticLogger.Close();
-            try { File.Delete(tempFile); } catch { }
+            try
+            {
+                File.Delete(tempFile);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -194,7 +243,7 @@ public class DiagnosticLoggerTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"DiagnosticLogger_test_{Guid.NewGuid():N}");
         try
         {
-            DiagnosticLogger.Initialize(tempDir, true);
+            DiagnosticLogger.Initialize(tempDir);
             DiagnosticLogger.Log("test message");
             DiagnosticLogger.Close(); // Close writer before reading
 
@@ -204,7 +253,14 @@ public class DiagnosticLoggerTests
         finally
         {
             DiagnosticLogger.Close();
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -216,12 +272,12 @@ public class DiagnosticLoggerTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"DiagnosticLogger_test_{Guid.NewGuid():N}");
         try
         {
-            DiagnosticLogger.Initialize(tempDir, true);
+            DiagnosticLogger.Initialize(tempDir);
             DiagnosticLogger.Log(new InvalidOperationException("test error"), "context");
             DiagnosticLogger.Close();
 
             Assert.NotNull(DiagnosticLogger.LogFilePath);
-            var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+            var content = File.ReadAllText(DiagnosticLogger.LogFilePath);
             Assert.Contains("context", content);
             Assert.Contains("InvalidOperationException", content);
             Assert.Contains("test error", content);
@@ -229,7 +285,14 @@ public class DiagnosticLoggerTests
         finally
         {
             DiagnosticLogger.Close();
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -241,7 +304,7 @@ public class DiagnosticLoggerTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"DiagnosticLogger_test_{Guid.NewGuid():N}");
         try
         {
-            DiagnosticLogger.Initialize(tempDir, true);
+            DiagnosticLogger.Initialize(tempDir);
             DiagnosticLogger.LogOperation("Create", "/test", 0, "success");
             DiagnosticLogger.Close();
 
@@ -254,7 +317,14 @@ public class DiagnosticLoggerTests
         finally
         {
             DiagnosticLogger.Close();
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -266,7 +336,7 @@ public class DiagnosticLoggerTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"DiagnosticLogger_test_{Guid.NewGuid():N}");
         try
         {
-            DiagnosticLogger.Initialize(tempDir, true);
+            DiagnosticLogger.Initialize(tempDir);
             DiagnosticLogger.LogOperation("ReadDir", "/data", true, "found");
             DiagnosticLogger.Close();
 
@@ -277,7 +347,14 @@ public class DiagnosticLoggerTests
         finally
         {
             DiagnosticLogger.Close();
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -289,19 +366,26 @@ public class DiagnosticLoggerTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"DiagnosticLogger_test_{Guid.NewGuid():N}");
         try
         {
-            DiagnosticLogger.Initialize(tempDir, true);
+            DiagnosticLogger.Initialize(tempDir);
             DiagnosticLogger.LogSection("TEST SECTION");
             DiagnosticLogger.Close();
 
             Assert.NotNull(DiagnosticLogger.LogFilePath);
-            var content = File.ReadAllText(DiagnosticLogger.LogFilePath!);
+            var content = File.ReadAllText(DiagnosticLogger.LogFilePath);
             Assert.Contains("TEST SECTION", content);
             Assert.Contains("========", content);
         }
         finally
         {
             DiagnosticLogger.Close();
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -313,7 +397,7 @@ public class DiagnosticLoggerTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"DiagnosticLogger_test_{Guid.NewGuid():N}");
         try
         {
-            DiagnosticLogger.Initialize(tempDir, true);
+            DiagnosticLogger.Initialize(tempDir);
             DiagnosticLogger.LogHeader("MY HEADER");
             DiagnosticLogger.Close();
 
@@ -323,7 +407,14 @@ public class DiagnosticLoggerTests
         finally
         {
             DiagnosticLogger.Close();
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 
@@ -335,7 +426,7 @@ public class DiagnosticLoggerTests
         // Ensure not initialized
         DiagnosticLogger.Close();
 
-        var ex = Record.Exception(() => DiagnosticLogger.Log("should not throw"));
+        var ex = Record.Exception(static () => DiagnosticLogger.Log("should not throw"));
         Assert.Null(ex);
     }
 
@@ -347,9 +438,9 @@ public class DiagnosticLoggerTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"DiagnosticLogger_test_{Guid.NewGuid():N}");
         try
         {
-            DiagnosticLogger.Initialize(tempDir, true);
+            DiagnosticLogger.Initialize(tempDir);
 
-            var tasks = Enumerable.Range(0, 10).Select(i =>
+            var tasks = Enumerable.Range(0, 10).Select(static i =>
                 Task.Run(() => DiagnosticLogger.Log($"Concurrent message {i}"))
             ).ToArray();
 
@@ -359,7 +450,14 @@ public class DiagnosticLoggerTests
         finally
         {
             DiagnosticLogger.Close();
-            try { Directory.Delete(tempDir, true); } catch { }
+            try
+            {
+                Directory.Delete(tempDir, true);
+            }
+            catch
+            {
+                // ignored
+            }
         }
     }
 }

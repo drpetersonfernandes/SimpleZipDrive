@@ -88,7 +88,7 @@ public class ServiceProviderAdditionalTests : IDisposable
     [Fact]
     public void Get_Unregistered_ThrowsWithTypeName()
     {
-        var ex = Assert.Throws<InvalidOperationException>(() => ServiceProvider.Get<List<int>>());
+        var ex = Assert.Throws<InvalidOperationException>(static () => ServiceProvider.Get<List<int>>());
         Assert.Contains("List", ex.Message);
     }
 
