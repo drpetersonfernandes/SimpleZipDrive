@@ -325,9 +325,7 @@ public class MountService : IDisposable, IMountService
     private static bool IsVersionMismatchError(Exception ex)
     {
         var deepest = GetDeepestMessage(ex);
-        return deepest.Contains("incorrect dll version", StringComparison.OrdinalIgnoreCase)
-               || (deepest.Contains("TypeInitializationException", StringComparison.OrdinalIgnoreCase)
-                   && deepest.Contains("Fsp.Interop", StringComparison.OrdinalIgnoreCase));
+        return deepest.Contains("incorrect dll version", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task MountWithAutoDriveLetterAsync(string archivePath, string archiveType)
