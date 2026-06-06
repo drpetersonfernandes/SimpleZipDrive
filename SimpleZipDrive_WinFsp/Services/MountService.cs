@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Windows;
 using Fsp;
 using Microsoft.Win32;
@@ -69,6 +70,12 @@ public class MountService : IDisposable, IMountService
         CurrentArchivePath = archivePath;
 
         var crossIntegrity = _settingsService.Settings.CrossIntegrityMount;
+
+        if (!crossIntegrity && IsRunningAsAdministrator())
+        {
+            crossIntegrity = true;
+            _loggingService.Log("Running as Administrator: Cross-integrity mount enforced so standard processes can access the drive.");
+        }
 
         if (string.IsNullOrEmpty(mountPoint))
         {
@@ -474,7 +481,7 @@ public class MountService : IDisposable, IMountService
             _loggingService.Log($"RAM cache limit: {effectiveMaxMemoryMb:F0} MB (Available system memory: {availableMemoryMb:F0} MB)");
             _loggingService.Log("");
 
-            var crossIntegrity = _settingsService.Settings.CrossIntegrityMount && !isDriveLetter;
+            var crossIntegrity = (_settingsService.Settings.CrossIntegrityMount || IsRunningAsAdministrator()) && !isDriveLetter;
 
             Stream fileStream = new FileStream(archivePath, FileMode.Open, FileAccess.Read, FileShare.Read);
 
@@ -650,6 +657,13 @@ public class MountService : IDisposable, IMountService
         if (!char.IsLetter(mountPoint[0])) return false;
 
         return mountPoint[1] == ':';
+    }
+
+    private static bool IsRunningAsAdministrator()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var principal = new WindowsPrincipal(identity);
+        return principal.IsInRole(WindowsBuiltInRole.Administrator);
     }
 
     private string GetCrossIntegrityMountPath(string archivePath)
