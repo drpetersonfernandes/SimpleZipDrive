@@ -250,6 +250,37 @@ public class MountService : IDisposable, IMountService
         return null;
     }
 
+    private static Version? GetWinFspLibraryVersion()
+    {
+        try
+        {
+            var assembly = typeof(FileSystemHost).Assembly;
+            var location = assembly.Location;
+
+            if (string.IsNullOrEmpty(location))
+            {
+                var baseDir = AppContext.BaseDirectory;
+                var candidate = Path.Combine(baseDir, "winfsp-msil.dll");
+                if (File.Exists(candidate))
+                    location = candidate;
+            }
+
+            if (!string.IsNullOrEmpty(location) && File.Exists(location))
+            {
+                var fvi = FileVersionInfo.GetVersionInfo(location);
+                if (fvi.FileVersion != null && Version.TryParse(fvi.FileVersion, out var version))
+                    return version;
+            }
+
+            return assembly.GetName().Version;
+        }
+        catch
+        {
+            // Best-effort; version detection failure is non-fatal
+            return null;
+        }
+    }
+
     private static string GetDeepestMessage(Exception ex)
     {
         var current = ex;
@@ -447,9 +478,14 @@ public class MountService : IDisposable, IMountService
                     DiagnosticLogger.Log($"  WinFsp debug log setup failed (non-fatal): {debugLogEx.Message}");
                 }
 
+                var libraryVersion = GetWinFspLibraryVersion();
+                if (libraryVersion != null)
+                    _loggingService.Log($"WinFsp Library Version: {libraryVersion.Major}.{libraryVersion.Minor}.{libraryVersion.Build}");
+
                 var installedVersion = GetInstalledWinFspVersion();
                 if (installedVersion != null)
                 {
+                    _loggingService.Log($"WinFsp Driver Version: {installedVersion.Major}.{installedVersion.Minor}.{installedVersion.Build}");
                     DiagnosticLogger.Log($"  Installed WinFsp version: {installedVersion}, Required: {RequiredWinFspVersion}");
                     if (installedVersion < RequiredWinFspVersion)
                     {
