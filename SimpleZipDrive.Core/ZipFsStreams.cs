@@ -47,12 +47,19 @@ internal sealed class TrackedMemoryStream : MemoryStream
 /// </summary>
 internal sealed class StoredEntryStream : Stream
 {
+    private const int ReadAheadBufferSize = 4 * 1024 * 1024; // 4 MB
+
     private readonly Stream _sourceStream;
     private readonly long _dataOffset;
     private readonly object _sourceLock;
     private readonly SafeFileHandle? _fileHandle;
     private long _position;
     private bool _disposed;
+
+    private byte[]? _readAheadBuffer;
+    private long _readAheadFileOffset = -1;
+    private int _readAheadLength;
+    private long _lastReadEnd = -1;
 
     public StoredEntryStream(Stream sourceStream, long dataOffset, long dataLength, object sourceLock)
     {
@@ -68,6 +75,11 @@ internal sealed class StoredEntryStream : Stream
         _fileHandle = (sourceStream as FileStream)?.SafeFileHandle;
         _position = 0;
         _sourceStream.Position = dataOffset;
+
+        if (dataLength > ReadAheadBufferSize)
+        {
+            _readAheadBuffer = new byte[ReadAheadBufferSize];
+        }
     }
 
     public override bool CanRead => true;
@@ -84,6 +96,7 @@ internal sealed class StoredEntryStream : Stream
                 throw new ArgumentOutOfRangeException(nameof(value));
 
             _position = value;
+            _lastReadEnd = -1;
         }
     }
 
@@ -155,13 +168,55 @@ internal sealed class StoredEntryStream : Stream
         var maxBytes = (int)Math.Min(count, Length - fileOffset);
         if (maxBytes <= 0) return 0;
 
+        var buf = _readAheadBuffer;
+        if (buf != null)
+        {
+            var isSequential = _lastReadEnd >= 0 && fileOffset == _lastReadEnd;
+
+            switch (isSequential)
+            {
+                case true
+                    when _readAheadFileOffset >= 0
+                         && fileOffset >= _readAheadFileOffset
+                         && fileOffset < _readAheadFileOffset + _readAheadLength:
+                {
+                    var bufStart = (int)(fileOffset - _readAheadFileOffset);
+                    var available = _readAheadLength - bufStart;
+                    var toCopy = Math.Min(maxBytes, available);
+                    Buffer.BlockCopy(buf, bufStart, buffer, bufferOffset, toCopy);
+                    _position = fileOffset + toCopy;
+                    _lastReadEnd = fileOffset + toCopy;
+                    return toCopy;
+                }
+                case true:
+                {
+                    var readAheadSize = (int)Math.Min(ReadAheadBufferSize, Length - fileOffset);
+                    var directBytes = ReadFromSource(fileOffset, buf, 0, readAheadSize);
+                    _readAheadFileOffset = fileOffset;
+                    _readAheadLength = directBytes;
+
+                    var resultBytes = Math.Min(maxBytes, directBytes);
+                    Buffer.BlockCopy(buf, 0, buffer, bufferOffset, resultBytes);
+                    _position = fileOffset + resultBytes;
+                    _lastReadEnd = fileOffset + resultBytes;
+                    return resultBytes;
+                }
+            }
+        }
+
+        var bytesRead = ReadFromSource(fileOffset, buffer, bufferOffset, maxBytes);
+        _position = fileOffset + bytesRead;
+        _lastReadEnd = fileOffset + bytesRead;
+        return bytesRead;
+    }
+
+    private int ReadFromSource(long fileOffset, byte[] buffer, int bufferOffset, int count)
+    {
         var targetPosition = _dataOffset + fileOffset;
 
         if (_fileHandle != null)
         {
-            var bytesRead = RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, maxBytes), targetPosition);
-            _position = fileOffset + bytesRead;
-            return bytesRead;
+            return RandomAccess.Read(_fileHandle, buffer.AsSpan(bufferOffset, count), targetPosition);
         }
 
         lock (_sourceLock)
@@ -171,9 +226,7 @@ internal sealed class StoredEntryStream : Stream
                 _sourceStream.Position = targetPosition;
             }
 
-            var bytesRead = _sourceStream.Read(buffer, bufferOffset, maxBytes);
-            _position = fileOffset + bytesRead;
-            return bytesRead;
+            return _sourceStream.Read(buffer, bufferOffset, count);
         }
     }
 
@@ -192,6 +245,7 @@ internal sealed class StoredEntryStream : Stream
         if (_position < 0 || _position > Length)
             throw new IOException("Seek position out of range");
 
+        _lastReadEnd = -1;
         return _position;
     }
 
@@ -212,6 +266,7 @@ internal sealed class StoredEntryStream : Stream
     protected override void Dispose(bool disposing)
     {
         _disposed = true;
+        _readAheadBuffer = null;
         base.Dispose(disposing);
     }
 }
