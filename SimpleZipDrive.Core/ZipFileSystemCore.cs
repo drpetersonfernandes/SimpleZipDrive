@@ -5,6 +5,7 @@ using SharpCompress.Archives.Rar;
 using SharpCompress.Archives.SevenZip;
 using SharpCompress.Archives.Zip;
 using SharpCompress.Common;
+using SharpCompress.Compressors.Deflate;
 using SharpCompress.Readers;
 
 namespace SimpleZipDrive.Core;
@@ -563,13 +564,21 @@ public class ZipFileSystemCore : IDisposable
 
         // Small file: cache in memory.
         byte[] entryBytes;
-        lock (_archiveLock)
+        try
         {
-            using var entryStream = entry.OpenEntryStream();
-            var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
-            using var tempMs = new MemoryStream(capacity);
-            entryStream.CopyTo(tempMs);
-            entryBytes = tempMs.ToArray();
+            lock (_archiveLock)
+            {
+                using var entryStream = entry.OpenEntryStream();
+                var capacity = entrySize > 0 ? (int)Math.Min(entrySize, int.MaxValue) : 4096;
+                using var tempMs = new MemoryStream(capacity);
+                entryStream.CopyTo(tempMs);
+                entryBytes = tempMs.ToArray();
+            }
+        }
+        catch (Exception ex) when (ex is OutOfMemoryException or ZlibException)
+        {
+            LogMessage($"Memory cache failed for '{normalizedPath}' ({ex.GetType().Name}): falling back to disk cache.");
+            return OpenDiskCachedStream(entry, normalizedPath, entrySize, false);
         }
 
         lock (_memoryLock)
@@ -666,10 +675,24 @@ public class ZipFileSystemCore : IDisposable
                     }
 
                     // Extract outside the global archive lock — only per-entry lock is held.
-                    using (var entryStream = entry.OpenEntryStream())
-                    using (var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None))
+                    try
                     {
+                        using var entryStream = entry.OpenEntryStream();
+                        using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None);
                         entryStream.CopyTo(tempFileStream);
+                    }
+                    catch
+                    {
+                        try
+                        {
+                            File.Delete(newTempFilePath);
+                        }
+                        catch (Exception cleanupEx)
+                        {
+                            ErrorLoggerStatic.ReportSilentException(cleanupEx, $"ZipFs.OpenDiskCachedStream: Failed to clean up partial temp file '{newTempFilePath}'", true);
+                        }
+
+                        throw;
                     }
 
                     lock (_archiveLock)
