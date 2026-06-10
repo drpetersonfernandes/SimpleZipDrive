@@ -41,6 +41,8 @@ public class ZipFileSystemCore : IDisposable
     private readonly object _memoryLock = new();
 
     private readonly Func<string?> _passwordProvider;
+    private readonly SevenZipFallback? _sevenZipFallback;
+    private readonly string? _archiveFilePath;
     private int _disposedInt;
 
     /// <summary>Default volume label displayed in Windows Explorer.</summary>
@@ -83,6 +85,12 @@ public class ZipFileSystemCore : IDisposable
         {
             Directory.CreateDirectory(TempDirectoryPath);
 
+            // Get file path for SevenZip fallback (if stream is a FileStream)
+            if (archiveStream is FileStream fs)
+            {
+                _archiveFilePath = fs.Name;
+            }
+
             if (archiveStream.CanSeek)
             {
                 archiveStream.Position = 0;
@@ -90,6 +98,12 @@ public class ZipFileSystemCore : IDisposable
 
             _archive = OpenArchive(archiveStream);
             InitializeEntries();
+
+            // Initialize SevenZip fallback if 7z.dll is available
+            if (_archiveFilePath != null && SevenZipFallback.IsAvailable())
+            {
+                _sevenZipFallback = new SevenZipFallback(_archiveFilePath, _passwordProvider());
+            }
 
             DiagnosticLogger.LogSection("ZipFs CONSTRUCTED");
             DiagnosticLogger.Log($"  Archive type: {ArchiveType}");
@@ -580,6 +594,16 @@ public class ZipFileSystemCore : IDisposable
             LogMessage($"Memory cache failed for '{normalizedPath}' ({ex.GetType().Name}): falling back to disk cache.");
             return OpenDiskCachedStream(entry, normalizedPath, entrySize, false);
         }
+        catch (Exception ex) when (IsExtractionFailure(ex))
+        {
+            var fallback = TryFallbackExtraction(normalizedPath, entrySize, false);
+            if (fallback != null)
+                return fallback;
+
+            LogMessage($"Extraction failed for '{normalizedPath}' ({ex.GetType().Name}), no fallback available.");
+            AddFailedEntry(normalizedPath);
+            return null;
+        }
 
         lock (_memoryLock)
         {
@@ -675,25 +699,7 @@ public class ZipFileSystemCore : IDisposable
                     }
 
                     // Extract outside the global archive lock — only per-entry lock is held.
-                    try
-                    {
-                        using var entryStream = entry.OpenEntryStream();
-                        using var tempFileStream = new FileStream(newTempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None);
-                        entryStream.CopyTo(tempFileStream);
-                    }
-                    catch
-                    {
-                        try
-                        {
-                            File.Delete(newTempFilePath);
-                        }
-                        catch (Exception cleanupEx)
-                        {
-                            ErrorLoggerStatic.ReportSilentException(cleanupEx, $"ZipFs.OpenDiskCachedStream: Failed to clean up partial temp file '{newTempFilePath}'", true);
-                        }
-
-                        throw;
-                    }
+                    ExtractEntryToDisk(entry, normalizedPath, newTempFilePath);
 
                     lock (_archiveLock)
                     {
@@ -836,6 +842,129 @@ public class ZipFileSystemCore : IDisposable
     }
 
     /// <summary>
+    /// Determines whether an exception indicates an extraction failure that should trigger the fallback.
+    /// </summary>
+    private static bool IsExtractionFailure(Exception ex)
+    {
+        return ex is ZlibException
+                   or ArgumentOutOfRangeException
+                   or NullReferenceException
+                   or InvalidOperationException
+               || ZipFsHelpers.IsDataErrorException(ex);
+    }
+
+    /// <summary>
+    /// Extracts an entry to a disk file, trying SharpCompress first and falling back to SevenZip on failure.
+    /// Throws if both extractors fail.
+    /// </summary>
+    private void ExtractEntryToDisk(IArchiveEntry entry, string normalizedPath, string tempFilePath)
+    {
+        try
+        {
+            using var entryStream = entry.OpenEntryStream();
+            using var tempFileStream = new FileStream(tempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None);
+            entryStream.CopyTo(tempFileStream);
+        }
+        catch (Exception ex) when (IsExtractionFailure(ex))
+        {
+            if (_sevenZipFallback != null)
+            {
+                try
+                {
+                    using var fallbackOutput = new FileStream(tempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None);
+                    if (_sevenZipFallback.TryExtractEntry(normalizedPath, fallbackOutput))
+                        return;
+                }
+                catch (Exception fallbackEx)
+                {
+                    ErrorLoggerStatic.ReportSilentException(fallbackEx, $"ZipFs.ExtractEntryToDisk: SevenZip fallback failed for '{normalizedPath}'", true);
+                }
+            }
+
+            CleanupTempFile(tempFilePath);
+            throw;
+        }
+        catch
+        {
+            CleanupTempFile(tempFilePath);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Tries to extract an entry using the SevenZip fallback to a memory or disk cached stream.
+    /// Returns the stream if successful, null otherwise.
+    /// </summary>
+    private Stream? TryFallbackExtraction(string normalizedPath, long entrySize, bool isLargeFile)
+    {
+        if (_sevenZipFallback == null)
+            return null;
+
+        try
+        {
+            // Large file or unknown size: use disk cache
+            if (entrySize >= MaxMemorySize || entrySize < 0 || isLargeFile)
+            {
+                var tempFilePath = CreateSecureTempFile();
+                using (var outputStream = new FileStream(tempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None))
+                {
+                    if (!_sevenZipFallback.TryExtractEntry(normalizedPath, outputStream))
+                    {
+                        CleanupTempFile(tempFilePath);
+                        return null;
+                    }
+                }
+
+                lock (_archiveLock)
+                {
+                    LargeFileCache[normalizedPath] = tempFilePath;
+                }
+
+                return new FileStream(tempFilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            }
+
+            // Small file: use memory cache
+            using var ms = new MemoryStream();
+            if (!_sevenZipFallback.TryExtractEntry(normalizedPath, ms))
+                return null;
+
+            var entryBytes = ms.ToArray();
+            lock (_memoryLock)
+            {
+                CurrentMemoryUsage += entryBytes.Length;
+            }
+
+            return new TrackedMemoryStream(entryBytes, _memoryLock, size =>
+            {
+                lock (_memoryLock)
+                {
+                    CurrentMemoryUsage -= size;
+                    if (CurrentMemoryUsage < 0)
+                    {
+                        CurrentMemoryUsage = 0;
+                    }
+                }
+            });
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void CleanupTempFile(string tempFilePath)
+    {
+        try
+        {
+            File.Delete(tempFilePath);
+        }
+        catch (Exception cleanupEx)
+        {
+            ErrorLoggerStatic.ReportSilentException(cleanupEx, $"ZipFs.CleanupTempFile: Failed to delete '{tempFilePath}'", true);
+        }
+    }
+
+    /// <summary>
     /// Dumps a diagnostic listing of all archive entries, implicit directories, and failed entries
     /// to the <see cref="DiagnosticLogger"/> output.
     /// </summary>
@@ -920,6 +1049,7 @@ public class ZipFileSystemCore : IDisposable
 
         DiagnosticLogger.LogHeader("ZipFs DISPOSE");
 
+        _sevenZipFallback?.Dispose();
         _archive.Dispose();
         _sourceArchiveStream.Dispose();
 
