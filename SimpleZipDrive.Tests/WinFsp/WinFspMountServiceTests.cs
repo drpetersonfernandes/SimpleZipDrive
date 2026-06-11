@@ -1,8 +1,12 @@
+using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using SimpleZipDrive_WinFsp.Services;
+using SimpleZipDrive.Core.Models;
 using SimpleZipDrive.Core.Services;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 
+[SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public class WinFspMountServiceTests : IDisposable
 {
     private readonly WinFspFakeLoggingService _loggingService = new();
@@ -99,7 +103,7 @@ public class WinFspMountServiceTests : IDisposable
 
     private class WinFspFakeLoggingService : ILoggingService
     {
-        public System.Collections.ObjectModel.ObservableCollection<Core.Models.LogEntry> LogEntries { get; } = [];
+        public ObservableCollection<LogEntry> LogEntries { get; } = [];
 
         public void Log(string message)
         {
@@ -121,7 +125,7 @@ public class WinFspMountServiceTests : IDisposable
 
     private class WinFspFakeSettingsService : ISettingsService
     {
-        public Core.Models.AppSettings Settings { get; } = new();
+        public AppSettings Settings { get; } = new();
 
         public void SaveSettings()
         {

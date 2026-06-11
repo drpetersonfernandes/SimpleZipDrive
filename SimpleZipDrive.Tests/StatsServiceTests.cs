@@ -1,9 +1,11 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Http.Headers;
 using SimpleZipDrive.Core.Services;
 
 namespace SimpleZipDrive.Tests;
 
+[SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public class StatsServiceTests
 {
     [Fact]
@@ -36,7 +38,7 @@ public class StatsServiceTests
         var service = CreateStatsServiceWithClient(client);
 
         using var cts = new CancellationTokenSource();
-        cts.Cancel();
+        await cts.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.ReportStatsAsync(cts.Token));
 

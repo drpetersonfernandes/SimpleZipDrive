@@ -1,11 +1,13 @@
-using SimpleZipDrive.Core;
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Security.AccessControl;
 using System.Text;
+using SimpleZipDrive.Core;
 using WinFspZipFs = SimpleZipDrive_WinFsp.ZipFs;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 
+[SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public class ZipFsWinFspAdditionalTests : IDisposable
 {
     private readonly List<IDisposable> _disposables = [];

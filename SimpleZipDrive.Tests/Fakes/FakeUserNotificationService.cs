@@ -1,6 +1,8 @@
+using SimpleZipDrive.Core.Services;
+
 namespace SimpleZipDrive.Tests.Fakes;
 
-public class FakeUserNotificationService : Core.Services.IUserNotificationService
+public class FakeUserNotificationService : IUserNotificationService
 {
     public bool ShowUpdateAvailableCalled { get; private set; }
     public Version? CalledWithCurrentVersion { get; private set; }

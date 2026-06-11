@@ -104,22 +104,26 @@ public class ZipFs : IDokanOperations, IDisposable
 
             try
             {
-                var entry = node.Entry!;
-                var stream = Core.OpenEntryStream(entry, normalizedPath);
-                if (stream == null)
+                var entry = node.Entry;
+                if (entry != null)
                 {
-                    // Race condition: entry may have been marked as failed by a concurrent thread
-                    // between the IsFailedEntry check above and the OpenEntryStream call.
-                    if (Core.IsFailedEntry(normalizedPath))
+                    var stream = Core.OpenEntryStream(entry, normalizedPath);
+                    if (stream == null)
                     {
+                        // Race condition: entry may have been marked as failed by a concurrent thread
+                        // between the IsFailedEntry check above and the OpenEntryStream call.
+                        if (Core.IsFailedEntry(normalizedPath))
+                        {
+                            return DokanResult.Error;
+                        }
+
+                        _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: OpenEntryStream returned null for '{normalizedPath}' but entry is not in the failed list."), "ZipFs.CreateFile: Unexpected null stream.");
                         return DokanResult.Error;
                     }
 
-                    _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: OpenEntryStream returned null for '{normalizedPath}' but entry is not in the failed list."), "ZipFs.CreateFile: Unexpected null stream.");
-                    return DokanResult.Error;
+                    info.Context = stream;
                 }
 
-                info.Context = stream;
                 return DokanResult.Success;
             }
             catch (CryptographicException cryptoEx)
@@ -168,12 +172,16 @@ public class ZipFs : IDokanOperations, IDisposable
             }
             catch (ZlibException zlibEx)
             {
-                var contextMessage = $"ZipFs.CreateFile: Deflate decompression error for '{normalizedPath}' ({node.Entry!.Size / 1024.0:F1} KB). The zip entry uses a compression method that may not be fully supported by the SharpCompress library.";
-                ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
-                ZipFileSystemCore.LogMessage("This file uses a compression method that is not fully compatible with SimpleZipDrive's decompression library.");
-                ZipFileSystemCore.LogMessage("The archive file itself is likely fine - this is a library limitation, not file corruption.");
-                ZipFileSystemCore.LogMessage($"{AppTheme.Bullet}Try extracting this file directly with WinRAR or 7-Zip instead.");
-                _logErrorAction(zlibEx, contextMessage);
+                if (node.Entry != null)
+                {
+                    var contextMessage = $"ZipFs.CreateFile: Deflate decompression error for '{normalizedPath}' ({node.Entry.Size / 1024.0:F1} KB). The zip entry uses a compression method that may not be fully supported by the SharpCompress library.";
+                    ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
+                    ZipFileSystemCore.LogMessage("This file uses a compression method that is not fully compatible with SimpleZipDrive's decompression library.");
+                    ZipFileSystemCore.LogMessage("The archive file itself is likely fine - this is a library limitation, not file corruption.");
+                    ZipFileSystemCore.LogMessage($"{AppTheme.Bullet}Try extracting this file directly with WinRAR or 7-Zip instead.");
+                    _logErrorAction(zlibEx, contextMessage);
+                }
+
                 Core.AddFailedEntry(normalizedPath);
                 (info.Context as IDisposable)?.Dispose();
                 info.Context = null;
@@ -181,9 +189,13 @@ public class ZipFs : IDokanOperations, IDisposable
             }
             catch (ArgumentOutOfRangeException argEx)
             {
-                var contextMessage = $"ZipFs.CreateFile: Invalid data offset for '{normalizedPath}' ({node.Entry!.Size / 1024.0:F1} KB). The zip archive appears to be corrupted or truncated — the entry header points to an invalid file position.";
-                ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Corruption Error: Cannot read '{normalizedPath}'. The archive file may be damaged or incomplete.");
-                _logErrorAction(argEx, contextMessage);
+                if (node.Entry != null)
+                {
+                    var contextMessage = $"ZipFs.CreateFile: Invalid data offset for '{normalizedPath}' ({node.Entry.Size / 1024.0:F1} KB). The zip archive appears to be corrupted or truncated — the entry header points to an invalid file position.";
+                    ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Corruption Error: Cannot read '{normalizedPath}'. The archive file may be damaged or incomplete.");
+                    _logErrorAction(argEx, contextMessage);
+                }
+
                 Core.AddFailedEntry(normalizedPath);
                 (info.Context as IDisposable)?.Dispose();
                 info.Context = null;
@@ -201,8 +213,12 @@ public class ZipFs : IDokanOperations, IDisposable
             catch (Exception ex) when (ZipFsHelpers.IsDataErrorException(ex))
             {
                 Core.AddFailedEntry(normalizedPath);
-                var contextMessage = $"ZipFs.CreateFile: Data error (corrupted or unsupported compression) for '{normalizedPath}' ({node.Entry!.Size / 1024.0:F1} KB). The archive entry may be damaged or uses an unsupported compression method.";
-                _logErrorAction(ex, contextMessage);
+                if (node.Entry != null)
+                {
+                    var contextMessage = $"ZipFs.CreateFile: Data error (corrupted or unsupported compression) for '{normalizedPath}' ({node.Entry.Size / 1024.0:F1} KB). The archive entry may be damaged or uses an unsupported compression method.";
+                    _logErrorAction(ex, contextMessage);
+                }
+
                 ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data appears to be corrupted or uses an unsupported compression method.");
                 (info.Context as IDisposable)?.Dispose();
                 info.Context = null;

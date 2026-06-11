@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using SimpleZipDrive.Core.Models;
 using SimpleZipDrive.Core.Services;
 using SimpleZipDrive.Services;
 
 namespace SimpleZipDrive.Tests;
 
+[SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public class MountServiceTests : IDisposable
 {
     private readonly FakeLoggingService _loggingService = new();
@@ -96,8 +98,8 @@ public class MountServiceTests : IDisposable
 
     public void Dispose()
     {
-        (_loggingService as IDisposable).Dispose();
-        (_settingsService as IDisposable).Dispose();
+        _loggingService.Dispose();
+        _settingsService.Dispose();
         GC.SuppressFinalize(this);
     }
 

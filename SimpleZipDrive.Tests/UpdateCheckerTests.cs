@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using SimpleZipDrive.Tests.Fakes;
 
 namespace SimpleZipDrive.Tests;
 
@@ -320,7 +321,7 @@ public partial class UpdateCheckerTests
     [Fact]
     public void FakeUserNotificationServiceRecordsCalls()
     {
-        var fake = new Fakes.FakeUserNotificationService();
+        var fake = new FakeUserNotificationService();
         var current = new Version(1, 0, 0);
         var latest = new Version(2, 0, 0);
         const string url = "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/v2.0.0";
@@ -336,7 +337,7 @@ public partial class UpdateCheckerTests
     [Fact]
     public void FakeUserNotificationServiceResetClearsState()
     {
-        var fake = new Fakes.FakeUserNotificationService();
+        var fake = new FakeUserNotificationService();
         var current = new Version(1, 0, 0);
         var latest = new Version(2, 0, 0);
         const string url = "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/v2.0.0";
@@ -354,7 +355,7 @@ public partial class UpdateCheckerTests
     [Fact]
     public void FakeUserNotificationServiceReturnsConfigurableValue()
     {
-        var fake = new Fakes.FakeUserNotificationService { ReturnValue = true };
+        var fake = new FakeUserNotificationService { ReturnValue = true };
 
         var result = fake.ShowUpdateAvailable(
             new Version(1, 0, 0), new Version(2, 0, 0),
@@ -462,7 +463,7 @@ public partial class UpdateCheckerTests
     {
         var current = Version.Parse(currentStr);
         var latest = Version.Parse(latestStr);
-        var fake = new Fakes.FakeUserNotificationService();
+        var fake = new FakeUserNotificationService();
 
         if (latest > current)
         {
@@ -478,7 +479,7 @@ public partial class UpdateCheckerTests
         var current = new Version(2, 0, 0);
         var latest = new Version(3, 0, 0);
         const string downloadUrl = "https://github.com/drpetersonfernandes/SimpleZipDrive/releases/tag/v3.0.0";
-        var fake = new Fakes.FakeUserNotificationService();
+        var fake = new FakeUserNotificationService();
 
         fake.ShowUpdateAvailable(current, latest, downloadUrl);
 
@@ -492,7 +493,7 @@ public partial class UpdateCheckerTests
     [Fact]
     public void UserDecliningNotificationReturnsFalse()
     {
-        var fake = new Fakes.FakeUserNotificationService { ReturnValue = false };
+        var fake = new FakeUserNotificationService { ReturnValue = false };
 
         var result = fake.ShowUpdateAvailable(
             new Version(1, 0, 0), new Version(2, 0, 0),
@@ -504,7 +505,7 @@ public partial class UpdateCheckerTests
     [Fact]
     public void UserAcceptingNotificationReturnsTrue()
     {
-        var fake = new Fakes.FakeUserNotificationService { ReturnValue = true };
+        var fake = new FakeUserNotificationService { ReturnValue = true };
 
         var result = fake.ShowUpdateAvailable(
             new Version(1, 0, 0), new Version(2, 0, 0),

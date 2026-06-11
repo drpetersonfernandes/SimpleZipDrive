@@ -1,17 +1,19 @@
-using SimpleZipDrive.Core;
-using System.IO.Compression;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
+using System.IO.Compression;
 using System.Security.AccessControl;
 using System.Text;
 using DokanNet;
-using FileAccess = DokanNet.FileAccess;
-using SharpCompress.Archives;
 using SharpCompress.Common;
 using SharpCompress.Writers;
+using SharpCompress.Writers.SevenZip;
+using SimpleZipDrive.Core;
 using SimpleZipDrive.Tests.Fakes;
+using FileAccess = DokanNet.FileAccess;
 
 namespace SimpleZipDrive.Tests;
 
+[SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public class ZipFsTests : IDisposable
 {
     private readonly MemoryStream _stream;
@@ -1435,7 +1437,7 @@ public class ZipFsTests : IDisposable
         Assert.True(entries.ContainsKey("/stored.txt"));
 
         var storedEntry = entries["/stored.txt"];
-        Assert.True(zipFs.Core.IsStoredEntry((IArchiveEntry)storedEntry));
+        Assert.True(zipFs.Core.IsStoredEntry(storedEntry));
     }
 
     private static string CreateTempStoredZipFile(string entryName, byte[] data)
@@ -1710,7 +1712,7 @@ public class ZipFsTests : IDisposable
     {
         var ms = new MemoryStream();
         using (var writer = WriterFactory.OpenWriter(ms, ArchiveType.SevenZip,
-                   new SharpCompress.Writers.SevenZip.SevenZipWriterOptions(CompressionType.LZMA)))
+                   new SevenZipWriterOptions(CompressionType.LZMA)))
         {
             var contentBytes = "Hello from 7z archive"u8.ToArray();
             using var stream = new MemoryStream(contentBytes);

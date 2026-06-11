@@ -117,7 +117,7 @@ public class DokanPrefixedLoggerTests : IDisposable
     {
         if (_logger == null) return;
 
-        var exception = Record.Exception(() => ((IDisposable)_logger).Dispose());
+        var exception = Record.Exception(() => _logger.Dispose());
         Assert.Null(exception);
     }
 

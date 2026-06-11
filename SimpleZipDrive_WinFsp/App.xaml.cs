@@ -188,35 +188,44 @@ public partial class App
         ServiceProvider.Register<IStatsService>(statsService);
     }
 
-    private static async Task RunBackgroundTasksAsync()
+    private static Task RunBackgroundTasksAsync()
     {
         try
         {
-            var statsService = ServiceProvider.TryGet<IStatsService>();
-            if (statsService != null)
+            try
             {
-                _ = Task.Run(async () =>
+                var statsService = ServiceProvider.TryGet<IStatsService>();
+                if (statsService != null)
                 {
-                    try
+                    _ = Task.Run(async () =>
                     {
-                        await statsService.ReportStatsAsync(ShutdownCts.Token);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                    }
-                    catch (Exception ex)
-                    {
-                        ErrorLoggerStatic.ReportSilentException(ex, "StatsService.ReportStatsAsync failed", true);
-                    }
-                }, ShutdownCts.Token);
+                        try
+                        {
+                            await statsService.ReportStatsAsync(ShutdownCts.Token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                        }
+                        catch (Exception ex)
+                        {
+                            ErrorLoggerStatic.ReportSilentException(ex, "StatsService.ReportStatsAsync failed", true);
+                        }
+                    }, ShutdownCts.Token);
+                }
             }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                ErrorLoggerStatic.ReportSilentException(ex, "RunBackgroundTasksAsync failed", true);
+            }
+
+            return Task.CompletedTask;
         }
-        catch (OperationCanceledException)
+        catch (Exception exception)
         {
-        }
-        catch (Exception ex)
-        {
-            ErrorLoggerStatic.ReportSilentException(ex, "RunBackgroundTasksAsync failed", true);
+            return Task.FromException(exception);
         }
     }
 

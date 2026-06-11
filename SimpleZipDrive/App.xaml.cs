@@ -135,42 +135,51 @@ public partial class App
         ServiceProvider.Register<IStatsService>(statsService);
     }
 
-    private static async Task RunBackgroundTasksAsync()
+    private static Task RunBackgroundTasksAsync()
     {
         try
         {
-            // Report stats (fire and forget, but respect cancellation)
-            var statsService = ServiceProvider.TryGet<IStatsService>();
-            if (statsService != null)
+            try
             {
-                _ = Task.Run(async () =>
+                // Report stats (fire and forget, but respect cancellation)
+                var statsService = ServiceProvider.TryGet<IStatsService>();
+                if (statsService != null)
                 {
-                    try
+                    _ = Task.Run(async () =>
                     {
-                        await statsService.ReportStatsAsync(ShutdownCts.Token);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // Expected during shutdown - no need to log
-                    }
-                    catch (Exception ex)
-                    {
-                        // Stats reporting failure - report silently
-                        ErrorLoggerStatic.ReportSilentException(ex, "StatsService.ReportStatsAsync failed", true);
-                    }
-                }, ShutdownCts.Token);
+                        try
+                        {
+                            await statsService.ReportStatsAsync(ShutdownCts.Token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // Expected during shutdown - no need to log
+                        }
+                        catch (Exception ex)
+                        {
+                            // Stats reporting failure - report silently
+                            ErrorLoggerStatic.ReportSilentException(ex, "StatsService.ReportStatsAsync failed", true);
+                        }
+                    }, ShutdownCts.Token);
+                }
+
+                // Update check already done during startup
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected during shutdown - no need to log
+            }
+            catch (Exception ex)
+            {
+                // Report any other failures in background task coordination
+                ErrorLoggerStatic.ReportSilentException(ex, "RunBackgroundTasksAsync failed", true);
             }
 
-            // Update check already done during startup
+            return Task.CompletedTask;
         }
-        catch (OperationCanceledException)
+        catch (Exception exception)
         {
-            // Expected during shutdown - no need to log
-        }
-        catch (Exception ex)
-        {
-            // Report any other failures in background task coordination
-            ErrorLoggerStatic.ReportSilentException(ex, "RunBackgroundTasksAsync failed", true);
+            return Task.FromException(exception);
         }
     }
 

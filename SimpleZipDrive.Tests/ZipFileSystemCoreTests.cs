@@ -1,6 +1,6 @@
-using SimpleZipDrive.Core;
 using System.IO.Compression;
 using System.Text;
+using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests;
 

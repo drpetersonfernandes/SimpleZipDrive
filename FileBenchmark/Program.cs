@@ -4,6 +4,8 @@ using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
 
+// ReSharper disable All
+
 if (args.Length == 0)
 {
     Console.WriteLine("Usage: drop a file onto this executable, or run: FileBenchmark <filepath> [--no-clear]");

@@ -1,8 +1,10 @@
+using System.Diagnostics.CodeAnalysis;
 using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests;
 
 [Collection("IsMatchSimple")]
+[SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public class ZipFsHelpersCleanupTests
 {
     // ─── CleanupOrphanedTempDirectories: runs without throwing ───

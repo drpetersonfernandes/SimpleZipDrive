@@ -445,7 +445,7 @@ public partial class MainWindow : IDisposable
                 if (completedTask == timeoutTask)
                 {
                     // Unmount timed out, force exit
-                    App.ShutdownCts.Cancel();
+                    await App.ShutdownCts.CancelAsync();
                     ForceExit();
                     return;
                 }
@@ -459,7 +459,7 @@ public partial class MainWindow : IDisposable
                 }
             }
 
-            App.ShutdownCts.Cancel();
+            await App.ShutdownCts.CancelAsync();
 
             Closing -= MainWindow_Closing;
 

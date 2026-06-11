@@ -1,10 +1,10 @@
-using SimpleZipDrive.Core;
 using System.IO.Compression;
 using System.Security.AccessControl;
 using System.Text;
 using DokanNet;
-using FileAccess = DokanNet.FileAccess;
+using SimpleZipDrive.Core;
 using SimpleZipDrive.Tests.Fakes;
+using FileAccess = DokanNet.FileAccess;
 
 namespace SimpleZipDrive.Tests;
 

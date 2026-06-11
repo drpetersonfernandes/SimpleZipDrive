@@ -1,8 +1,10 @@
+using System.Diagnostics.CodeAnalysis;
 using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 
 [Collection("DiagnosticLogger")]
+[SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public class WinFspDiagnosticLoggerTests : IDisposable
 {
     private readonly string _tempDir;

@@ -109,8 +109,8 @@ public class MountServiceAdditionalTests : IDisposable
 
     public void Dispose()
     {
-        (_loggingService as IDisposable).Dispose();
-        (_settingsService as IDisposable).Dispose();
+        _loggingService.Dispose();
+        _settingsService.Dispose();
         GC.SuppressFinalize(this);
     }
 

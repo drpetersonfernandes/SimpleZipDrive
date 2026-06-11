@@ -1,8 +1,10 @@
+using System.Diagnostics.CodeAnalysis;
 using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests;
 
 [Collection("DiagnosticLogger")]
+[SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public class DiagnosticLoggerTests
 {
     // ─── Close: stops further logging ───

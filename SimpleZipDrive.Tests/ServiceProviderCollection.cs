@@ -1,3 +1,5 @@
+using SimpleZipDrive.Core.Services;
+
 namespace SimpleZipDrive.Tests;
 
 public class ServiceProviderFixture : IDisposable
@@ -5,7 +7,7 @@ public class ServiceProviderFixture : IDisposable
     public void Dispose()
     {
         // Ensure shared static state is cleaned up after each collection of tests
-        Core.Services.ServiceProvider.DisposeAllServices();
+        ServiceProvider.DisposeAllServices();
         GC.SuppressFinalize(this);
     }
 }

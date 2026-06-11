@@ -14,6 +14,7 @@ namespace SimpleZipDrive_WinFsp;
 /// Delegates core logic to <see cref="ZipFileSystemCore"/>.
 /// </summary>
 [SuppressMessage("ReSharper", "InconsistentNaming")]
+[SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public sealed class ZipFs : FileSystemBase, IDisposable
 {
     private readonly Action<Exception?, string?> _logErrorAction;

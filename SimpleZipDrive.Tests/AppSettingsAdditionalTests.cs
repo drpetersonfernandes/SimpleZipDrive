@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SimpleZipDrive.Core.Models;
 
 namespace SimpleZipDrive.Tests;
@@ -102,7 +103,7 @@ public class AppSettingsAdditionalTests
             Assert.Contains("128", json);
 
             // Verify it can be deserialized
-            var loaded = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(json);
+            var loaded = JsonSerializer.Deserialize<AppSettings>(json);
             Assert.NotNull(loaded);
             Assert.Equal(128, loaded.MaxMemoryPerFileMb);
         }

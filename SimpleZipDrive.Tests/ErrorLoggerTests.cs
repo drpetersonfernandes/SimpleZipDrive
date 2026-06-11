@@ -1,3 +1,4 @@
+using SharpCompress.Common;
 using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests;
@@ -301,14 +302,14 @@ public class ErrorLoggerTests : IDisposable
     [Fact]
     public void IsUserErrorSharpCompressArchiveExceptionReturnsTrue()
     {
-        var result = ErrorLogger.IsUserError(new SharpCompress.Common.ArchiveException("invalid archive"));
+        var result = ErrorLogger.IsUserError(new ArchiveException("invalid archive"));
         Assert.True(result);
     }
 
     [Fact]
     public void IsUserErrorSharpCompressInvalidFormatExceptionReturnsTrue()
     {
-        var result = ErrorLogger.IsUserError(new SharpCompress.Common.InvalidFormatException("invalid format"));
+        var result = ErrorLogger.IsUserError(new InvalidFormatException("invalid format"));
         Assert.True(result);
     }
 

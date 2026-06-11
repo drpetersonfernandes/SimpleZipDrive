@@ -1,15 +1,19 @@
-using SimpleZipDrive.Core;
+using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Text;
 using SharpCompress.Archives;
 using SharpCompress.Common;
 using SharpCompress.Writers;
+using SharpCompress.Writers.SevenZip;
+using SimpleZipDrive.Core;
 using FileInfo = Fsp.Interop.FileInfo;
 using WinFspZipFs = SimpleZipDrive_WinFsp.ZipFs;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 
+[SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public class WinFspZipFsTests : IDisposable
 {
     private readonly MemoryStream _stream;
@@ -191,7 +195,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void NormalizePath_Null_ReturnsRoot()
     {
-        var result = ZipFsHelpers.NormalizePath((string?)null);
+        var result = ZipFsHelpers.NormalizePath(null);
 
         Assert.Equal("/", result);
     }
@@ -312,7 +316,7 @@ public class WinFspZipFsTests : IDisposable
     [Fact]
     public void IsPathLengthValid_Null_ReturnsTrue()
     {
-        var result = ZipFsHelpers.IsPathLengthValid((string?)null);
+        var result = ZipFsHelpers.IsPathLengthValid(null);
 
         Assert.True(result);
     }
@@ -419,7 +423,7 @@ public class WinFspZipFsTests : IDisposable
         var result = WinFspZipFs.DateTimeToFileTimeUtc(DateTime.MinValue);
 
         Assert.IsType<ulong>(result);
-        Assert.Equal(0ul, (ulong)result);
+        Assert.Equal(0ul, result);
     }
 
     [Fact]
@@ -428,7 +432,7 @@ public class WinFspZipFsTests : IDisposable
         var result = WinFspZipFs.DateTimeToFileTimeUtc(DateTime.Now);
 
         Assert.IsType<ulong>(result);
-        Assert.True((ulong)result > 0);
+        Assert.True(result > 0);
     }
 
     // ─── EntryNodeToFileInfo tests ───
@@ -449,7 +453,7 @@ public class WinFspZipFsTests : IDisposable
 
         var result = WinFspZipFs.EntryNodeToFileInfo(node);
 
-        var fi = (FileInfo)result;
+        var fi = result;
         Assert.Equal(1024ul, fi.FileSize);
         Assert.Equal((uint)(FileAttributes.Archive | FileAttributes.ReadOnly), fi.FileAttributes);
         Assert.NotEqual(0ul, fi.AllocationSize);
@@ -471,7 +475,7 @@ public class WinFspZipFsTests : IDisposable
 
         var result = WinFspZipFs.EntryNodeToFileInfo(node);
 
-        var fi = (FileInfo)result;
+        var fi = result;
         Assert.Equal(0ul, fi.FileSize);
         Assert.Equal((uint)FileAttributes.Directory, fi.FileAttributes);
         Assert.Equal(0ul, fi.AllocationSize);
@@ -675,7 +679,7 @@ public class WinFspZipFsTests : IDisposable
     {
         var ms = new MemoryStream();
         using (var writer = WriterFactory.OpenWriter(ms, ArchiveType.SevenZip,
-                   new SharpCompress.Writers.SevenZip.SevenZipWriterOptions(CompressionType.LZMA)))
+                   new SevenZipWriterOptions(CompressionType.LZMA)))
         {
             var contentBytes = "Hello from 7z archive"u8.ToArray();
             using var contentStream = new MemoryStream(contentBytes);
@@ -754,7 +758,7 @@ public class WinFspZipFsTests : IDisposable
     {
         InvokeOpenOrCreateFile("\\readme.txt", out var fileNode, out var fileDesc, out _, out _);
 
-        var buffer = System.Runtime.InteropServices.Marshal.AllocHGlobal(100);
+        var buffer = Marshal.AllocHGlobal(100);
         try
         {
             var result = _zipFs.Read(fileNode, fileDesc, buffer, 0ul, 100u, out _);
@@ -763,7 +767,7 @@ public class WinFspZipFsTests : IDisposable
         }
         finally
         {
-            System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer);
+            Marshal.FreeHGlobal(buffer);
         }
 
         InvokeClose(fileNode, fileDesc);
@@ -1086,7 +1090,7 @@ public class WinFspZipFsTests : IDisposable
 
         zipFs.OpenOrCreateFile("\\stored.txt", out var fileNode, out var fileDesc, out _, out _);
 
-        var buffer = System.Runtime.InteropServices.Marshal.AllocHGlobal(200);
+        var buffer = Marshal.AllocHGlobal(200);
         try
         {
             var readResult = zipFs.Read(fileNode, fileDesc, buffer, 0ul, 200u, out _);
@@ -1094,7 +1098,7 @@ public class WinFspZipFsTests : IDisposable
         }
         finally
         {
-            System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer);
+            Marshal.FreeHGlobal(buffer);
         }
 
         InvokeCloseReflect(zipFs, fileNode, fileDesc);

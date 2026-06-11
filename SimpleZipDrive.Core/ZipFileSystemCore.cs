@@ -1122,10 +1122,10 @@ public class ZipFileSystemCore : IDisposable
 public sealed class EntryNode
 {
     /// <summary>Gets or sets the normalized forward-slash-separated path (e.g., "/folder/file.txt").</summary>
-    public string NormalizedPath { get; set; } = null!;
+    public string NormalizedPath { get; set; } = string.Empty;
 
     /// <summary>Gets or sets the canonical path as it appears in the archive entry key.</summary>
-    public string CanonicalPath { get; set; } = null!;
+    public string CanonicalPath { get; set; } = string.Empty;
 
     /// <summary>Gets or sets a value indicating whether this node represents a directory.</summary>
     public bool IsDir { get; set; }

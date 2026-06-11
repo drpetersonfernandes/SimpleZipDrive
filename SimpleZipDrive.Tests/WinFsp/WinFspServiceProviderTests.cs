@@ -1,8 +1,10 @@
+using System.Diagnostics.CodeAnalysis;
 using SimpleZipDrive.Core.Services;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 
 [Collection("ServiceProvider")]
+[SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public class WinFspServiceProviderTests : IDisposable
 {
     public WinFspServiceProviderTests()
