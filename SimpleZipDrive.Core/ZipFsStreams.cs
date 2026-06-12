@@ -179,28 +179,28 @@ internal sealed class StoredEntryStream : Stream
                     when _readAheadFileOffset >= 0
                          && fileOffset >= _readAheadFileOffset
                          && fileOffset < _readAheadFileOffset + _readAheadLength:
-                {
-                    var bufStart = (int)(fileOffset - _readAheadFileOffset);
-                    var available = _readAheadLength - bufStart;
-                    var toCopy = Math.Min(maxBytes, available);
-                    Buffer.BlockCopy(buf, bufStart, buffer, bufferOffset, toCopy);
-                    _position = fileOffset + toCopy;
-                    _lastReadEnd = fileOffset + toCopy;
-                    return toCopy;
-                }
+                    {
+                        var bufStart = (int)(fileOffset - _readAheadFileOffset);
+                        var available = _readAheadLength - bufStart;
+                        var toCopy = Math.Min(maxBytes, available);
+                        Buffer.BlockCopy(buf, bufStart, buffer, bufferOffset, toCopy);
+                        _position = fileOffset + toCopy;
+                        _lastReadEnd = fileOffset + toCopy;
+                        return toCopy;
+                    }
                 case true:
-                {
-                    var readAheadSize = (int)Math.Min(ReadAheadBufferSize, Length - fileOffset);
-                    var directBytes = ReadFromSource(fileOffset, buf, 0, readAheadSize);
-                    _readAheadFileOffset = fileOffset;
-                    _readAheadLength = directBytes;
+                    {
+                        var readAheadSize = (int)Math.Min(ReadAheadBufferSize, Length - fileOffset);
+                        var directBytes = ReadFromSource(fileOffset, buf, 0, readAheadSize);
+                        _readAheadFileOffset = fileOffset;
+                        _readAheadLength = directBytes;
 
-                    var resultBytes = Math.Min(maxBytes, directBytes);
-                    Buffer.BlockCopy(buf, 0, buffer, bufferOffset, resultBytes);
-                    _position = fileOffset + resultBytes;
-                    _lastReadEnd = fileOffset + resultBytes;
-                    return resultBytes;
-                }
+                        var resultBytes = Math.Min(maxBytes, directBytes);
+                        Buffer.BlockCopy(buf, 0, buffer, bufferOffset, resultBytes);
+                        _position = fileOffset + resultBytes;
+                        _lastReadEnd = fileOffset + resultBytes;
+                        return resultBytes;
+                    }
             }
         }
 

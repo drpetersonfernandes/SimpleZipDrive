@@ -69,17 +69,17 @@ public partial class MainWindow : IDisposable
             switch (e.Action)
             {
                 case NotifyCollectionChangedAction.Add:
-                {
-                    foreach (var newItem in e.NewItems?.Cast<LogEntry>() ?? [])
                     {
-                        if (LogTextBox.Text.Length > 0)
-                            LogTextBox.AppendText(Environment.NewLine);
-                        LogTextBox.AppendText(newItem.ToString());
-                    }
+                        foreach (var newItem in e.NewItems?.Cast<LogEntry>() ?? [])
+                        {
+                            if (LogTextBox.Text.Length > 0)
+                                LogTextBox.AppendText(Environment.NewLine);
+                            LogTextBox.AppendText(newItem.ToString());
+                        }
 
-                    LogTextBox.ScrollToEnd();
-                    break;
-                }
+                        LogTextBox.ScrollToEnd();
+                        break;
+                    }
                 case NotifyCollectionChangedAction.Remove:
                     UpdateLogText();
                     break;

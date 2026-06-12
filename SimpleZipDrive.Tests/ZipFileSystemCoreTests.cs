@@ -567,8 +567,8 @@ public class ZipFileSystemCoreTests : IDisposable
     {
         var node = new EntryNode();
 
-        Assert.Null(node.NormalizedPath);
-        Assert.Null(node.CanonicalPath);
+        Assert.Equal(string.Empty, node.NormalizedPath);
+        Assert.Equal(string.Empty, node.CanonicalPath);
         Assert.False(node.IsDir);
         Assert.Null(node.Entry);
         Assert.Equal(0, node.FileSize);

@@ -202,11 +202,11 @@ public static class ZipFsHelpers
                 case ".":
                     continue;
                 case "..":
-                {
-                    if (resolved.Count > 0)
-                        resolved.RemoveAt(resolved.Count - 1);
-                    continue;
-                }
+                    {
+                        if (resolved.Count > 0)
+                            resolved.RemoveAt(resolved.Count - 1);
+                        continue;
+                    }
                 default:
                     resolved.Add(part);
                     break;

@@ -367,7 +367,7 @@ public class MountService : IDisposable, IMountService
                         options.MountPoint = mountPoint;
                     });
 
-                for (var attempt = 0;; attempt++)
+                for (var attempt = 0; ; attempt++)
                 {
                     try
                     {
