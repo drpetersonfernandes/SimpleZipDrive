@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Runtime.Loader;
 using System.Text;
 using System.Threading.Channels;
 using System.Windows;
@@ -36,7 +35,7 @@ public partial class App
             DiagnosticLogger.Log($"  Framework: {RuntimeInformation.FrameworkDescription}");
             DiagnosticLogger.Log($"  Working directory: {Environment.CurrentDirectory}");
 
-            PreloadFspAssembly();
+            EnsureWinFspOnPath();
 
             RegisterServices();
 
@@ -110,61 +109,52 @@ public partial class App
         }
     }
 
-    private static void PreloadFspAssembly()
+    private static void EnsureWinFspOnPath()
     {
         try
         {
-            var fspAssemblyPath = FindWinfspManagedDll();
-            if (fspAssemblyPath != null)
-            {
-                AssemblyLoadContext.Default.LoadFromAssemblyPath(fspAssemblyPath);
-                DiagnosticLogger.Log($"  WinFsp assembly loaded from: {fspAssemblyPath}");
+            var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+            if (currentPath.Contains("WinFsp", StringComparison.OrdinalIgnoreCase))
                 return;
+
+            string? binDir = null;
+
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\WinFsp")
+                            ?? Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WinFsp");
+            var sxsDir = key?.GetValue("SxsDir") as string;
+            if (!string.IsNullOrEmpty(sxsDir))
+            {
+                var sxsBin = Path.Combine(sxsDir, "bin");
+                if (Directory.Exists(sxsBin))
+                    binDir = sxsBin;
             }
 
-            var bundlePath = Path.Combine(AppContext.BaseDirectory, "winfsp-msil.dll");
-            if (File.Exists(bundlePath))
+            if (binDir == null)
             {
-                AssemblyLoadContext.Default.LoadFromAssemblyPath(bundlePath);
+                var installDir = key?.GetValue("InstallDir") as string;
+                if (!string.IsNullOrEmpty(installDir))
+                {
+                    var installBin = Path.Combine(installDir, "bin");
+                    if (Directory.Exists(installBin))
+                        binDir = installBin;
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            ErrorLoggerStatic.ReportSilentException(ex, "WinFsp assembly preload failed");
-            DiagnosticLogger.Log($"  WinFsp assembly preload failed: {ex.Message}");
-        }
-    }
 
-    private static string? FindWinfspManagedDll()
-    {
-        try
-        {
-            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
-                @"SOFTWARE\WOW6432Node\WinFsp") ?? Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
-                @"SOFTWARE\WinFsp");
-            if (key?.GetValue("InstallDir") is string installDir)
-            {
-                var candidate = Path.Combine(installDir, "bin", "winfsp-msil.dll");
-                if (File.Exists(candidate)) return candidate;
-            }
+            if (binDir == null)
+                return;
+
+            var dllName = Environment.Is64BitProcess ? "winfsp-x64.dll" : "winfsp-x86.dll";
+            var dllPath = Path.Combine(binDir, dllName);
+            if (!File.Exists(dllPath))
+                return;
+
+            Environment.SetEnvironmentVariable("PATH", binDir + ";" + currentPath, EnvironmentVariableTarget.Process);
+            DiagnosticLogger.Log($"  WinFsp PATH set to: {binDir}");
         }
         catch
         {
-            // ignored
+            // Best-effort; failure is non-fatal
         }
-
-        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
-        var pfCandidate = Path.Combine(programFiles, "WinFsp", "bin", "winfsp-msil.dll");
-        if (File.Exists(pfCandidate)) return pfCandidate;
-
-        var programFiles64 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-        if (!string.Equals(programFiles64, programFiles, StringComparison.OrdinalIgnoreCase))
-        {
-            var pf64Candidate = Path.Combine(programFiles64, "WinFsp", "bin", "winfsp-msil.dll");
-            if (File.Exists(pf64Candidate)) return pf64Candidate;
-        }
-
-        return null;
     }
 
     private static void RegisterServices()
