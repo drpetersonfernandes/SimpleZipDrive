@@ -123,6 +123,7 @@ jobs:
           gh release create $tag `
             --title $tag `
             --notes $notes `
+            --prerelease `
             "release-assets/release_${{ steps.version.outputs.VERSION }}_Dokan_win-x64.zip" `
             "release-assets/release_${{ steps.version.outputs.VERSION }}_Dokan_win-arm64.zip" `
             "release-assets/release_${{ steps.version.outputs.VERSION }}_WinFsp_win-x64.zip" `
