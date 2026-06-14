@@ -53,17 +53,19 @@ jobs:
           $zipDir = "release-assets"
           New-Item -ItemType Directory -Path $zipDir -Force | Out-Null
 
-          # Dokan win-x64
-          Compress-Archive -Path "publish/dokan-x64/SimpleZipDrive.exe", "publish/dokan-x64/7z.dll" -DestinationPath "$zipDir/release_${v}_Dokan_win-x64.zip" -Force
+          $variants = @(
+            @{ Name = "Dokan_win-x64";   Dir = "publish/dokan-x64" },
+            @{ Name = "Dokan_win-arm64"; Dir = "publish/dokan-arm64" },
+            @{ Name = "WinFsp_win-x64";  Dir = "publish/winfsp-x64" },
+            @{ Name = "WinFsp_win-arm64";Dir = "publish/winfsp-arm64" }
+          )
 
-          # Dokan win-arm64
-          Compress-Archive -Path "publish/dokan-arm64/SimpleZipDrive.exe", "publish/dokan-arm64/7z_arm64.dll" -DestinationPath "$zipDir/release_${v}_Dokan_win-arm64.zip" -Force
-
-          # WinFsp win-x64
-          Compress-Archive -Path "publish/winfsp-x64/SimpleZipDrive_WinFsp.exe", "publish/winfsp-x64/winfsp-msil.dll", "publish/winfsp-x64/7z.dll" -DestinationPath "$zipDir/release_${v}_WinFsp_win-x64.zip" -Force
-
-          # WinFsp win-arm64
-          Compress-Archive -Path "publish/winfsp-arm64/SimpleZipDrive_WinFsp.exe", "publish/winfsp-arm64/winfsp-msil.dll", "publish/winfsp-arm64/7z_arm64.dll" -DestinationPath "$zipDir/release_${v}_WinFsp_win-arm64.zip" -Force
+          foreach ($variant in $variants) {
+            $files = Get-ChildItem -Path $variant.Dir -File | Select-Object -ExpandProperty FullName
+            $zipPath = "$zipDir/release_${v}_$($variant.Name).zip"
+            Compress-Archive -Path $files -DestinationPath $zipPath -Force
+            Write-Output "Created $zipPath with $($files.Count) files"
+          }
 
       - name: Compute SHA256 checksums
         shell: pwsh

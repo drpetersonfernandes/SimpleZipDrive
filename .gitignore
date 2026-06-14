@@ -3,6 +3,8 @@
 [Rr]elease/
 [Bb]in/
 [Oo]bj/
+publish/
+release-assets/
 
 # IDE
 .idea/
