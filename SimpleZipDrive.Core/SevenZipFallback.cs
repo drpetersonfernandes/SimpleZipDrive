@@ -9,16 +9,16 @@ namespace SimpleZipDrive.Core;
 internal sealed class SevenZipFallback : IDisposable
 {
     private readonly string _archivePath;
-    private readonly string? _password;
+    private readonly Func<string?> _passwordProvider;
     private readonly object _lock = new();
     private SharpSevenZip.SharpSevenZipExtractor? _extractor;
     private Dictionary<string, int>? _entryIndexMap;
     private bool _disposed;
 
-    public SevenZipFallback(string archivePath, string? password)
+    public SevenZipFallback(string archivePath, Func<string?> passwordProvider)
     {
         _archivePath = archivePath;
-        _password = password;
+        _passwordProvider = passwordProvider;
     }
 
     /// <summary>
@@ -101,9 +101,10 @@ internal sealed class SevenZipFallback : IDisposable
                 if (!TrySetLibraryPath())
                     return;
 
-                _extractor = string.IsNullOrEmpty(_password)
+                var password = _passwordProvider();
+                _extractor = string.IsNullOrEmpty(password)
                     ? new SharpSevenZip.SharpSevenZipExtractor(_archivePath)
-                    : new SharpSevenZip.SharpSevenZipExtractor(_archivePath, _password);
+                    : new SharpSevenZip.SharpSevenZipExtractor(_archivePath, password);
 
                 var entries = _extractor.ArchiveFileData;
                 _entryIndexMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);

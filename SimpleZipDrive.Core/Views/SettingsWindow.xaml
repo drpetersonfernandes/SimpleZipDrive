@@ -3,7 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings" Height="620" Width="500"
         WindowStartupLocation="CenterScreen"
-         Style="{StaticResource ModernWindowStyle}">
+        ResizeMode="CanResize"
+        Style="{StaticResource ModernWindowStyle}">
 
     <Grid Margin="20">
         <Grid.RowDefinitions>
@@ -17,16 +18,16 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <TextBlock Grid.Row="0" 
-                   Text="Settings" 
+        <TextBlock Grid.Row="0"
+                   Text="Settings"
                    Style="{StaticResource HeaderTextBlockStyle}"
                    Margin="0,0,0,15"
                    ToolTip="Application settings" />
 
         <!-- RAM Limit Group -->
-        <GroupBox Grid.Row="1" 
-                  Header="Memory Settings" 
-                  Padding="15" 
+        <GroupBox Grid.Row="1"
+                  Header="Memory Settings"
+                  Padding="15"
                   Margin="0,0,0,10"
                   ToolTip="Memory configuration settings">
             <Grid>
@@ -37,29 +38,29 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Label Grid.Column="0" 
-                       Content="Max RAM per file:" 
-                       VerticalAlignment="Center" 
+                <Label Grid.Column="0"
+                       Content="Max RAM per file:"
+                       VerticalAlignment="Center"
                        Margin="0,0,10,0"
                        ToolTip="Maximum amount of RAM to allocate for each mounted file" />
-                
-                <TextBox x:Name="RamLimitTextBox" 
-                         Grid.Column="1" 
-                         Width="90" 
+
+                <TextBox x:Name="RamLimitTextBox"
+                         Grid.Column="1"
+                         Width="90"
                          TextAlignment="Right"
                          Height="32"
                          VerticalContentAlignment="Center"
                          Padding="8,0"
                          ToolTip="Enter the maximum RAM limit in megabytes (numeric value only)" />
-                
-                <Label Grid.Column="2" 
-                       Content="MB" 
-                       VerticalAlignment="Center" 
+
+                <Label Grid.Column="2"
+                       Content="MB"
+                       VerticalAlignment="Center"
                        Margin="8,0,0,0"
                        ToolTip="Megabytes - unit of memory measurement" />
-                
-                <TextBlock Grid.Column="3" 
-                           VerticalAlignment="Center" 
+
+                <TextBlock Grid.Column="3"
+                           VerticalAlignment="Center"
                            Margin="15,0,0,0"
                            Style="{StaticResource HintTextBlockStyle}"
                            Text="(512 MB default)"
@@ -68,9 +69,9 @@
         </GroupBox>
 
         <!-- Mount Type Group -->
-        <GroupBox Grid.Row="2" 
-                  Header="Mount Settings" 
-                  Padding="15" 
+        <GroupBox Grid.Row="2"
+                  Header="Mount Settings"
+                  Padding="15"
                   Margin="0,0,0,15"
                   ToolTip="Mount type configuration settings">
             <Grid>
@@ -79,15 +80,15 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Label Grid.Column="0" 
-                       Content="Default mount type:" 
-                       VerticalAlignment="Center" 
+                <Label Grid.Column="0"
+                       Content="Default mount type:"
+                       VerticalAlignment="Center"
                        Margin="0,0,10,0"
                        ToolTip="Default method for mounting archives" />
-                
-                <ComboBox x:Name="MountTypeComboBox" 
-                          Grid.Column="1" 
-                          Width="180" 
+
+                <ComboBox x:Name="MountTypeComboBox"
+                          Grid.Column="1"
+                          Width="180"
                           Height="32"
                           VerticalContentAlignment="Center"
                           ToolTip="Select the default mount type for archives" />
@@ -144,13 +145,13 @@
         </GroupBox>
 
         <!-- Automation Settings Group -->
-        <GroupBox Grid.Row="4" 
-                  Header="Automation Settings" 
-                  Padding="15" 
+        <GroupBox Grid.Row="4"
+                  Header="Automation Settings"
+                  Padding="15"
                   Margin="0,0,0,15"
                   ToolTip="Automation settings">
             <StackPanel>
-                <CheckBox x:Name="AutoOpenCheckBox" 
+                <CheckBox x:Name="AutoOpenCheckBox"
                           Content="Automatically open mounted drive in File Explorer"
                           VerticalAlignment="Center"
                           ToolTip="When enabled, File Explorer will automatically open the mounted drive after a successful mount" />
@@ -158,17 +159,17 @@
         </GroupBox>
 
         <!-- Buttons -->
-        <StackPanel Grid.Row="6" 
-                    Orientation="Horizontal" 
+        <StackPanel Grid.Row="6"
+                    Orientation="Horizontal"
                     HorizontalAlignment="Right">
-            <Button Content="_Save" 
-                    Click="Save_Click" 
-                    Width="85" 
+            <Button Content="_Save"
+                    Click="Save_Click"
+                    Width="85"
                     Margin="0,0,10,0"
                     Style="{StaticResource PrimaryButtonStyle}"
                     ToolTip="Save settings" />
-            <Button Content="_Cancel" 
-                    Click="Cancel_Click" 
+            <Button Content="_Cancel"
+                    Click="Cancel_Click"
                     Width="85"
                     ToolTip="Discard changes and close" />
         </StackPanel>

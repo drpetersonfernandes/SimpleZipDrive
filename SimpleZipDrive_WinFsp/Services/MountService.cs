@@ -15,6 +15,15 @@ public class MountService : IDisposable, IMountService
 {
     private static readonly Version RequiredWinFspVersion = new(2, 2);
 
+    // NTSTATUS codes relevant to WinFsp mount operations
+    private const int StatusSuccess = 0x00000000;
+    private const int StatusObjectNameNotFound = unchecked((int)0xC0000034);
+    private const int StatusAccessDenied = unchecked((int)0xC0000022);
+    private const int StatusInsufficientResources = unchecked((int)0xC000009A);
+    private const int StatusDeviceAlreadyExists = unchecked((int)0xC0000038);
+    private const int StatusObjectPathNotFound = unchecked((int)0xC000003A);
+    private const int StatusNoSuchDevice = unchecked((int)0xC000000E);
+
     private readonly ILoggingService _loggingService;
     private readonly ISettingsService _settingsService;
     private CancellationTokenSource? _mountCancellation;
@@ -188,6 +197,113 @@ public class MountService : IDisposable, IMountService
             return false;
 
         return true;
+    }
+
+    private static bool IsWinFspDriverRunning()
+    {
+        try
+        {
+            // Check if WinFsp driver DLL exists and is accessible
+            var installDir = GetWinFspInstallDir();
+            if (string.IsNullOrEmpty(installDir))
+                return false;
+
+            var dllName = Environment.Is64BitProcess ? "winfsp-x64.dll" : "winfsp-x86.dll";
+            var dllPath = Path.Combine(installDir, "bin", dllName);
+
+            if (!File.Exists(dllPath))
+                return false;
+
+            // Try to check if the driver service is registered via sc query
+            try
+            {
+                var processInfo = new ProcessStartInfo
+                {
+                    FileName = "sc",
+                    Arguments = "query WinFsp.Launcher",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true
+                };
+
+                using var process = Process.Start(processInfo);
+                if (process != null)
+                {
+                    var output = process.StandardOutput.ReadToEnd();
+                    process.WaitForExit();
+                    return output.Contains("RUNNING", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch
+            {
+                // Fallback: assume driver is running if DLL exists
+                return true;
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? GetWinFspInstallDir()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\WinFsp")
+                            ?? Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WinFsp");
+            return key?.GetValue("InstallDir") as string;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool VerifyMountPoint(string mountPoint, bool isDriveLetter)
+    {
+        try
+        {
+            if (isDriveLetter)
+            {
+                // For drive letters, just check if the letter is available
+                var drives = DriveInfo.GetDrives();
+                return !drives.Any(d => d.Name.StartsWith(mountPoint, StringComparison.OrdinalIgnoreCase));
+            }
+
+            // For folder mounts, verify we can create/access the directory
+            if (!Directory.Exists(mountPoint))
+            {
+                Directory.CreateDirectory(mountPoint);
+            }
+
+            // Test write access by creating and deleting a temp file
+            var testFile = Path.Combine(mountPoint, $".sfz_test_{Guid.NewGuid():N}");
+            File.WriteAllText(testFile, "test");
+            File.Delete(testFile);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.Log($"Mount point verification failed for '{mountPoint}': {ex.Message}");
+            return false;
+        }
+    }
+
+    private static string GetMountStatusErrorMessage(int statusCode)
+    {
+        return statusCode switch
+        {
+            StatusObjectNameNotFound => "The WinFsp driver was not found or is not running. Please install or start the WinFsp service.",
+            StatusObjectPathNotFound => "The mount point path was not found. Please verify the path exists and is accessible.",
+            StatusAccessDenied => "Access denied. Please run as administrator or check permissions.",
+            StatusInsufficientResources => "Insufficient system resources. Please close other applications and try again.",
+            StatusDeviceAlreadyExists => "A device already exists at this mount point. Please choose a different location.",
+            StatusNoSuchDevice => "The WinFsp device is not available. Please verify the WinFsp driver is installed and running.",
+            _ => $"Mount failed with status 0x{unchecked((uint)statusCode):X8}. This may be caused by an outdated WinFsp driver."
+        };
     }
 
     private static bool EnsureWinFspOnPath()
@@ -525,6 +641,24 @@ public class MountService : IDisposable, IMountService
         DiagnosticLogger.Log($"  Archive type: {archiveType}");
         DiagnosticLogger.Log($"  IsDriveLetter: {isDriveLetter}");
 
+        // Check if WinFsp driver service is running
+        if (!IsWinFspDriverRunning())
+        {
+            _loggingService.LogError("WinFsp driver service is not running. Please start the WinFsp.Launcher service.");
+            DiagnosticLogger.Log("WinFsp driver service check failed - service not running.");
+            ShowWinFspDriverErrorDialog("The WinFsp driver service is not running. Please start the WinFsp.Launcher service and try again.");
+            return false;
+        }
+
+        // Verify mount point accessibility
+        if (!VerifyMountPoint(mountPoint, isDriveLetter))
+        {
+            _loggingService.LogError($"Mount point '{mountPoint}' is not accessible or cannot be created.");
+            DiagnosticLogger.Log($"Mount point verification failed for '{mountPoint}'.");
+            ShowWinFspDriverErrorDialog($"The mount point '{mountPoint}' is not accessible. Please choose a different location or check permissions.");
+            return false;
+        }
+
         try
         {
             if (!isDriveLetter) // Only create directory if it's a directory mount point
@@ -653,8 +787,23 @@ public class MountService : IDisposable, IMountService
                     _currentZipFs?.Dispose();
                     _currentZipFs = null;
                     host.Dispose();
-                    _loggingService.LogError($"WinFsp mount failed with status 0x{mountStatus:X8}");
-                    ShowWinFspMountFailedUpdateDialog($"Mount failed with status 0x{mountStatus:X8}");
+
+                    var specificError = GetMountStatusErrorMessage(mountStatus);
+                    _loggingService.LogError($"WinFsp mount failed with status 0x{mountStatus:X8}: {specificError}");
+                    DiagnosticLogger.Log($"  Specific error: {specificError}");
+
+                    switch (mountStatus)
+                    {
+                        // Show specific error dialog based on status code
+                        case StatusObjectNameNotFound:
+                        case StatusNoSuchDevice:
+                        case StatusAccessDenied:
+                            ShowWinFspDriverErrorDialog(specificError);
+                            break;
+                        default:
+                            ShowWinFspMountFailedUpdateDialog(specificError);
+                            break;
+                    }
                     return false;
                 }
             }
