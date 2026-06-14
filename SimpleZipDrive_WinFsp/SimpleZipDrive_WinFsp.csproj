@@ -18,6 +18,8 @@
         <!-- Single-file publish settings -->
         <PublishSingleFile>true</PublishSingleFile>
         <SelfContained>true</SelfContained>
+        <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+        <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
     </PropertyGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="SimpleZipDrive.Tests" />

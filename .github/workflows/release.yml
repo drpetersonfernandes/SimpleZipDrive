@@ -53,18 +53,29 @@ jobs:
           $zipDir = "release-assets"
           New-Item -ItemType Directory -Path $zipDir -Force | Out-Null
 
-          $variants = @(
-            @{ Name = "Dokan_win-x64";   Dir = "publish/dokan-x64" },
-            @{ Name = "Dokan_win-arm64"; Dir = "publish/dokan-arm64" },
-            @{ Name = "WinFsp_win-x64";  Dir = "publish/winfsp-x64" },
-            @{ Name = "WinFsp_win-arm64";Dir = "publish/winfsp-arm64" }
+          # Dokan: exe + native DLLs (not bundled)
+          $dokanVariants = @(
+            @{ Name = "Dokan_win-x64";   Dir = "publish/dokan-x64";  Dll = "7z.dll" },
+            @{ Name = "Dokan_win-arm64"; Dir = "publish/dokan-arm64";Dll = "7z_arm64.dll" }
           )
-
-          foreach ($variant in $variants) {
-            $files = Get-ChildItem -Path $variant.Dir -File | Select-Object -ExpandProperty FullName
+          foreach ($variant in $dokanVariants) {
+            $exe = Join-Path $variant.Dir "SimpleZipDrive.exe"
+            $dll = Join-Path $variant.Dir $variant.Dll
             $zipPath = "$zipDir/release_${v}_$($variant.Name).zip"
-            Compress-Archive -Path $files -DestinationPath $zipPath -Force
-            Write-Output "Created $zipPath with $($files.Count) files"
+            Compress-Archive -Path $exe, $dll -DestinationPath $zipPath -Force
+            Write-Output "Created $zipPath"
+          }
+
+          # WinFsp: exe only (native libs + content bundled inside)
+          $winfspVariants = @(
+            @{ Name = "WinFsp_win-x64";   Dir = "publish/winfsp-x64" },
+            @{ Name = "WinFsp_win-arm64"; Dir = "publish/winfsp-arm64" }
+          )
+          foreach ($variant in $winfspVariants) {
+            $exe = Join-Path $variant.Dir "SimpleZipDrive_WinFsp.exe"
+            $zipPath = "$zipDir/release_${v}_$($variant.Name).zip"
+            Compress-Archive -Path $exe -DestinationPath $zipPath -Force
+            Write-Output "Created $zipPath"
           }
 
       - name: Compute SHA256 checksums
