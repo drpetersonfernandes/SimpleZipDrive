@@ -126,7 +126,9 @@ public partial class App
             {
                 var sxsBin = Path.Combine(sxsDir, "bin");
                 if (Directory.Exists(sxsBin))
+                {
                     binDir = sxsBin;
+                }
             }
 
             if (binDir == null)
@@ -136,7 +138,9 @@ public partial class App
                 {
                     var installBin = Path.Combine(installDir, "bin");
                     if (Directory.Exists(installBin))
+                    {
                         binDir = installBin;
+                    }
                 }
             }
 
