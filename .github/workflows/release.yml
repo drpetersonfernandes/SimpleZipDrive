@@ -32,7 +32,7 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
-          include-prerelease: true
+          dotnet-quality: 'preview'
 
       - name: Publish Dokan win-x64
         run: dotnet publish SimpleZipDrive/SimpleZipDrive.csproj -c Release -r win-x64 --self-contained -o publish/dokan-x64
