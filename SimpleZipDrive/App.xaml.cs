@@ -51,7 +51,7 @@ public partial class App
             var loggingService = ServiceProvider.Get<ILoggingService>();
 
             loggingService.Log("Archive Drive using DokanNet (Streaming Access with In-Memory Entry Cache)");
-            loggingService.Log("Supports: ZIP, 7Z, and RAR archives");
+            loggingService.Log("Supports: ZIP, 7Z, RAR, and TAR archives");
             loggingService.Log("");
             loggingService.Log("Usage 1 (Explicit Mount): SimpleZipDrive.exe <PathToArchiveFile> <MountPoint>");
             loggingService.Log("Example: SimpleZipDrive.exe \"C:\\path\\to\\archive.zip\" M");

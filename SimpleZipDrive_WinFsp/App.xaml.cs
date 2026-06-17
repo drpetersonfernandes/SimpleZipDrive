@@ -49,7 +49,7 @@ public partial class App
             var loggingService = ServiceProvider.Get<ILoggingService>();
 
             loggingService.Log("Archive Drive using WinFsp (Streaming Access with In-Memory Entry Cache)");
-            loggingService.Log("Supports: ZIP, 7Z, and RAR archives");
+            loggingService.Log("Supports: ZIP, 7Z, RAR, and TAR archives");
             loggingService.Log("");
             if (DiagnosticLogger.LogFilePath != null)
             {
