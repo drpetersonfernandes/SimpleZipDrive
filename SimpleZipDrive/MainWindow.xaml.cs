@@ -557,8 +557,8 @@ public partial class MainWindow : IDisposable
     private static bool IsSupportedArchiveExtension(string filePath)
     {
         var fileName = Path.GetFileName(filePath).ToLowerInvariant();
-        if (fileName.EndsWith(".tar.gz") || fileName.EndsWith(".tar.bz2") || fileName.EndsWith(".tar.xz") ||
-            fileName.EndsWith(".tgz") || fileName.EndsWith(".tbz2") || fileName.EndsWith(".txz"))
+        if (fileName.EndsWith(".tar.gz", StringComparison.Ordinal) || fileName.EndsWith(".tar.bz2", StringComparison.Ordinal) || fileName.EndsWith(".tar.xz", StringComparison.Ordinal) ||
+            fileName.EndsWith(".tgz", StringComparison.Ordinal) || fileName.EndsWith(".tbz2", StringComparison.Ordinal) || fileName.EndsWith(".txz", StringComparison.Ordinal))
         {
             return true;
         }
