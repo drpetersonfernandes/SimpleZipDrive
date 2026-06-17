@@ -59,7 +59,7 @@ public partial class App
             loggingService.Log("Example: SimpleZipDrive.exe \"C:\\path\\to\\archive.rar\" O");
             loggingService.Log(@"MountPoint can be a drive letter (e.g., M) or a path to an existing empty folder (e.g., C:\mount\zip)");
             loggingService.Log("");
-            loggingService.Log("Usage 2 (Drag-and-Drop): Drag a .zip, .7z, or .rar file onto the SimpleZipDrive.exe icon.");
+            loggingService.Log("Usage 2 (Drag-and-Drop): Drag a .zip, .7z, .rar, or .tar file onto the SimpleZipDrive.exe icon.");
             loggingService.Log(@"It will attempt to mount on M:\, then N:\, O:\, P:\, Q:\ automatically.");
             loggingService.Log("");
 

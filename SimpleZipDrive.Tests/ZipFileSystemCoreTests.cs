@@ -91,7 +91,7 @@ public class ZipFileSystemCoreTests : IDisposable
     {
         using var ms = new MemoryStream();
         Assert.Throws<NotSupportedException>(() =>
-            new ZipFileSystemCore(ms, "M:\\", static (_, _) => { }, static () => null, "tar"));
+            new ZipFileSystemCore(ms, "M:\\", static (_, _) => { }, static () => null, "iso"));
     }
 
     [Fact]

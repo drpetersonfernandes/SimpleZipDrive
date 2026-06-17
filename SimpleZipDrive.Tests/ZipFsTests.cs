@@ -635,7 +635,7 @@ public class ZipFsTests : IDisposable
     public void ConstructorUnsupportedArchiveTypeThrowsNotSupported()
     {
         using var ms = new MemoryStream();
-        Assert.Throws<NotSupportedException>(() => new ZipFs(ms, "M:\\", static (_, _) => { }, static () => null, "tar"));
+        Assert.Throws<NotSupportedException>(() => new ZipFs(ms, "M:\\", static (_, _) => { }, static () => null, "iso"));
     }
 
     [Fact]
@@ -1929,7 +1929,7 @@ public class ZipFsTests : IDisposable
     {
         using var zipStream = CreateZipStream();
         Assert.Throws<NotSupportedException>(() =>
-            new ZipFs(zipStream, "M:\\", static (_, _) => { }, static () => null, "tar"));
+            new ZipFs(zipStream, "M:\\", static (_, _) => { }, static () => null, "iso"));
     }
 
     [Fact]

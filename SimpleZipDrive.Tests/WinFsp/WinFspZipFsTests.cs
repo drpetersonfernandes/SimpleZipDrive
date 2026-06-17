@@ -78,7 +78,7 @@ public class WinFspZipFsTests : IDisposable
     public void Constructor_UnsupportedArchiveType_ThrowsNotSupportedException()
     {
         using var ms = new MemoryStream();
-        Assert.Throws<NotSupportedException>(() => new WinFspZipFs(ms, "M:\\", static (_, _) => { }, static () => null, "tar"));
+        Assert.Throws<NotSupportedException>(() => new WinFspZipFs(ms, "M:\\", static (_, _) => { }, static () => null, "iso"));
     }
 
     [Fact]

@@ -57,7 +57,7 @@ public class MountService : IDisposable, IMountService
         }
 
         var archiveType = GetArchiveType(archivePath);
-        var supportedExtensions = new[] { ".zip", ".7z", ".rar" };
+        var supportedExtensions = new[] { ".zip", ".7z", ".rar", ".tar" };
 
         if (!supportedExtensions.Any(ext =>
                 Path.GetExtension(archivePath).Equals(ext, StringComparison.OrdinalIgnoreCase)))
@@ -65,7 +65,7 @@ public class MountService : IDisposable, IMountService
             _loggingService.Log($"\n{AppTheme.Section("INVALID FILE TYPE")}");
             _loggingService.Log($"Error: The file '{Path.GetFileName(archivePath)}' is not a supported archive.");
             throw new ArgumentException(
-                $"The file '{Path.GetFileName(archivePath)}' is not a supported archive format (expected .zip, .7z, or .rar).",
+                $"The file '{Path.GetFileName(archivePath)}' is not a supported archive format (expected .zip, .7z, .rar, or .tar).",
                 nameof(archivePath));
         }
 

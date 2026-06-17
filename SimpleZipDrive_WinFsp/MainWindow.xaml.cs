@@ -112,7 +112,7 @@ public partial class MainWindow : IDisposable
 
     private async Task ProcessCommandLineArgsAsync(string[] args)
     {
-        string[] supportedExtensions = [".zip", ".7z", ".rar"];
+        string[] supportedExtensions = [".zip", ".7z", ".rar", ".tar"];
 
         string? zipFilePath;
         string? mountPointArg = null;
@@ -147,8 +147,8 @@ public partial class MainWindow : IDisposable
         {
             _loggingService.LogError($"{AppTheme.Section("INVALID FILE TYPE")}");
             _loggingService.LogError($"Error: The file '{Path.GetFileName(zipFilePath)}' is not a supported archive.");
-            _loggingService.LogError($"Detected extension: '{Path.GetExtension(zipFilePath)}' (expected: .zip, .7z, or .rar)");
-            _loggingService.LogError("Simple Zip Drive can only mount ZIP, 7Z, and RAR archives.");
+            _loggingService.LogError($"Detected extension: '{Path.GetExtension(zipFilePath)}' (expected: .zip, .7z, .rar, or .tar)");
+            _loggingService.LogError("Simple Zip Drive can only mount ZIP, 7Z, RAR, and TAR archives.");
             return;
         }
 
@@ -231,7 +231,7 @@ public partial class MainWindow : IDisposable
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "Select Archive File",
-                Filter = "Archive files (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|All files (*.*)|*.*",
+                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar)|*.zip;*.7z;*.rar;*.tar|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar)|*.tar|All files (*.*)|*.*",
                 CheckFileExists = true,
                 CheckPathExists = true
             };
@@ -274,7 +274,7 @@ public partial class MainWindow : IDisposable
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "Select Archive File",
-                Filter = "Archive files (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|All files (*.*)|*.*",
+                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar)|*.zip;*.7z;*.rar;*.tar|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar)|*.tar|All files (*.*)|*.*",
                 CheckFileExists = true,
                 CheckPathExists = true
             };
@@ -309,7 +309,7 @@ public partial class MainWindow : IDisposable
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "Select Archive File",
-                Filter = "Archive files (*.zip;*.7z;*.rar)|*.zip;*.7z;*.rar|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|All files (*.*)|*.*",
+                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar)|*.zip;*.7z;*.rar;*.tar|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar)|*.tar|All files (*.*)|*.*",
                 CheckFileExists = true,
                 CheckPathExists = true
             };

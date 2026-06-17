@@ -3,6 +3,7 @@ using System.Security.Principal;
 using SharpCompress.Archives;
 using SharpCompress.Archives.Rar;
 using SharpCompress.Archives.SevenZip;
+using SharpCompress.Archives.Tar;
 using SharpCompress.Archives.Zip;
 using SharpCompress.Common;
 using SharpCompress.Compressors.Deflate;
@@ -121,6 +122,13 @@ public class ZipFileSystemCore : IDisposable
             DiagnosticLogger.LogSection("ZipFs CONSTRUCTION FAILED");
             DiagnosticLogger.Log(ex, $"Archive type: {ArchiveType}, Mount: {mountPoint}");
             _logErrorAction(ex, $"Error during ZipFs construction for mount point '{mountPoint}'.");
+
+            if (ex is ArchiveOperationException)
+            {
+                throw new InvalidOperationException(
+                    "The archive file appears to be corrupted, incomplete, or uses an unsupported format/feature that could not be parsed.", ex);
+            }
+
             throw;
         }
     }
@@ -152,6 +160,7 @@ public class ZipFileSystemCore : IDisposable
                 "zip" => ZipArchive.OpenArchive(stream, new ReaderOptions { LeaveStreamOpen = true }),
                 "7z" => SevenZipArchive.OpenArchive(stream, new ReaderOptions { LeaveStreamOpen = true }),
                 "rar" => RarArchive.OpenArchive(stream, new ReaderOptions { LeaveStreamOpen = true }),
+                "tar" => TarArchive.OpenArchive(stream, new ReaderOptions { LeaveStreamOpen = true }),
                 _ => throw new NotSupportedException($"Archive type '{ArchiveType}' is not supported.")
             };
 
@@ -194,6 +203,7 @@ public class ZipFileSystemCore : IDisposable
             "zip" => ZipArchive.OpenArchive(stream, new ReaderOptions { Password = password, LeaveStreamOpen = true }),
             "7z" => SevenZipArchive.OpenArchive(stream, new ReaderOptions { Password = password, LeaveStreamOpen = true }),
             "rar" => RarArchive.OpenArchive(stream, new ReaderOptions { Password = password, LeaveStreamOpen = true }),
+            "tar" => TarArchive.OpenArchive(stream, new ReaderOptions { Password = password, LeaveStreamOpen = true }),
             _ => throw new NotSupportedException($"Archive type '{ArchiveType}' is not supported.")
         };
     }

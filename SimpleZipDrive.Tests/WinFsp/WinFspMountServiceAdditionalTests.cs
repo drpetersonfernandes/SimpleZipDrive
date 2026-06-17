@@ -58,7 +58,7 @@ public class WinFspMountServiceAdditionalTests : IDisposable
     [Fact]
     public async Task MountAsync_UnsupportedExtension_ThrowsWithDescriptiveMessage()
     {
-        var tempFile = Path.Combine(Path.GetTempPath(), $"test_{Guid.NewGuid():N}.tar");
+        var tempFile = Path.Combine(Path.GetTempPath(), $"test_{Guid.NewGuid():N}.iso");
         try
         {
             await File.WriteAllTextAsync(tempFile, "test");
@@ -66,7 +66,7 @@ public class WinFspMountServiceAdditionalTests : IDisposable
             var service = new MountService(_loggingService, _settingsService);
 
             var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.MountAsync(tempFile));
-            Assert.Contains(".tar", ex.Message);
+            Assert.Contains(".iso", ex.Message);
             Assert.Contains("not a supported archive", ex.Message);
         }
         finally
