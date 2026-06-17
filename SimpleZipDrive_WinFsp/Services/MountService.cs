@@ -59,15 +59,14 @@ public class MountService : IDisposable, IMountService
         }
 
         var archiveType = GetArchiveType(archivePath);
-        var supportedExtensions = new[] { ".zip", ".7z", ".rar", ".tar" };
+        var supportedTypes = new[] { "zip", "7z", "rar", "tar" };
 
-        if (!supportedExtensions.Any(ext =>
-                Path.GetExtension(archivePath).Equals(ext, StringComparison.OrdinalIgnoreCase)))
+        if (!supportedTypes.Contains(archiveType, StringComparer.OrdinalIgnoreCase))
         {
             _loggingService.Log($"\n{AppTheme.Section("INVALID FILE TYPE")}");
             _loggingService.Log($"Error: The file '{Path.GetFileName(archivePath)}' is not a supported archive.");
             throw new ArgumentException(
-                $"The file '{Path.GetFileName(archivePath)}' is not a supported archive format (expected .zip, .7z, .rar, or .tar).",
+                $"The file '{Path.GetFileName(archivePath)}' is not a supported archive format (expected .zip, .7z, .rar, .tar, .tar.gz, .tar.bz2, or .tar.xz).",
                 nameof(archivePath));
         }
 
@@ -165,6 +164,14 @@ public class MountService : IDisposable, IMountService
 
     public string GetArchiveType(string filePath)
     {
+        var fileName = Path.GetFileName(filePath).ToLowerInvariant();
+
+        if (fileName.EndsWith(".tar.gz") || fileName.EndsWith(".tar.bz2") || fileName.EndsWith(".tar.xz") ||
+            fileName.EndsWith(".tgz") || fileName.EndsWith(".tbz2") || fileName.EndsWith(".txz"))
+        {
+            return "tar";
+        }
+
         var extension = Path.GetExtension(filePath).ToLowerInvariant();
         return extension.TrimStart('.');
     }

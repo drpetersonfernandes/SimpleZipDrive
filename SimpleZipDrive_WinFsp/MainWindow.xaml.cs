@@ -112,8 +112,6 @@ public partial class MainWindow : IDisposable
 
     private async Task ProcessCommandLineArgsAsync(string[] args)
     {
-        string[] supportedExtensions = [".zip", ".7z", ".rar", ".tar"];
-
         string? zipFilePath;
         string? mountPointArg = null;
 
@@ -122,7 +120,7 @@ public partial class MainWindow : IDisposable
             case 1 when
                 !string.IsNullOrWhiteSpace(args[0]) &&
                 File.Exists(args[0]) &&
-                supportedExtensions.Any(ext => Path.GetExtension(args[0]).Equals(ext, StringComparison.OrdinalIgnoreCase)):
+                IsSupportedArchiveExtension(args[0]):
                 zipFilePath = args[0].Trim().Trim('"');
                 _loggingService.Log($"Drag-and-drop mode: Detected archive file '{zipFilePath}'.");
                 break;
@@ -143,11 +141,11 @@ public partial class MainWindow : IDisposable
             return;
         }
 
-        if (!supportedExtensions.Any(ext => Path.GetExtension(zipFilePath).Equals(ext, StringComparison.OrdinalIgnoreCase)))
+        if (!IsSupportedArchiveExtension(zipFilePath))
         {
             _loggingService.LogError($"{AppTheme.Section("INVALID FILE TYPE")}");
             _loggingService.LogError($"Error: The file '{Path.GetFileName(zipFilePath)}' is not a supported archive.");
-            _loggingService.LogError($"Detected extension: '{Path.GetExtension(zipFilePath)}' (expected: .zip, .7z, .rar, or .tar)");
+            _loggingService.LogError($"Detected extension: '{Path.GetExtension(zipFilePath)}' (expected: .zip, .7z, .rar, .tar, .tar.gz, .tar.bz2, or .tar.xz)");
             _loggingService.LogError("Simple Zip Drive can only mount ZIP, 7Z, RAR, and TAR archives.");
             return;
         }
@@ -231,7 +229,7 @@ public partial class MainWindow : IDisposable
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "Select Archive File",
-                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar)|*.zip;*.7z;*.rar;*.tar|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar)|*.tar|All files (*.*)|*.*",
+                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz)|*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar;*.tar.gz;*.tgz)|*.tar;*.tar.gz;*.tgz|All files (*.*)|*.*",
                 CheckFileExists = true,
                 CheckPathExists = true
             };
@@ -274,7 +272,7 @@ public partial class MainWindow : IDisposable
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "Select Archive File",
-                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar)|*.zip;*.7z;*.rar;*.tar|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar)|*.tar|All files (*.*)|*.*",
+                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz)|*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar;*.tar.gz;*.tgz)|*.tar;*.tar.gz;*.tgz|All files (*.*)|*.*",
                 CheckFileExists = true,
                 CheckPathExists = true
             };
@@ -309,7 +307,7 @@ public partial class MainWindow : IDisposable
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "Select Archive File",
-                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar)|*.zip;*.7z;*.rar;*.tar|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar)|*.tar|All files (*.*)|*.*",
+                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz)|*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar;*.tar.gz;*.tgz)|*.tar;*.tar.gz;*.tgz|All files (*.*)|*.*",
                 CheckFileExists = true,
                 CheckPathExists = true
             };
@@ -542,5 +540,18 @@ public partial class MainWindow : IDisposable
         }
 
         GC.SuppressFinalize(this);
+    }
+
+    private static bool IsSupportedArchiveExtension(string filePath)
+    {
+        var fileName = Path.GetFileName(filePath).ToLowerInvariant();
+        if (fileName.EndsWith(".tar.gz") || fileName.EndsWith(".tar.bz2") || fileName.EndsWith(".tar.xz") ||
+            fileName.EndsWith(".tgz") || fileName.EndsWith(".tbz2") || fileName.EndsWith(".txz"))
+        {
+            return true;
+        }
+
+        var extension = Path.GetExtension(filePath).ToLowerInvariant();
+        return extension is ".zip" or ".7z" or ".rar" or ".tar";
     }
 }

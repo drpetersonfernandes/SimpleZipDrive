@@ -113,6 +113,9 @@ public class WinFspMountServiceAdditionalTests : IDisposable
     [InlineData(@"C:\path\to\archive.ZIP", "zip")]
     [InlineData(@"C:\path\to\archive.7Z", "7z")]
     [InlineData(@"C:\path\to\archive.RAR", "rar")]
+    [InlineData(@"C:\path\to\archive.TAR", "tar")]
+    [InlineData(@"C:\path\to\archive.TAR.GZ", "tar")]
+    [InlineData(@"C:\path\to\archive.TGZ", "tar")]
     public void GetArchiveType_UpperCaseExtension_ReturnsLowerCase(string path, string expected)
     {
         var service = new MountService(_loggingService, _settingsService);
@@ -141,6 +144,20 @@ public class WinFspMountServiceAdditionalTests : IDisposable
     {
         var service = new MountService(_loggingService, _settingsService);
         Assert.Equal("zip", service.GetArchiveType("archive.v2.backup.zip"));
+    }
+
+    [Theory]
+    [InlineData("archive.tar.gz", "tar")]
+    [InlineData("archive.tar.bz2", "tar")]
+    [InlineData("archive.tar.xz", "tar")]
+    [InlineData("archive.tgz", "tar")]
+    [InlineData("archive.tbz2", "tar")]
+    [InlineData("archive.txz", "tar")]
+    [InlineData(@"C:\path\to\archive.tar.gz", "tar")]
+    public void GetArchiveType_TarCompressedVariants_ReturnsTar(string path, string expected)
+    {
+        var service = new MountService(_loggingService, _settingsService);
+        Assert.Equal(expected, service.GetArchiveType(path));
     }
 
     // ─── MountStatusChanged event tests ───

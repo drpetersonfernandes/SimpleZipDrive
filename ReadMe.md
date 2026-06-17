@@ -20,7 +20,7 @@ Unlike traditional archive utilities that extract the entire archive to a tempor
 
 ## 🚀 Key Features
 
-*   **Multi-Format Support:** Mount ZIP, 7Z, RAR, and TAR archives seamlessly.
+*   **Multi-Format Support:** Mount ZIP, 7Z, RAR, and TAR archives seamlessly. TAR support includes compressed variants (`.tar.gz`, `.tar.bz2`, `.tar.xz`, `.tgz`, `.tbz2`, `.txz`).
 *   **Virtual Drive Mounting:** Mount any supported archive as a dedicated drive letter (e.g., `M:\`) or a folder path. The drive label automatically shows the archive name.
 *   **Mount Type Choice:** Choose between drive letter or NTFS folder mounting via Settings, or use the dedicated `Mount as Drive Letter` and `Mount as Folder` menu items.
 *   **Hybrid Caching Engine:**
@@ -63,7 +63,7 @@ Both variants share the same UI and feature set; only the underlying filesystem 
 ## 📖 Usage Guide
 
 ### Method 1: Drag-and-Drop (Recommended)
-Simply drag any `.zip`, `.7z`, `.rar`, or `.tar` file and drop it onto `SimpleZipDrive.exe`. The application will automatically attempt to mount the archive to the first available drive letter in the sequence: `M:`, `N:`, `O:`, `P:`, `Q:`.
+Simply drag any `.zip`, `.7z`, `.rar`, `.tar`, or `.tar.gz` file and drop it onto `SimpleZipDrive.exe`. The application will automatically attempt to mount the archive to the first available drive letter in the sequence: `M:`, `N:`, `O:`, `P:`, `Q:`.
 
 ### Method 2: Menu
 Use the `File` menu to mount archives:
@@ -95,6 +95,10 @@ SimpleZipDrive.exe <PathToArchiveFile> <MountPoint>
     ```shell
     SimpleZipDrive.exe "C:\Data\Archive.tar" O
     ```
+*   **Mount a compressed TAR file to a drive letter:**
+    ```shell
+    SimpleZipDrive.exe "C:\Data\Archive.tar.gz" O
+    ```
 *   **Mount to an NTFS folder:**
     ```shell
     SimpleZipDrive.exe "C:\Data\Archive.zip" "C:\Mount\MyProject"
@@ -124,7 +128,7 @@ To safely unmount the drive and clean up temporary resources:
 | **WinFsp Not Found**              | Install WinFsp from [GitHub](https://github.com/winfsp/winfsp/releases). The app detects missing drivers and offers to open the download page automatically. |
 | **Drive Letter in Use**           | Specify a different drive letter via CLI or ensure letters M-Q are not mapped to network shares.                              |
 | **Out of Memory**                 | Occurs if too many large files are opened simultaneously. Close applications accessing the virtual drive to free up cache.    |
-| **Archive File Error**            | Simple Zip Drive supports standard ZIP, 7Z, RAR, and TAR formats. Other formats like `.tar.gz` or `.bz2` are not supported.        |
+| **Archive File Error**            | Simple Zip Drive supports standard ZIP, 7Z, RAR, TAR, and compressed TAR formats (.tar.gz, .tar.bz2, .tar.xz). Other formats like `.gz` or `.bz2` (without tar) are not supported.        |
 | **Password Prompt Not Appearing** | Some encrypted archives may use unsupported encryption methods. Ensure your archive uses standard ZIP, 7Z, or RAR encryption. |
 | **Drive invisible to elevated/standard processes** | This is Windows UAC isolation. Enable `Settings > Security Settings > Cross-integrity mount` (WinFsp only). When running as Administrator, this is enforced automatically. |
 

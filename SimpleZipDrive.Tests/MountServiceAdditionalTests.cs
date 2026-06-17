@@ -55,6 +55,9 @@ public class MountServiceAdditionalTests : IDisposable
     [InlineData("TEST.ZIP", "zip")]
     [InlineData("Test.7Z", "7z")]
     [InlineData("TEST.RAR", "rar")]
+    [InlineData("TEST.TAR", "tar")]
+    [InlineData("TEST.TAR.GZ", "tar")]
+    [InlineData("TEST.TGZ", "tar")]
     public void GetArchiveType_CaseInsensitive(string path, string expected)
     {
         var service = new MountService(_loggingService, _settingsService);
