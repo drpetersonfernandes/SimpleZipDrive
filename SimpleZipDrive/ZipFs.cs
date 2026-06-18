@@ -174,11 +174,11 @@ public class ZipFs : IDokanOperations, IDisposable
             {
                 if (node.Entry != null)
                 {
-                    var contextMessage = $"ZipFs.CreateFile: Deflate decompression error for '{normalizedPath}' ({node.Entry.Size / 1024.0:F1} KB). The zip entry uses a compression method that may not be fully supported by the SharpCompress library.";
+                    var contextMessage = $"ZipFs.CreateFile: Deflate decompression error for '{normalizedPath}' ({node.Entry.Size / 1024.0:F1} KB). The zip entry data is corrupted or uses an unsupported compression method.";
                     ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'.");
-                    ZipFileSystemCore.LogMessage("This file uses a compression method that is not fully compatible with SimpleZipDrive's decompression library.");
-                    ZipFileSystemCore.LogMessage("The archive file itself is likely fine - this is a library limitation, not file corruption.");
-                    ZipFileSystemCore.LogMessage($"{AppTheme.Bullet}Try extracting this file directly with WinRAR or 7-Zip instead.");
+                    ZipFileSystemCore.LogMessage("The compressed data in this file could not be decompressed.");
+                    ZipFileSystemCore.LogMessage("This may indicate file corruption or an incompatible compression method.");
+                    ZipFileSystemCore.LogMessage($"{AppTheme.Bullet}Try extracting this file directly with WinRAR or 7-Zip. If that also fails, the file may be damaged.");
                     _logErrorAction(zlibEx, contextMessage);
                 }
 
@@ -220,6 +220,15 @@ public class ZipFs : IDokanOperations, IDisposable
                 }
 
                 ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data appears to be corrupted or uses an unsupported compression method.");
+                (info.Context as IDisposable)?.Dispose();
+                info.Context = null;
+                return DokanResult.Error;
+            }
+            catch (InvalidOperationException invOpEx)
+            {
+                Core.AddFailedEntry(normalizedPath);
+                _logErrorAction(invOpEx, $"ZipFs.CreateFile: InvalidOperationException during extraction of '{normalizedPath}'. Entry marked as failed.");
+                ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data may be corrupted.");
                 (info.Context as IDisposable)?.Dispose();
                 info.Context = null;
                 return DokanResult.Error;
