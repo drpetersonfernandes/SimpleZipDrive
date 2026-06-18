@@ -224,10 +224,10 @@ public class ZipFs : IDokanOperations, IDisposable
                 info.Context = null;
                 return DokanResult.Error;
             }
-            catch (InvalidOperationException invOpEx)
+            catch (ArchiveOperationException archiveOpEx)
             {
                 Core.AddFailedEntry(normalizedPath);
-                _logErrorAction(invOpEx, $"ZipFs.CreateFile: InvalidOperationException during extraction of '{normalizedPath}'. Entry marked as failed.");
+                _logErrorAction(archiveOpEx, $"ZipFs.CreateFile: ArchiveOperationException during extraction of '{normalizedPath}'. Entry marked as failed.");
                 ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data may be corrupted.");
                 (info.Context as IDisposable)?.Dispose();
                 info.Context = null;

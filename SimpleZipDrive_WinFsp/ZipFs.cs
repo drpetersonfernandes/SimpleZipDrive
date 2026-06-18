@@ -303,11 +303,11 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             fileDesc = null!;
             return STATUS_UNSUCCESSFUL;
         }
-        catch (InvalidOperationException invOpEx)
+        catch (ArchiveOperationException archiveOpEx)
         {
-            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"InvalidOperationException: {invOpEx.Message}");
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"ArchiveOperationException: {archiveOpEx.Message}");
             Core.AddFailedEntry(normalizedPath);
-            _logErrorAction(invOpEx, $"ZipFs.Create: InvalidOperationException during extraction of '{normalizedPath}'. Entry marked as failed.");
+            _logErrorAction(archiveOpEx, $"ZipFs.Create: ArchiveOperationException during extraction of '{normalizedPath}'. Entry marked as failed.");
             ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data may be corrupted.");
             fileNode = null!;
             fileDesc = null!;

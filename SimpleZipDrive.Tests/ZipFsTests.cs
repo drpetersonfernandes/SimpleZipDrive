@@ -1936,7 +1936,7 @@ public class ZipFsTests : IDisposable
     public void ConstructorWrongArchiveTypeForFormatThrows()
     {
         using var zipStream = CreateZipStream();
-        Assert.Throws<InvalidOperationException>(() =>
+        Assert.Throws<ArchiveOperationException>(() =>
         {
             using var _ = new ZipFs(zipStream, "M:\\", static (_, _) => { }, static () => null, "7z");
         });

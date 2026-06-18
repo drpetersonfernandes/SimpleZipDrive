@@ -142,6 +142,7 @@ This project is licensed under the GPLv3 License – see the [LICENSE](LICENSE.t
 *   [DokanNet](https://github.com/dokan-dev/dokan-dotnet) (MIT) - used by SimpleZipDrive
 *   [WinFsp](https://github.com/winfsp/winfsp) (LGPL-3.0) - used by SimpleZipDrive_WinFsp
 *   [SharpCompress](https://github.com/adamhathcock/sharpcompress) (MIT)
+*   [SharpSevenZip](https://github.com/adoconnection/SevenZipExtractor) (MIT)
 
 ---
 

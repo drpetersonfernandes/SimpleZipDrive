@@ -122,13 +122,6 @@ public class ZipFileSystemCore : IDisposable
             DiagnosticLogger.LogSection("ZipFs CONSTRUCTION FAILED");
             DiagnosticLogger.Log(ex, $"Archive type: {ArchiveType}, Mount: {mountPoint}");
             _logErrorAction(ex, $"Error during ZipFs construction for mount point '{mountPoint}'.");
-
-            if (ex is ArchiveOperationException)
-            {
-                throw new InvalidOperationException(
-                    "The archive file appears to be corrupted, incomplete, or uses an unsupported format/feature that could not be parsed.", ex);
-            }
-
             throw;
         }
     }
