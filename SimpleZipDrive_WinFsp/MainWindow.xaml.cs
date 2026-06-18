@@ -229,7 +229,7 @@ public partial class MainWindow : IDisposable
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "Select Archive File",
-                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz)|*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar;*.tar.gz;*.tgz)|*.tar;*.tar.gz;*.tgz|All files (*.*)|*.*",
+                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz)|*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz)|*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz|All files (*.*)|*.*",
                 CheckFileExists = true,
                 CheckPathExists = true
             };
@@ -272,7 +272,7 @@ public partial class MainWindow : IDisposable
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "Select Archive File",
-                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz)|*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar;*.tar.gz;*.tgz)|*.tar;*.tar.gz;*.tgz|All files (*.*)|*.*",
+                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz)|*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz)|*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz|All files (*.*)|*.*",
                 CheckFileExists = true,
                 CheckPathExists = true
             };
@@ -307,7 +307,7 @@ public partial class MainWindow : IDisposable
             var openFileDialog = new Microsoft.Win32.OpenFileDialog
             {
                 Title = "Select Archive File",
-                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz)|*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tgz|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar;*.tar.gz;*.tgz)|*.tar;*.tar.gz;*.tgz|All files (*.*)|*.*",
+                Filter = "Archive files (*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz)|*.zip;*.7z;*.rar;*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz|ZIP files (*.zip)|*.zip|7Z files (*.7z)|*.7z|RAR files (*.rar)|*.rar|TAR files (*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz)|*.tar;*.tar.gz;*.tar.bz2;*.tar.xz;*.tgz;*.tbz2;*.txz|All files (*.*)|*.*",
                 CheckFileExists = true,
                 CheckPathExists = true
             };

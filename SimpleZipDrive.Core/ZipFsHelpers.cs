@@ -396,4 +396,22 @@ public static class ZipFsHelpers
 
         return new string(buffer[..written]);
     }
+
+    /// <summary>
+    /// Gets the archive file name without extension(s), handling TAR double extensions like .tar.gz.
+    /// For "archive.tar.gz" returns "archive", for "archive.zip" returns "archive".
+    /// </summary>
+    internal static string GetArchiveFileNameWithoutExtension(string filePath)
+    {
+        var fileName = Path.GetFileName(filePath);
+        var lower = fileName.ToLowerInvariant();
+
+        if (lower.EndsWith(".tar.gz", StringComparison.Ordinal) || lower.EndsWith(".tar.bz2", StringComparison.Ordinal) || lower.EndsWith(".tar.xz", StringComparison.Ordinal))
+            return Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(filePath));
+
+        if (lower.EndsWith(".tgz", StringComparison.Ordinal) || lower.EndsWith(".tbz2", StringComparison.Ordinal) || lower.EndsWith(".txz", StringComparison.Ordinal))
+            return fileName[..^4]; // Strip 4-char extension
+
+        return Path.GetFileNameWithoutExtension(filePath);
+    }
 }

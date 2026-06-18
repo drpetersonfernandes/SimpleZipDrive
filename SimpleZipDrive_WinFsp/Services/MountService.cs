@@ -703,7 +703,7 @@ public class MountService : IDisposable, IMountService
             try
             {
                 DiagnosticLogger.Log("  Creating ZipFs instance...");
-                var volumeLabel = ZipFsHelpers.SanitizeVolumeLabel(Path.GetFileNameWithoutExtension(archivePath));
+                var volumeLabel = ZipFsHelpers.SanitizeVolumeLabel(ZipFsHelpers.GetArchiveFileNameWithoutExtension(archivePath));
                 _currentZipFs = new ZipFs(
                     fileStream,
                     mountPoint,
