@@ -6,8 +6,8 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
-        <AssemblyVersion>2.6.0</AssemblyVersion>
-        <FileVersion>2.6.0</FileVersion>
+        <AssemblyVersion>2.6.1</AssemblyVersion>
+        <FileVersion>2.6.1</FileVersion>
         <NeutralLanguage>en</NeutralLanguage>
         <Company>PureLogicCode.com</Company>
         <DebugType>embedded</DebugType>
