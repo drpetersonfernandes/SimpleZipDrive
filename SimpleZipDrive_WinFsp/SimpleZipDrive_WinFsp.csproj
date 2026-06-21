@@ -36,9 +36,7 @@
         <None Update="7z_arm64.dll">
           <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </None>
-        <None Update="winfsp-msil.dll">
-          <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-        </None>
+
     </ItemGroup>
 
     <ItemGroup>
