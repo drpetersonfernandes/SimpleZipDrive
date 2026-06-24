@@ -6,6 +6,7 @@ using Fsp;
 using Fsp.Interop;
 using SharpCompress.Common;
 using SharpCompress.Compressors.Deflate;
+using SharpCompress.Compressors.ZStandard;
 
 namespace SimpleZipDrive_WinFsp;
 
@@ -258,6 +259,16 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             ZipFileSystemCore.LogMessage($"{AppTheme.Warning} IO Error: Cannot cache '{normalizedPath}'.");
             ZipFileSystemCore.LogMessage($"Details: {ioEx.Message}");
             _logErrorAction(ioEx, $"ZipFs.OpenOrCreateFile: IO error caching entry '{normalizedPath}'.");
+            fileNode = null!;
+            fileDesc = null!;
+            return STATUS_UNSUCCESSFUL;
+        }
+        catch (ZstdException zstdEx)
+        {
+            DiagnosticLogger.LogOperation("OpenOrCreateFile", fileName, STATUS_UNSUCCESSFUL, $"ZstdException: {zstdEx.Message}");
+            Core.AddFailedEntry(normalizedPath);
+            _logErrorAction(zstdEx, $"ZipFs.Create: ZstdException decompressing entry '{normalizedPath}'.");
+            ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data may be corrupted or use an unsupported compression format.");
             fileNode = null!;
             fileDesc = null!;
             return STATUS_UNSUCCESSFUL;

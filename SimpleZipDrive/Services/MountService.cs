@@ -381,7 +381,7 @@ public class MountService : IDisposable, IMountService
                         dokanInstance = builder.Build(_currentZipFs);
                         break;
                     }
-                    catch (DokanException) when (attempt < maxRetries)
+                    catch (DokanException ex) when (attempt < maxRetries && !ex.Message.Contains("Can't install", StringComparison.OrdinalIgnoreCase))
                     {
                         var delay = retryDelayMs * (attempt + 1);
                         _loggingService.Log($"Dokan driver error, retrying in {delay / 1000}s... (attempt {attempt + 1}/{maxRetries})");

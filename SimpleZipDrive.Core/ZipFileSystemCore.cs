@@ -7,6 +7,7 @@ using SharpCompress.Archives.Tar;
 using SharpCompress.Archives.Zip;
 using SharpCompress.Common;
 using SharpCompress.Compressors.Deflate;
+using SharpCompress.Compressors.ZStandard;
 using SharpCompress.Readers;
 
 namespace SimpleZipDrive.Core;
@@ -235,7 +236,7 @@ public class ZipFileSystemCore : IDisposable
 
             // Second check: Try to actually read a file entry to verify encryption is real
             // Some zip tools incorrectly set the encryption flag
-            var testEntry = archive.Entries.FirstOrDefault(e => e is { IsDirectory: false, Size: > 0 });
+            var testEntry = archive.Entries.FirstOrDefault(static e => e is { IsDirectory: false, Size: > 0 });
             if (testEntry == null)
             {
                 // No file entries to test - trust the flag
@@ -641,7 +642,7 @@ public class ZipFileSystemCore : IDisposable
                 entryBytes = tempMs.ToArray();
             }
         }
-        catch (Exception ex) when (ex is OutOfMemoryException or ZlibException)
+        catch (Exception ex) when (ex is OutOfMemoryException or ZlibException or ZstdException)
         {
             LogMessage($"Memory cache failed for '{normalizedPath}' ({ex.GetType().Name}): falling back to disk cache.");
             return OpenDiskCachedStream(entry, normalizedPath, entrySize, false);
@@ -899,6 +900,7 @@ public class ZipFileSystemCore : IDisposable
     private static bool IsExtractionFailure(Exception ex)
     {
         return ex is ZlibException
+                   or ZstdException
                    or ArgumentOutOfRangeException
                    or NullReferenceException
                    or InvalidOperationException

@@ -3,6 +3,7 @@ using System.Security.Principal;
 using DokanNet;
 using SharpCompress.Common;
 using SharpCompress.Compressors.Deflate;
+using SharpCompress.Compressors.ZStandard;
 using DokanFileAccess = DokanNet.FileAccess;
 
 namespace SimpleZipDrive;
@@ -166,6 +167,15 @@ public class ZipFs : IDokanOperations, IDisposable
                 ZipFileSystemCore.LogMessage($"{AppTheme.Warning} IO Error: Cannot cache '{normalizedPath}'.");
                 ZipFileSystemCore.LogMessage($"Details: {ioEx.Message}");
                 _logErrorAction(ioEx, $"ZipFs.CreateFile: IO error caching entry '{normalizedPath}'.");
+                (info.Context as IDisposable)?.Dispose();
+                info.Context = null;
+                return DokanResult.Error;
+            }
+            catch (ZstdException zstdEx)
+            {
+                Core.AddFailedEntry(normalizedPath);
+                _logErrorAction(zstdEx, $"ZipFs.CreateFile: ZstdException decompressing entry '{normalizedPath}'.");
+                ZipFileSystemCore.LogMessage($"{AppTheme.Warning} Decompression Error: Cannot read '{normalizedPath}'. The file data may be corrupted or use an unsupported compression format.");
                 (info.Context as IDisposable)?.Dispose();
                 info.Context = null;
                 return DokanResult.Error;

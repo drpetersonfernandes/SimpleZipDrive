@@ -742,6 +742,17 @@ public class MountService : IDisposable, IMountService
                 if (libraryVersion != null)
                     _loggingService.Log($"WinFsp Library Version: {libraryVersion.Major}.{libraryVersion.Minor}.{libraryVersion.Build}");
 
+                if (libraryVersion != null && libraryVersion < RequiredWinFspVersion)
+                {
+                    _loggingService.LogError($"WinFsp MSIL library version {libraryVersion.Major}.{libraryVersion.Minor} is incompatible with this application. Version {RequiredWinFspVersion.Major}.{RequiredWinFspVersion.Minor} or later is required. Mount cannot proceed.");
+                    DiagnosticLogger.Log($"  Blocked mount: MSIL library version {libraryVersion} < Required {RequiredWinFspVersion}.");
+                    ShowWinFspMountFailedUpdateDialog($"WinFsp library version {libraryVersion.Major}.{libraryVersion.Minor} is incompatible. Please update the WinFsp NuGet package to version {RequiredWinFspVersion.Major}.{RequiredWinFspVersion.Minor} or later.");
+                    _currentZipFs?.Dispose();
+                    _currentZipFs = null;
+                    host.Dispose();
+                    return false;
+                }
+
                 var installedVersion = GetInstalledWinFspVersion();
                 if (installedVersion != null)
                 {
@@ -765,21 +776,6 @@ public class MountService : IDisposable, IMountService
                 else
                 {
                     DiagnosticLogger.Log("  Could not determine installed WinFsp version.");
-                    var msilVersion = GetWinFspLibraryVersion();
-                    if (msilVersion != null && msilVersion < RequiredWinFspVersion)
-                    {
-                        _loggingService.Log($"WARNING: WinFsp library version {msilVersion.Major}.{msilVersion.Minor} is older than recommended {RequiredWinFspVersion.Major}.{RequiredWinFspVersion.Minor}.");
-                        var continueWithOldVersion = ShowWinFspVersionMismatchWarningDialog(msilVersion, RequiredWinFspVersion);
-                        if (!continueWithOldVersion)
-                        {
-                            _currentZipFs?.Dispose();
-                            _currentZipFs = null;
-                            host.Dispose();
-                            return false;
-                        }
-
-                        _loggingService.Log("WARNING: Continuing with older WinFsp version. Mount may fail.");
-                    }
                 }
 
                 DiagnosticLogger.Log($"  Calling host.Mount(\"{mountPoint}\", DebugLog=-1)...");

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using SharpCompress.Archives;
+using SharpCompress.Compressors.ZStandard;
 
 namespace SimpleZipDrive.Core;
 
@@ -239,6 +240,9 @@ public static class ZipFsHelpers
 
     internal static bool IsDataErrorException(Exception ex)
     {
+        if (ex is ZstdException)
+            return true;
+
         var exceptionTypeName = ex.GetType().Name;
         return exceptionTypeName.Contains("DataError", StringComparison.OrdinalIgnoreCase) ||
                ex.Message.Contains("Data Error", StringComparison.OrdinalIgnoreCase);
