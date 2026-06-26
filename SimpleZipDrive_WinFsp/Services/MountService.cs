@@ -847,7 +847,10 @@ public class MountService : IDisposable, IMountService
                     ShowWinFspDriverErrorDialog(detail);
                 }
 
-                ErrorLoggerStatic.ReportSilentException(ex, $"MountService.AttemptMountLifecycleAsync: Error mounting '{archivePath}' to '{mountPoint}'", true);
+                if (!IsVersionMismatchError(ex))
+                {
+                    ErrorLoggerStatic.ReportSilentException(ex, $"MountService.AttemptMountLifecycleAsync: Error mounting '{archivePath}' to '{mountPoint}'", true);
+                }
                 return false;
             }
 

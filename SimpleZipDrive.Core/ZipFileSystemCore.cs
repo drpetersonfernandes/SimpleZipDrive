@@ -676,7 +676,7 @@ public class ZipFileSystemCore : IDisposable
         });
     }
 
-    private FileStream OpenDiskCachedStream(IArchiveEntry entry, string normalizedPath, long entrySize, bool isLargeFile)
+    private FileStream? OpenDiskCachedStream(IArchiveEntry entry, string normalizedPath, long entrySize, bool isLargeFile)
     {
         string? cachedPath = null;
         lock (_archiveLock)
@@ -752,7 +752,39 @@ public class ZipFileSystemCore : IDisposable
                     }
 
                     // Extract outside the global archive lock — only per-entry lock is held.
-                    ExtractEntryToDisk(entry, normalizedPath, newTempFilePath);
+                    var extractionSucceeded = false;
+                    try
+                    {
+                        ExtractEntryToDisk(entry, normalizedPath, newTempFilePath);
+                        extractionSucceeded = true;
+                    }
+                    catch (Exception ex) when (IsExtractionFailure(ex))
+                    {
+                        LogMessage($"Disk-cached extraction failed for '{normalizedPath}' ({ex.GetType().Name}), trying fallback...");
+                        if (_sevenZipFallback != null)
+                        {
+                            try
+                            {
+                                using var fallbackOutput = new FileStream(newTempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None);
+                                if (_sevenZipFallback.TryExtractEntry(normalizedPath, fallbackOutput))
+                                {
+                                    extractionSucceeded = true;
+                                }
+                            }
+                            catch (Exception fallbackEx)
+                            {
+                                LogMessage($"SevenZip fallback also failed for '{normalizedPath}': {fallbackEx.Message}");
+                            }
+                        }
+
+                        if (!extractionSucceeded)
+                        {
+                            LogMessage($"Extraction failed for '{normalizedPath}' ({ex.GetType().Name}), no fallback available. Entry marked as failed.");
+                            AddFailedEntry(normalizedPath);
+                            CleanupTempFile(newTempFilePath);
+                            return null;
+                        }
+                    }
 
                     lock (_archiveLock)
                     {
