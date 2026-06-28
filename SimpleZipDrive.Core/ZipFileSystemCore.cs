@@ -797,7 +797,8 @@ public class ZipFileSystemCore : IDisposable
             }
             finally
             {
-                entrySemaphore.Release();
+                try { entrySemaphore.Release(); }
+                catch (ObjectDisposedException) { /* Disposed during shutdown */ }
             }
         }
 
@@ -934,6 +935,9 @@ public class ZipFileSystemCore : IDisposable
         return ex is ZlibException
                    or ZstdException
                    or ArgumentOutOfRangeException
+                   or ArgumentNullException
+                   or ArgumentException
+                   or IndexOutOfRangeException
                    or NullReferenceException
                    or InvalidOperationException
                || ZipFsHelpers.IsDataErrorException(ex);

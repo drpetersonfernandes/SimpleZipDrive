@@ -27,7 +27,7 @@ internal sealed class SevenZipFallback : IDisposable
     /// </summary>
     public bool TryExtractEntry(string normalizedPath, Stream outputStream)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) return false;
 
         try
         {
