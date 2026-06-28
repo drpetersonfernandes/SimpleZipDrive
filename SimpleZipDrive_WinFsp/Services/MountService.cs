@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Windows;
@@ -313,39 +314,20 @@ public class MountService : IDisposable, IMountService
         };
     }
 
+    private static string? _winFspBinDir;
+
     private static bool EnsureWinFspOnPath()
     {
         try
         {
             var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
             if (currentPath.Contains("WinFsp", StringComparison.OrdinalIgnoreCase))
+            {
+                _winFspBinDir = FindWinFspBinDir();
                 return true;
-
-            string? binDir = null;
-
-            using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\WinFsp");
-            var sxsDir = key?.GetValue("SxsDir") as string;
-            if (!string.IsNullOrEmpty(sxsDir))
-            {
-                var sxsBin = Path.Combine(sxsDir, "bin");
-                if (Directory.Exists(sxsBin))
-                {
-                    binDir = sxsBin;
-                }
             }
 
-            if (binDir == null)
-            {
-                var installDir = key?.GetValue("InstallDir") as string;
-                if (!string.IsNullOrEmpty(installDir))
-                {
-                    var installBin = Path.Combine(installDir, "bin");
-                    if (Directory.Exists(installBin))
-                    {
-                        binDir = installBin;
-                    }
-                }
-            }
+            var binDir = FindWinFspBinDir();
 
             if (binDir == null)
                 return false;
@@ -356,6 +338,8 @@ public class MountService : IDisposable, IMountService
                 return false;
 
             Environment.SetEnvironmentVariable("PATH", binDir + ";" + currentPath, EnvironmentVariableTarget.Process);
+            _winFspBinDir = binDir;
+
             return true;
         }
         catch (Exception ex)
@@ -363,6 +347,51 @@ public class MountService : IDisposable, IMountService
             ErrorLoggerStatic.ReportSilentException(ex, "MountService.EnsureWinFspOnPath: Failed", true);
             return false;
         }
+    }
+
+    private static string? FindWinFspBinDir()
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\WinFsp");
+        var sxsDir = key?.GetValue("SxsDir") as string;
+        if (!string.IsNullOrEmpty(sxsDir))
+        {
+            var sxsBin = Path.Combine(sxsDir, "bin");
+            if (Directory.Exists(sxsBin))
+                return sxsBin;
+        }
+
+        var installDir = key?.GetValue("InstallDir") as string;
+        if (!string.IsNullOrEmpty(installDir))
+        {
+            var installBin = Path.Combine(installDir, "bin");
+            if (Directory.Exists(installBin))
+                return installBin;
+        }
+
+        return null;
+    }
+
+    private static bool TryLoadWinFspNativeDll()
+    {
+        var dllName = Environment.Is64BitProcess ? "winfsp-x64.dll" : "winfsp-x86.dll";
+
+        if (NativeLibrary.TryLoad(dllName, out var handle))
+        {
+            NativeLibrary.Free(handle);
+            return true;
+        }
+
+        if (_winFspBinDir != null)
+        {
+            var dllPath = Path.Combine(_winFspBinDir, dllName);
+            if (File.Exists(dllPath) && NativeLibrary.TryLoad(dllPath, out handle))
+            {
+                NativeLibrary.Free(handle);
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static Version? GetInstalledWinFspVersion()
@@ -484,33 +513,6 @@ public class MountService : IDisposable, IMountService
                 UseShellExecute = true
             });
         }
-    }
-
-    private static bool ShowWinFspVersionMismatchWarningDialog(Version installed, Version required)
-    {
-        var message = $"WinFsp version mismatch detected.\n\n" +
-                      $"Installed version: {installed.Major}.{installed.Minor}\n" +
-                      $"Required version: {required.Major}.{required.Minor} or later\n\n" +
-                      "The installed WinFsp driver is older than recommended. " +
-                      "Mounting may fail or not work correctly with this version.\n\n" +
-                      "Would you like to update WinFsp first?\n\n" +
-                      "• Yes - Open the WinFsp download page\n" +
-                      "• No - Try to mount anyway (may fail)";
-
-        var result = MessageBox.Show(message, "WinFsp Version Warning",
-            MessageBoxButton.YesNo, MessageBoxImage.Warning);
-
-        if (result == MessageBoxResult.Yes)
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "https://github.com/winfsp/winfsp/releases",
-                UseShellExecute = true
-            });
-            return false; // User chose to update, don't continue mounting
-        }
-
-        return true; // User chose to try anyway
     }
 
     private static void ShowWinFspVersionMismatchFailedDialog(Version installed, Version required)
@@ -657,6 +659,20 @@ public class MountService : IDisposable, IMountService
             return false;
         }
 
+        // Pre-validate that the native WinFsp DLL can be loaded by the .NET runtime
+        if (!TryLoadWinFspNativeDll())
+        {
+            _loggingService.LogError("WinFsp native DLL could not be loaded. The DLL may be missing, inaccessible, or the wrong architecture.");
+            DiagnosticLogger.Log("WinFsp native DLL pre-load check failed.");
+            ShowWinFspDriverErrorDialog("The WinFsp native DLL could not be loaded even though WinFsp appears to be installed.\n\n" +
+                "This can happen if:\n" +
+                "- The WinFsp installation is corrupted\n" +
+                "- The DLL architecture doesn't match this application (32-bit vs 64-bit)\n" +
+                "- The DLL is locked or inaccessible\n\n" +
+                "Please reinstall WinFsp and try again.");
+            return false;
+        }
+
         // Verify mount point accessibility
         if (!VerifyMountPoint(mountPoint, isDriveLetter))
         {
@@ -760,17 +776,13 @@ public class MountService : IDisposable, IMountService
                     DiagnosticLogger.Log($"  Installed WinFsp version: {installedVersion}, Required: {RequiredWinFspVersion}");
                     if (installedVersion < RequiredWinFspVersion)
                     {
-                        _loggingService.Log($"WARNING: WinFsp version mismatch: installed {installedVersion.Major}.{installedVersion.Minor}, recommended {RequiredWinFspVersion.Major}.{RequiredWinFspVersion.Minor}.");
-                        var continueWithOldVersion = ShowWinFspVersionMismatchWarningDialog(installedVersion, RequiredWinFspVersion);
-                        if (!continueWithOldVersion)
-                        {
-                            _currentZipFs?.Dispose();
-                            _currentZipFs = null;
-                            host.Dispose();
-                            return false;
-                        }
-
-                        _loggingService.Log("WARNING: Continuing with older WinFsp version. Mount may fail.");
+                        _loggingService.LogError($"WinFsp version mismatch: installed {installedVersion.Major}.{installedVersion.Minor}, required {RequiredWinFspVersion.Major}.{RequiredWinFspVersion.Minor}. Mount blocked.");
+                        DiagnosticLogger.Log($"  Blocked mount: installed WinFsp version {installedVersion} < Required {RequiredWinFspVersion}.");
+                        ShowWinFspVersionMismatchFailedDialog(installedVersion, RequiredWinFspVersion);
+                        _currentZipFs?.Dispose();
+                        _currentZipFs = null;
+                        host.Dispose();
+                        return false;
                     }
                 }
                 else

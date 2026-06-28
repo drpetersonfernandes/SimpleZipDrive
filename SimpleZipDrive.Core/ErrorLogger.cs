@@ -487,6 +487,30 @@ public class ErrorLogger : IDisposable
 
         switch (ex)
         {
+            // TypeInitializationException for Fsp.Interop.Api is an environment issue (missing/outdated WinFsp), not an app bug
+            case TypeInitializationException:
+            {
+                var innerType = ex.InnerException?.GetType().FullName ?? string.Empty;
+                if (innerType.Contains("Fsp.Interop", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                break;
+            }
+            // NullReferenceException from SharpCompress is a known library limitation, not an app bug
+            case NullReferenceException when (ex.Source?.Contains("SharpCompress", StringComparison.OrdinalIgnoreCase) == true):
+                return true;
+            case NullReferenceException:
+            {
+                var stackTrace = ex.StackTrace ?? string.Empty;
+                if (stackTrace.Contains("SharpCompress", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
+                break;
+            }
+        }
+
+        switch (ex)
+        {
             // File-related exceptions are typically user errors (file not found, access denied, etc.)
             case FileNotFoundException or DirectoryNotFoundException or UnauthorizedAccessException or IOException:
             // HttpRequestException with cancellation token is also expected
