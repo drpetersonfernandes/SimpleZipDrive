@@ -737,7 +737,40 @@ public class MountService : IDisposable, IMountService
                 throw;
             }
 
-            var host = new FileSystemHost(_currentZipFs);
+            var installedVersion = GetInstalledWinFspVersion();
+            if (installedVersion != null)
+            {
+                _loggingService.Log($"WinFsp Driver Version: {installedVersion.Major}.{installedVersion.Minor}.{installedVersion.Build}");
+                DiagnosticLogger.Log($"  Installed WinFsp version: {installedVersion}, Required: {RequiredWinFspVersion}");
+                if (installedVersion < RequiredWinFspVersion)
+                {
+                    _loggingService.LogError($"WinFsp version mismatch: installed {installedVersion.Major}.{installedVersion.Minor}, required {RequiredWinFspVersion.Major}.{RequiredWinFspVersion.Minor}. Mount blocked.");
+                    DiagnosticLogger.Log($"  Blocked mount: installed WinFsp version {installedVersion} < Required {RequiredWinFspVersion}.");
+                    ShowWinFspVersionMismatchFailedDialog(installedVersion, RequiredWinFspVersion);
+                    _currentZipFs?.Dispose();
+                    _currentZipFs = null;
+                    return false;
+                }
+            }
+            else
+            {
+                DiagnosticLogger.Log("  Could not determine installed WinFsp version.");
+            }
+
+            FileSystemHost host;
+            try
+            {
+                host = new FileSystemHost(_currentZipFs);
+            }
+            catch (TypeInitializationException ex) when (ex.InnerException is TypeLoadException typeLoadEx && typeLoadEx.Message.Contains("incorrect dll version"))
+            {
+                DiagnosticLogger.Log(ex, "WinFsp DLL version mismatch detected during FileSystemHost creation");
+                _loggingService.LogError($"WinFsp DLL version mismatch: {typeLoadEx.Message}");
+                ShowWinFspVersionMismatchFailedDialog(installedVersion ?? new Version(2, 1), RequiredWinFspVersion);
+                _currentZipFs?.Dispose();
+                _currentZipFs = null;
+                return false;
+            }
 
             try
             {
@@ -752,42 +785,6 @@ public class MountService : IDisposable, IMountService
                 catch (Exception debugLogEx)
                 {
                     DiagnosticLogger.Log($"  WinFsp debug log setup failed (non-fatal): {debugLogEx.Message}");
-                }
-
-                var libraryVersion = GetWinFspLibraryVersion();
-                if (libraryVersion != null)
-                    _loggingService.Log($"WinFsp Library Version: {libraryVersion.Major}.{libraryVersion.Minor}.{libraryVersion.Build}");
-
-                if (libraryVersion != null && libraryVersion < RequiredWinFspVersion)
-                {
-                    _loggingService.LogError($"WinFsp MSIL library version {libraryVersion.Major}.{libraryVersion.Minor} is incompatible with this application. Version {RequiredWinFspVersion.Major}.{RequiredWinFspVersion.Minor} or later is required. Mount cannot proceed.");
-                    DiagnosticLogger.Log($"  Blocked mount: MSIL library version {libraryVersion} < Required {RequiredWinFspVersion}.");
-                    ShowWinFspMountFailedUpdateDialog($"WinFsp library version {libraryVersion.Major}.{libraryVersion.Minor} is incompatible. Please update the WinFsp NuGet package to version {RequiredWinFspVersion.Major}.{RequiredWinFspVersion.Minor} or later.");
-                    _currentZipFs?.Dispose();
-                    _currentZipFs = null;
-                    host.Dispose();
-                    return false;
-                }
-
-                var installedVersion = GetInstalledWinFspVersion();
-                if (installedVersion != null)
-                {
-                    _loggingService.Log($"WinFsp Driver Version: {installedVersion.Major}.{installedVersion.Minor}.{installedVersion.Build}");
-                    DiagnosticLogger.Log($"  Installed WinFsp version: {installedVersion}, Required: {RequiredWinFspVersion}");
-                    if (installedVersion < RequiredWinFspVersion)
-                    {
-                        _loggingService.LogError($"WinFsp version mismatch: installed {installedVersion.Major}.{installedVersion.Minor}, required {RequiredWinFspVersion.Major}.{RequiredWinFspVersion.Minor}. Mount blocked.");
-                        DiagnosticLogger.Log($"  Blocked mount: installed WinFsp version {installedVersion} < Required {RequiredWinFspVersion}.");
-                        ShowWinFspVersionMismatchFailedDialog(installedVersion, RequiredWinFspVersion);
-                        _currentZipFs?.Dispose();
-                        _currentZipFs = null;
-                        host.Dispose();
-                        return false;
-                    }
-                }
-                else
-                {
-                    DiagnosticLogger.Log("  Could not determine installed WinFsp version.");
                 }
 
                 DiagnosticLogger.Log($"  Calling host.Mount(\"{mountPoint}\", DebugLog=-1)...");
