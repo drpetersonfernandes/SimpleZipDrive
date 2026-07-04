@@ -755,7 +755,7 @@ public class ZipFileSystemCore : IDisposable
                     var extractionSucceeded = false;
                     try
                     {
-                        ExtractEntryToDisk(entry, normalizedPath, newTempFilePath);
+                        ExtractEntryToDisk(entry, newTempFilePath);
                         extractionSucceeded = true;
                     }
                     catch (Exception ex) when (IsExtractionFailure(ex))
@@ -935,44 +935,43 @@ public class ZipFileSystemCore : IDisposable
         return ex is ZlibException
                    or ZstdException
                    or ArgumentOutOfRangeException
-                   or ArgumentNullException
-                   or ArgumentException
-                   or IndexOutOfRangeException
                    or NullReferenceException
                    or InvalidOperationException
-               || ZipFsHelpers.IsDataErrorException(ex);
+               || ZipFsHelpers.IsDataErrorException(ex)
+               || IsCompressionLibraryException(ex);
     }
 
     /// <summary>
-    /// Extracts an entry to a disk file, trying SharpCompress first and falling back to SevenZip on failure.
-    /// Throws if both extractors fail.
+    /// Checks whether a broad exception type (e.g. ArgumentNullException) originates from a compression library.
+    /// This prevents masking real application bugs — only exceptions from SharpCompress, zlib, zstd, or SevenZip
+    /// are treated as extraction failures.
     /// </summary>
-    private void ExtractEntryToDisk(IArchiveEntry entry, string normalizedPath, string tempFilePath)
+    private static bool IsCompressionLibraryException(Exception ex)
+    {
+        if (ex is not (ArgumentNullException or ArgumentException or IndexOutOfRangeException))
+            return false;
+
+        var source = ex.Source ?? string.Empty;
+        var stackTrace = ex.StackTrace ?? string.Empty;
+        return source.Contains("SharpCompress", StringComparison.OrdinalIgnoreCase)
+            || source.Contains("SevenZip", StringComparison.OrdinalIgnoreCase)
+            || source.Contains("zlib", StringComparison.OrdinalIgnoreCase)
+            || source.Contains("Zstd", StringComparison.OrdinalIgnoreCase)
+            || stackTrace.Contains("SharpCompress", StringComparison.OrdinalIgnoreCase)
+            || stackTrace.Contains("SevenZip", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Extracts an entry to a disk file using SharpCompress.
+    /// Throws on failure; the caller is responsible for fallback handling.
+    /// </summary>
+    private static void ExtractEntryToDisk(IArchiveEntry entry, string tempFilePath)
     {
         try
         {
             using var entryStream = entry.OpenEntryStream();
             using var tempFileStream = new FileStream(tempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None);
             entryStream.CopyTo(tempFileStream);
-        }
-        catch (Exception ex) when (IsExtractionFailure(ex))
-        {
-            if (_sevenZipFallback != null)
-            {
-                try
-                {
-                    using var fallbackOutput = new FileStream(tempFilePath, FileMode.Truncate, FileAccess.Write, FileShare.None);
-                    if (_sevenZipFallback.TryExtractEntry(normalizedPath, fallbackOutput))
-                        return;
-                }
-                catch (Exception fallbackEx)
-                {
-                    ErrorLoggerStatic.ReportSilentException(fallbackEx, $"ZipFs.ExtractEntryToDisk: SevenZip fallback failed for '{normalizedPath}'", true);
-                }
-            }
-
-            CleanupTempFile(tempFilePath);
-            throw;
         }
         catch
         {

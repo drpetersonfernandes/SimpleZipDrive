@@ -351,7 +351,8 @@ public class MountService : IDisposable, IMountService
 
     private static string? FindWinFspBinDir()
     {
-        using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\WinFsp");
+        using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\WinFsp")
+                        ?? Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WinFsp");
         var sxsDir = key?.GetValue("SxsDir") as string;
         if (!string.IsNullOrEmpty(sxsDir))
         {
