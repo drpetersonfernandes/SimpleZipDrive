@@ -642,10 +642,23 @@ public class ZipFileSystemCore : IDisposable
                 entryBytes = tempMs.ToArray();
             }
         }
-        catch (Exception ex) when (ex is OutOfMemoryException or ZlibException or ZstdException)
+        catch (OutOfMemoryException)
         {
-            LogMessage($"Memory cache failed for '{normalizedPath}' ({ex.GetType().Name}): falling back to disk cache.");
+            LogMessage($"Memory cache exhausted for '{normalizedPath}': falling back to disk cache.");
             return OpenDiskCachedStream(entry, normalizedPath, entrySize, false);
+        }
+        catch (Exception ex) when (ex is ZlibException or ZstdException)
+        {
+            if (_sevenZipFallback != null)
+            {
+                var fallback = TryFallbackExtraction(normalizedPath, entrySize, false);
+                if (fallback != null)
+                    return fallback;
+            }
+
+            LogMessage($"Decompression failed for '{normalizedPath}' ({ex.GetType().Name}), no fallback available.");
+            AddFailedEntry(normalizedPath);
+            return null;
         }
         catch (Exception ex) when (IsExtractionFailure(ex))
         {

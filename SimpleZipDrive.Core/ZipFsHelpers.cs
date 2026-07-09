@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using SharpCompress.Archives;
 using SharpCompress.Compressors.ZStandard;
@@ -186,7 +187,7 @@ public static class ZipFsHelpers
             path = path.TrimEnd('/');
         }
 
-        return path;
+        return path.Normalize(NormalizationForm.FormC);
     }
 
     internal static string ResolveSpecialPaths(string normalizedPath)
