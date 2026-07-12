@@ -25,6 +25,11 @@ public class ErrorLogger : IDisposable
 
     private readonly string _baseDirectory;
 
+    // In-flight fire-and-forget bug report POSTs launched by ForwardLogEventToApi. Tracked so they
+    // can be drained during shutdown before the HttpClient is disposed (otherwise a report queued
+    // moments before exit would fault with ObjectDisposedException and be lost).
+    private readonly ConcurrentDictionary<Task, byte> _pendingApiTasks = new();
+
     private static volatile bool _suppressApiCalls;
 
     /// <summary>
@@ -431,7 +436,7 @@ public class ErrorLogger : IDisposable
         if (SuppressApiCalls)
             return;
 
-        FireAndForgetAsync(Task.Run(async () =>
+        var task = Task.Run(async () =>
         {
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             try
@@ -449,7 +454,38 @@ public class ErrorLogger : IDisposable
             {
                 // Forwarding is best-effort.
             }
-        }));
+        });
+
+        // Track the task so shutdown can wait for it, and self-remove on completion.
+        _pendingApiTasks.TryAdd(task, 0);
+        task.ContinueWith(
+            static (completed, state) => ((ConcurrentDictionary<Task, byte>)state!).TryRemove(completed, out _),
+            _pendingApiTasks,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Blocks until all in-flight bug report POSTs launched by <see cref="ForwardLogEventToApi"/> have
+    /// completed, or the timeout elapses. Call during shutdown before <see cref="Dispose"/> so reports
+    /// queued moments before exit are not lost when the underlying <see cref="HttpClient"/> is disposed.
+    /// </summary>
+    /// <param name="timeout">Maximum time to wait for the in-flight reports to finish.</param>
+    public void WaitForPendingReports(TimeSpan timeout)
+    {
+        var pending = _pendingApiTasks.Keys.ToArray();
+        if (pending.Length == 0)
+            return;
+
+        try
+        {
+            Task.WaitAll(pending, timeout);
+        }
+        catch
+        {
+            // Best-effort drain; never throw during shutdown.
+        }
     }
 
     private async Task<bool> SendLogToApiAsync(Exception ex, string contextMessage, CancellationToken cancellationToken = default)
@@ -593,6 +629,17 @@ public static class ErrorLoggerStatic
     public static void ReportSilentException(Exception ex, string context, bool silent = false)
     {
         LazyInstance.Value.ReportSilentException(ex, context, silent);
+    }
+
+    /// <summary>
+    /// Blocks until all in-flight bug report POSTs have completed, or the timeout elapses.
+    /// No-op when the singleton has never been created. Call during shutdown before disposing.
+    /// </summary>
+    /// <param name="timeout">Maximum time to wait for the in-flight reports to finish.</param>
+    public static void WaitForPendingReports(TimeSpan timeout)
+    {
+        if (LazyInstance.IsValueCreated)
+            LazyInstance.Value.WaitForPendingReports(timeout);
     }
 
     /// <summary>

@@ -309,21 +309,14 @@ public class ZipFs : IDokanOperations, IDisposable
             }
         }
 
-        // No per-handle stream in the context. During paging I/O this is expected — for
-        // example, when Windows Explorer generates thumbnails via memory-mapped reads it
-        // issues ReadFile on a file object that was never routed through CreateFile. Rather
-        // than failing the read (which corrupts thumbnails/previews), open a transient
-        // stream for the entry, satisfy this read, then dispose it. This mirrors the Dokan
-        // mirror sample's handling of a missing handle context during paging I/O.
-        if (info.PagingIo)
-        {
-            return ReadFileOnDemand(normalizedPath, buffer, out bytesRead, offset);
-        }
-
-        _logErrorAction(
-            new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context did not contain a Stream and the read was not paging I/O. The handle may have already been closed."),
-            "ZipFs.ReadFile: Context is not a Stream - handle already cleaned up.");
-        return DokanResult.InvalidHandle;
+        // No per-handle stream in the context. This is expected during paging I/O — for example,
+        // when Windows Explorer generates thumbnails via memory-mapped reads it issues ReadFile on a
+        // file object that was never routed through CreateFile. Rather than failing the read (which
+        // corrupts thumbnails/previews), open a transient stream for the entry, satisfy this read,
+        // then dispose it. This matches the WinFsp host, whose Read cannot distinguish paging I/O and
+        // therefore always falls back the same way; ReadFileOnDemand still returns InvalidHandle when
+        // the entry cannot be resolved (a genuinely stale/closed handle).
+        return ReadFileOnDemand(normalizedPath, buffer, out bytesRead, offset);
     }
 
     private NtStatus ReadFileOnDemand(string normalizedPath, byte[] buffer, out int bytesRead, long offset)

@@ -187,7 +187,20 @@ public static class ZipFsHelpers
             path = path.TrimEnd('/');
         }
 
-        return path.Normalize(NormalizationForm.FormC);
+        try
+        {
+            // Normalize to FormC so entries from archives created on other platforms (e.g. macOS uses
+            // decomposed FormD for accented names) match lookups coming from the OS.
+            return path.IsNormalized(NormalizationForm.FormC)
+                ? path
+                : path.Normalize(NormalizationForm.FormC);
+        }
+        catch (ArgumentException)
+        {
+            // The path contains invalid Unicode (e.g. unpaired surrogates); use it as-is rather
+            // than throwing out of this hot lookup path.
+            return path;
+        }
     }
 
     internal static string ResolveSpecialPaths(string normalizedPath)

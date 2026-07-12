@@ -481,11 +481,25 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
-    public void ReadFileWithNullContextReturnsInvalidHandle()
+    public void ReadFileWithoutContextReadsOnDemandRegardlessOfPagingIo()
     {
+        // A missing handle context now always falls back to a transient on-demand read (matching the
+        // WinFsp host, whose Read cannot distinguish paging I/O), rather than failing non-paging reads.
         var info = new FakeDokanFileInfo { Context = null };
         var buffer = new byte[100];
         var result = _zipFs.ReadFile("\\readme.txt", buffer, out var bytesRead, 0, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal(Encoding.UTF8.GetByteCount("Hello World"), bytesRead);
+        Assert.Equal("Hello World", Encoding.UTF8.GetString(buffer, 0, bytesRead));
+    }
+
+    [Fact]
+    public void ReadFileWithoutContextForMissingEntryReturnsInvalidHandle()
+    {
+        var info = new FakeDokanFileInfo { Context = null };
+        var buffer = new byte[100];
+        var result = _zipFs.ReadFile("\\does-not-exist.txt", buffer, out var bytesRead, 0, info);
 
         Assert.Equal(DokanResult.InvalidHandle, result);
         Assert.Equal(0, bytesRead);

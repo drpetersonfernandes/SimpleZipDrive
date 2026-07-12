@@ -263,6 +263,9 @@ public partial class App
         // Must be done AFTER the outer catch, which may still need to report errors
         try
         {
+            // Drain any in-flight bug report POSTs first so they are not lost when the HttpClient
+            // is disposed below (the bug report sink forwards them fire-and-forget).
+            ErrorLoggerStatic.WaitForPendingReports(TimeSpan.FromSeconds(5));
             ErrorLoggerStatic.Instance.Dispose();
         }
         catch (Exception ex)
