@@ -21,6 +21,9 @@
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="Serilog" Version="4.4.0" />
+        <PackageReference Include="Serilog.Sinks.Debug" Version="3.0.0" />
+        <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
         <PackageReference Include="SharpCompress" Version="0.49.1" />
         <PackageReference Include="SharpSevenZip" Version="2.0.109" />
     </ItemGroup>

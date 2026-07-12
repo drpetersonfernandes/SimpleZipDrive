@@ -29,6 +29,10 @@ public class LoggingService : ILoggingService
         };
 
         AddEntry(entry);
+
+        // Mirror to the Serilog pipeline (file + debug). Information level never reaches the bug report API.
+        if (entry.Message.Length > 0)
+            Serilog.Log.Information("{LogMessage}", entry.Message);
     }
 
     /// <inheritdoc />
@@ -44,6 +48,10 @@ public class LoggingService : ILoggingService
         };
 
         AddEntry(entry);
+
+        // Mirror to the Serilog pipeline at Warning so it is forwarded to the bug report API
+        // (subject to the user-error filtering applied inside BugReportSink).
+        Serilog.Log.Warning("{LogMessage}", entry.Message);
     }
 
     /// <inheritdoc />

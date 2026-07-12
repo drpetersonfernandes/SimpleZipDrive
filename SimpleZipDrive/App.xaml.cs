@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Channels;
 using System.Windows;
+using SimpleZipDrive.Core.Logging;
 
 namespace SimpleZipDrive;
 
@@ -24,6 +25,7 @@ public partial class App
 
         DiagnosticLogger.CleanupOldLogs();
         DiagnosticLogger.Initialize();
+        AppLogger.Initialize();
         DiagnosticLogger.LogSection("APPLICATION STARTUP");
         DiagnosticLogger.Log($"  Version: {Assembly.GetExecutingAssembly().GetName().Version}");
         DiagnosticLogger.Log($"  Arguments: [{string.Join(", ", e.Args)}]");
@@ -247,6 +249,18 @@ public partial class App
         catch (Exception ex)
         {
             ErrorLoggerStatic.ReportSilentException(ex, "App.OnExit: Error during exit cleanup", true);
+        }
+
+        // Flush and close the Serilog pipeline (and the per-session diagnostic file) before
+        // disposing the ErrorLogger, since the bug report sink forwards through it.
+        try
+        {
+            AppLogger.CloseAndFlush();
+            DiagnosticLogger.Close();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to flush loggers: {ex.Message}");
         }
 
         // Dispose the singleton ErrorLogger (HttpClient connection pool)

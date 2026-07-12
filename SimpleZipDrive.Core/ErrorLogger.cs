@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
+using System.Windows;
 
 namespace SimpleZipDrive.Core;
 
@@ -60,7 +61,7 @@ public class ErrorLogger : IDisposable
     public void InitializeGlobalExceptionHandlers()
     {
         // Catch UI thread exceptions (WPF) only when running in a WPF context
-        var wpfApp = System.Windows.Application.Current;
+        var wpfApp = Application.Current;
         if (wpfApp != null)
         {
             // Use async logging to avoid blocking the UI thread for up to 30 seconds
@@ -566,6 +567,40 @@ public class ErrorLogger : IDisposable
         return isArchiveError || isDriveError || isPasswordError || isCancellationError;
     }
 
+    /// <summary>
+    /// Forwards a Serilog log event to the remote bug report API. Used by <see cref="Logging.BugReportSink"/>
+    /// to satisfy the "warning and above are reported" requirement. Fire-and-forget; never blocks the caller.
+    /// </summary>
+    /// <param name="level">The Serilog level name (e.g. Warning, Error, Fatal).</param>
+    /// <param name="message">The rendered log message.</param>
+    /// <param name="ex">The associated exception, if any.</param>
+    /// <param name="context">A short description of the log event source.</param>
+    internal void ForwardLogEventToApi(string level, string message, Exception? ex, string context)
+    {
+        if (SuppressApiCalls)
+            return;
+
+        FireAndForgetAsync(Task.Run(async () =>
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try
+            {
+                if (ex != null)
+                {
+                    await SendLogToApiAsync(ex, $"[{level}] {context}", cts.Token);
+                }
+                else
+                {
+                    await SendMessageToApiAsync(level, message, context, cts.Token);
+                }
+            }
+            catch
+            {
+                // Forwarding is best-effort.
+            }
+        }));
+    }
+
     private async Task<bool> SendLogToApiAsync(Exception ex, string contextMessage, CancellationToken cancellationToken = default)
     {
         if (SuppressApiCalls)
@@ -573,7 +608,6 @@ public class ErrorLogger : IDisposable
 
         try
         {
-            var (version, osDescription, _) = GetBasicEnvironmentInfo();
             var environmentDetails = GetEnvironmentDetails();
             var errorDetails = GetErrorDetails(ex, contextMessage);
             var exceptionDetails = GetExceptionDetails(ex);
@@ -585,50 +619,75 @@ public class ErrorLogger : IDisposable
             fullMessage.Append(exceptionDetails);
             var messageText = fullMessage.ToString();
 
-            // Short environment summary for the environment field (API max 50 chars)
-            var bitness = Environment.Is64BitOperatingSystem ? "64-bit" : "32-bit";
-            var envSummary = $"{osDescription} {bitness}";
-            if (envSummary.Length > 50)
-            {
-                envSummary = envSummary[..47] + "...";
-            }
-
-            var payload = new
-            {
-                message = messageText,
-                applicationName = ApplicationName,
-                version,
-                userInfo = contextMessage,
-                environment = envSummary,
-                stackTrace = ex.StackTrace ?? "No stack trace available"
-            };
-            var jsonPayload = JsonSerializer.Serialize(payload);
-            var httpContent = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
-
-            var request = new HttpRequestMessage(HttpMethod.Post, BugReportApiUrl);
-            request.Headers.Add("X-API-KEY", ApiKey);
-            request.Content = httpContent;
-
-            using var response = await _httpClient.SendAsync(request, cancellationToken);
-
-            if (response.IsSuccessStatusCode)
-            {
-                return true;
-            }
-            else
-            {
-                var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                WriteToCriticalLog(
-                    new HttpRequestException($"API request failed with status code {response.StatusCode}. Response: {responseContent}"),
-                    "Error sending log to API.");
-                return false;
-            }
+            return await PostBugReportAsync(messageText, contextMessage, ex.StackTrace ?? "No stack trace available", cancellationToken);
         }
         catch (Exception apiEx)
         {
             WriteToCriticalLog(apiEx, "Exception occurred while sending log to API.");
             return false;
         }
+    }
+
+    private async Task SendMessageToApiAsync(string level, string message, string contextMessage, CancellationToken cancellationToken = default)
+    {
+        if (SuppressApiCalls) return;
+
+        try
+        {
+            var fullMessage = new StringBuilder();
+            fullMessage.Append(GetEnvironmentDetails());
+            fullMessage.AppendLine();
+            fullMessage.AppendLine(CultureInfo.InvariantCulture, $"=== Log Event ({level}) ===");
+            fullMessage.AppendLine(message);
+
+            await PostBugReportAsync(fullMessage.ToString(), contextMessage, "No stack trace available (log event)", cancellationToken);
+        }
+        catch (Exception apiEx)
+        {
+            WriteToCriticalLog(apiEx, "Exception occurred while sending log message to API.");
+        }
+    }
+
+    private async Task<bool> PostBugReportAsync(string messageText, string userInfo, string stackTrace, CancellationToken cancellationToken)
+    {
+        var (version, osDescription, _) = GetBasicEnvironmentInfo();
+
+        // Short environment summary for the environment field (API max 50 chars)
+        var bitness = Environment.Is64BitOperatingSystem ? "64-bit" : "32-bit";
+        var envSummary = $"{osDescription} {bitness}";
+        if (envSummary.Length > 50)
+        {
+            envSummary = envSummary[..47] + "...";
+        }
+
+        var payload = new
+        {
+            message = messageText,
+            applicationName = ApplicationName,
+            version,
+            userInfo,
+            environment = envSummary,
+            stackTrace
+        };
+        var jsonPayload = JsonSerializer.Serialize(payload);
+        var httpContent = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+        var request = new HttpRequestMessage(HttpMethod.Post, BugReportApiUrl);
+        request.Headers.Add("X-API-KEY", ApiKey);
+        request.Content = httpContent;
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.IsSuccessStatusCode)
+        {
+            return true;
+        }
+
+        var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+        WriteToCriticalLog(
+            new HttpRequestException($"API request failed with status code {response.StatusCode}. Response: {responseContent}"),
+            "Error sending log to API.");
+        return false;
     }
 
     internal void WriteToCriticalLog(Exception ex, string contextMessage)

@@ -1,15 +1,22 @@
 using System.Globalization;
+using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 
 namespace SimpleZipDrive.Core;
 
 /// <summary>
-/// Provides structured debug logging with thread-safe file output.
+/// Provides structured, per-session debug logging backed by Serilog.
+/// Each session writes to a dedicated file (see <see cref="LogFilePath"/>) via a Serilog file sink,
+/// replacing the previous hand-rolled <see cref="StreamWriter"/> implementation.
 /// </summary>
 public static class DiagnosticLogger
 {
+    private const string OutputTemplate = "{DiagnosticLine:l}{NewLine}";
+
     private static readonly object Lock = new();
     internal static volatile bool Initialized;
-    private static StreamWriter? _writer;
+    private static Logger? _logger;
 
     /// <summary>Gets a value indicating whether diagnostic logging is enabled.</summary>
     public static bool IsEnabled { get; internal set; }
@@ -75,16 +82,25 @@ public static class DiagnosticLogger
         var dir = logDir ?? GetDefaultLogDirectory();
         try
         {
+            // Throws if 'dir' is actually an existing file or otherwise invalid.
             Directory.CreateDirectory(dir);
-            LogFilePath = Path.Combine(dir, $"debug_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.log");
+            var logFilePath = Path.Combine(dir, $"debug_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.log");
+
+            var logger = new LoggerConfiguration()
+                .MinimumLevel.Verbose()
+                .WriteTo.File(
+                    logFilePath,
+                    outputTemplate: OutputTemplate,
+                    formatProvider: CultureInfo.InvariantCulture,
+                    buffered: false,
+                    shared: false)
+                .CreateLogger();
 
             lock (Lock)
             {
-                _writer?.Dispose();
-                _writer = new StreamWriter(LogFilePath, false, System.Text.Encoding.UTF8)
-                {
-                    AutoFlush = true
-                };
+                DisposeLogger();
+                _logger = logger;
+                LogFilePath = logFilePath;
             }
 
             Initialized = true;
@@ -96,15 +112,28 @@ public static class DiagnosticLogger
     }
 
     /// <summary>
-    /// Closes the underlying log file writer. Call during application shutdown.
+    /// Closes the underlying log sink. Call during application shutdown.
     /// </summary>
     public static void Close()
     {
         lock (Lock)
         {
-            _writer?.Dispose();
-            _writer = null;
+            DisposeLogger();
         }
+    }
+
+    private static void DisposeLogger()
+    {
+        try
+        {
+            _logger?.Dispose();
+        }
+        catch
+        {
+            // ignored
+        }
+
+        _logger = null;
     }
 
     /// <summary>
@@ -113,7 +142,7 @@ public static class DiagnosticLogger
     /// <param name="message">The message to log.</param>
     public static void Log(string message)
     {
-        if (!Initialized || LogFilePath == null) return;
+        if (!Initialized) return;
 
         var timestamp = DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture);
         var threadId = Environment.CurrentManagedThreadId;
@@ -123,7 +152,7 @@ public static class DiagnosticLogger
         {
             lock (Lock)
             {
-                _writer?.WriteLine(line);
+                _logger?.Write(LogEventLevel.Debug, "{DiagnosticLine}", line);
             }
         }
         catch
