@@ -1,6 +1,4 @@
 using System.Reflection;
-using System.Text;
-using System.Threading.Channels;
 using System.Windows;
 using SimpleZipDrive.Core.Logging;
 
@@ -25,7 +23,6 @@ public partial class App
 
         DiagnosticLogger.CleanupOldLogs();
         DiagnosticLogger.Initialize();
-        AppLogger.Initialize();
         DiagnosticLogger.LogSection("APPLICATION STARTUP");
         DiagnosticLogger.Log($"  Version: {Assembly.GetExecutingAssembly().GetName().Version}");
         DiagnosticLogger.Log($"  Arguments: [{string.Join(", ", e.Args)}]");
@@ -256,7 +253,6 @@ public partial class App
         try
         {
             AppLogger.CloseAndFlush();
-            DiagnosticLogger.Close();
         }
         catch (Exception ex)
         {
@@ -275,144 +271,5 @@ public partial class App
         }
 
         base.OnExit(e);
-    }
-}
-
-/// <summary>
-/// Text writer that redirects console output to the logging service using async-friendly Channel for high throughput.
-/// </summary>
-internal class LogTextWriter : TextWriter
-{
-    public override Encoding Encoding => Encoding.UTF8;
-
-    private readonly Channel<string> _channel;
-    private readonly CancellationTokenSource _cts = new();
-    private readonly Task _processingTask;
-    private readonly TextWriter? _fallbackWriter;
-
-    public LogTextWriter(TextWriter? fallbackWriter = null)
-    {
-        _fallbackWriter = fallbackWriter;
-
-        // Unbounded channel for maximum throughput - messages are processed asynchronously
-        _channel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = false
-        });
-
-        // Start background processing task
-        _processingTask = ProcessMessagesAsync(_cts.Token);
-    }
-
-    public override void Write(char value)
-    {
-        _channel.Writer.TryWrite(value.ToString());
-    }
-
-    public override void Write(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return;
-
-        _channel.Writer.TryWrite(value);
-    }
-
-    public override void Write(char[] buffer, int index, int count)
-    {
-        if (count <= 0) return;
-
-        _channel.Writer.TryWrite(new string(buffer, index, count));
-    }
-
-    public override void WriteLine()
-    {
-        _channel.Writer.TryWrite(CoreNewLine.ToString() ?? Environment.NewLine);
-        _channel.Writer.TryWrite(string.Empty); // Empty string signals end of line
-    }
-
-    public override void WriteLine(string? value)
-    {
-        _channel.Writer.TryWrite(string.Concat(value, CoreNewLine));
-        _channel.Writer.TryWrite(string.Empty); // Signal end of line to flush buffer
-    }
-
-    public override void WriteLine(ReadOnlySpan<char> value)
-    {
-        _channel.Writer.TryWrite(string.Concat(value, CoreNewLine));
-        _channel.Writer.TryWrite(string.Empty); // Signal end of line to flush buffer
-    }
-
-    private async Task ProcessMessagesAsync(CancellationToken cancellationToken)
-    {
-        var buffer = new StringBuilder();
-
-        try
-        {
-            await foreach (var message in _channel.Reader.ReadAllAsync(cancellationToken))
-            {
-                // Empty string signals a line ending
-                if (message.Length == 0)
-                {
-                    FlushBufferToLog(buffer);
-                    buffer.Clear();
-                }
-                else
-                {
-                    buffer.Append(message);
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Normal shutdown - flush any remaining content
-            if (buffer.Length > 0)
-            {
-                FlushBufferToLog(buffer);
-            }
-        }
-    }
-
-    private void FlushBufferToLog(StringBuilder buffer)
-    {
-        if (buffer.Length == 0) return;
-
-        var message = buffer.ToString().TrimEnd('\r', '\n');
-        if (string.IsNullOrWhiteSpace(message)) return;
-
-        var loggingService = ServiceProvider.TryGet<ILoggingService>();
-        if (loggingService != null)
-        {
-            loggingService.Log(message);
-        }
-        else
-        {
-            // Fallback: write to original console if service not available
-            _fallbackWriter?.WriteLine(message);
-        }
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            _channel.Writer.Complete();
-
-            try
-            {
-                if (!_processingTask.Wait(TimeSpan.FromSeconds(2)))
-                {
-                    _cts.Cancel();
-                    _processingTask.Wait(TimeSpan.FromMilliseconds(500));
-                }
-            }
-            catch (Exception ex)
-            {
-                ErrorLoggerStatic.ReportSilentException(ex, "LogTextWriter.Dispose: Processing task wait failed", true);
-            }
-
-            _cts.Dispose();
-        }
-
-        base.Dispose(disposing);
     }
 }

@@ -5,60 +5,77 @@ using Serilog.Events;
 namespace SimpleZipDrive.Core.Logging;
 
 /// <summary>
-/// Configures and owns the global Serilog pipeline for the application.
-/// The pipeline writes to a rolling file (replacing the legacy debug_*.log mechanism),
-/// the debugger output window, and forwards warning-and-above events to the bug report API
-/// via <see cref="BugReportSink"/>.
+/// Configures and owns the single global Serilog pipeline for the application.
+/// The pipeline writes to one per-session file, mirrors to the debugger output window, and forwards
+/// warning-and-above events to the bug report API via <see cref="BugReportSink"/>.
+/// <see cref="DiagnosticLogger"/> and the logging services all funnel into this one pipeline.
 /// </summary>
 public static class AppLogger
 {
-    private const string OutputTemplate =
-        "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff} {Level:u3}] {Message:lj}{NewLine}{Exception}";
+    // No outer timestamp: callers that want one (e.g. DiagnosticLogger) embed it in the message.
+    private const string OutputTemplate = "[{Level:u3}] {Message:lj}{NewLine}{Exception}";
 
-    private static int _initialized;
+    private static readonly object Lock = new();
 
-    /// <summary>Gets the directory that contains the rolling application log files.</summary>
+    /// <summary>Gets the directory that contains the per-session log file.</summary>
     public static string LogDirectory { get; private set; } = GetDefaultLogDirectory();
 
+    /// <summary>Gets the path of the current session's log file, or <see langword="null"/> when unavailable.</summary>
+    public static string? LogFilePath { get; private set; }
+
+    /// <summary>Gets a value indicating whether the file sink was successfully configured.</summary>
+    public static bool IsInitialized { get; private set; }
+
     /// <summary>
-    /// Initializes the global <see cref="Log.Logger"/> pipeline. Safe to call multiple times;
-    /// only the first call has an effect.
+    /// Initializes (or re-initializes) the global <see cref="Log.Logger"/> pipeline. Any previously
+    /// configured pipeline is flushed and replaced.
     /// </summary>
-    /// <param name="logDirectory">Directory for the rolling log files. Defaults to the app's Logs folder.</param>
+    /// <param name="logDirectory">Directory for the per-session log file. Defaults to the app's Logs folder.</param>
     /// <param name="minimumLevel">The minimum level captured by the pipeline.</param>
-    public static void Initialize(string? logDirectory = null, LogEventLevel minimumLevel = LogEventLevel.Debug)
+    public static void Initialize(string? logDirectory = null, LogEventLevel minimumLevel = LogEventLevel.Verbose)
     {
-        if (Interlocked.Exchange(ref _initialized, 1) == 1)
-            return;
-
-        LogDirectory = logDirectory ?? GetDefaultLogDirectory();
-
-        var configuration = new LoggerConfiguration()
-            .MinimumLevel.Is(minimumLevel)
-            .Enrich.WithProperty("Application", ErrorLogger.ApplicationName)
-            .WriteTo.Debug(outputTemplate: OutputTemplate, formatProvider: CultureInfo.InvariantCulture)
-            // Forward warning+ events to the remote bug report API (user errors filtered inside the sink).
-            .WriteTo.Sink(new BugReportSink(), LogEventLevel.Warning);
-
-        try
+        lock (Lock)
         {
-            Directory.CreateDirectory(LogDirectory);
-            configuration = configuration.WriteTo.File(
-                Path.Combine(LogDirectory, "log-.txt"),
-                rollingInterval: RollingInterval.Day,
-                retainedFileCountLimit: 10,
-                shared: true,
-                outputTemplate: OutputTemplate,
-                formatProvider: CultureInfo.InvariantCulture);
-        }
-        catch (Exception ex)
-        {
-            // The rolling file is best-effort (e.g. read-only install directory). The rest of the
-            // pipeline (debug + API) still works without it.
-            System.Diagnostics.Debug.WriteLine($"AppLogger: failed to configure file sink: {ex.Message}");
-        }
+            // Re-configuring: tear down any previous pipeline first so the old file handle is released.
+            Log.CloseAndFlush();
 
-        Log.Logger = configuration.CreateLogger();
+            LogDirectory = logDirectory ?? GetDefaultLogDirectory();
+
+            var configuration = new LoggerConfiguration()
+                .MinimumLevel.Is(minimumLevel)
+                .Enrich.WithProperty("Application", ErrorLogger.ApplicationName)
+                .WriteTo.Debug(
+                    LogEventLevel.Information,
+                    OutputTemplate,
+                    CultureInfo.InvariantCulture)
+                // Forward warning+ events to the remote bug report API (user errors filtered inside the sink).
+                .WriteTo.Sink(new BugReportSink(), LogEventLevel.Warning);
+
+            string? logFilePath;
+            try
+            {
+                // Throws if 'LogDirectory' is actually an existing file or otherwise invalid.
+                Directory.CreateDirectory(LogDirectory);
+                logFilePath = Path.Combine(LogDirectory, $"debug_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.log");
+                configuration = configuration.WriteTo.File(
+                    logFilePath,
+                    outputTemplate: OutputTemplate,
+                    formatProvider: CultureInfo.InvariantCulture,
+                    buffered: false,
+                    shared: false);
+            }
+            catch (Exception ex)
+            {
+                // The file sink is best-effort (e.g. read-only install directory). The rest of the
+                // pipeline (debug + API) still works without it.
+                logFilePath = null;
+                System.Diagnostics.Debug.WriteLine($"AppLogger: failed to configure file sink: {ex.Message}");
+            }
+
+            Log.Logger = configuration.CreateLogger();
+            LogFilePath = logFilePath;
+            IsInitialized = logFilePath != null;
+        }
     }
 
     /// <summary>
@@ -66,7 +83,12 @@ public static class AppLogger
     /// </summary>
     public static void CloseAndFlush()
     {
-        Log.CloseAndFlush();
+        lock (Lock)
+        {
+            Log.CloseAndFlush();
+            IsInitialized = false;
+            LogFilePath = null;
+        }
     }
 
     private static string GetDefaultLogDirectory()

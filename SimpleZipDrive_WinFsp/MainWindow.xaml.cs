@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -10,6 +11,12 @@ namespace SimpleZipDrive_WinFsp;
 
 public partial class MainWindow : IDisposable
 {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern int TerminateProcess(nint hProcess, uint uExitCode);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern nint GetCurrentProcess();
+
     private readonly IMountService _mountService;
     private readonly ILoggingService _loggingService;
     private readonly IScreenshotService _screenshotService;
@@ -513,18 +520,24 @@ public partial class MainWindow : IDisposable
     {
         try
         {
-            Process.GetCurrentProcess().Kill();
+            // Terminate immediately with a success code. Like Process.Kill() this bypasses managed
+            // finalization that can otherwise hang on native filesystem driver threads, but reports
+            // exit code 0 instead of Kill()'s hardcoded -1.
+            if (TerminateProcess(GetCurrentProcess(), 0) != 0)
+                return;
         }
         catch
         {
-            try
-            {
-                Environment.Exit(0);
-            }
-            catch
-            {
-                Environment.FailFast(null);
-            }
+            // Fall through to the managed fallbacks below.
+        }
+
+        try
+        {
+            Environment.Exit(0);
+        }
+        catch
+        {
+            Environment.FailFast(null);
         }
     }
 

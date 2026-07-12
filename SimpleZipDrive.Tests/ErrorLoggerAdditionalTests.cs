@@ -3,7 +3,7 @@ using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests;
 
-[Collection("ErrorLogger")]
+[Collection("Logging")]
 public class ErrorLoggerAdditionalTests
 {
     // ─── IsUserError: DokanNet namespace exceptions ───
@@ -107,31 +107,6 @@ public class ErrorLoggerAdditionalTests
         Assert.True(result);
     }
 
-    // ─── FormatErrorMessage: no inner exception ───
-
-    [Fact]
-    public void FormatErrorMessage_NoInnerException_DoesNotIncludeInnerSection()
-    {
-        var ex = new InvalidOperationException("test error");
-        var result = ErrorLogger.FormatErrorMessage(ex, "test context");
-
-        Assert.DoesNotContain("Inner Exception", result);
-    }
-
-    // ─── FormatErrorMessage: with inner exception ───
-
-    [Fact]
-    public void FormatErrorMessage_WithInnerException_IncludesInnerSection()
-    {
-        var inner = new ArgumentException("inner cause");
-        var ex = new IOException("outer", inner);
-        var result = ErrorLogger.FormatErrorMessage(ex, "test context");
-
-        Assert.Contains("Inner Exception", result);
-        Assert.Contains("ArgumentException", result);
-        Assert.Contains("inner cause", result);
-    }
-
     // ─── GetEnvironmentDetails: includes bitness ───
 
     [Fact]
@@ -167,28 +142,18 @@ public class ErrorLoggerAdditionalTests
         Assert.Contains(Environment.ProcessorCount.ToString(CultureInfo.InvariantCulture), result);
     }
 
-    // ─── ReportSilentException: non-silent mode writes to console ───
+    // ─── ReportSilentException: does not throw ───
 
     [Fact]
-    public void ReportSilentException_NonSilent_WritesToConsole()
+    public void ReportSilentException_NonSilent_DoesNotThrow()
     {
-        using var logger = new ErrorLogger();
-        var originalError = Console.Error;
-        try
+        var thrown = Record.Exception(() =>
         {
-            using var capture = new StringWriter();
-            Console.SetError(capture);
-
+            using var logger = new ErrorLogger();
             logger.ReportSilentException(new InvalidOperationException("test"), "test context");
+        });
 
-            var output = capture.ToString();
-            Assert.Contains("SILENT EXCEPTION CAUGHT", output);
-            Assert.Contains("test context", output);
-        }
-        finally
-        {
-            Console.SetError(originalError);
-        }
+        Assert.Null(thrown);
     }
 
     // ─── ReportSilentException: silent mode does not write to console ───

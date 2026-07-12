@@ -1,33 +1,28 @@
 using System.Globalization;
-using Serilog;
-using Serilog.Core;
-using Serilog.Events;
+using SimpleZipDrive.Core.Logging;
 
 namespace SimpleZipDrive.Core;
 
 /// <summary>
-/// Provides structured, per-session debug logging backed by Serilog.
-/// Each session writes to a dedicated file (see <see cref="LogFilePath"/>) via a Serilog file sink,
-/// replacing the previous hand-rolled <see cref="StreamWriter"/> implementation.
+/// Convenience facade for writing structured diagnostic trace to the single global Serilog pipeline
+/// owned by <see cref="AppLogger"/>. Diagnostic lines are emitted at <see cref="Serilog.Events.LogEventLevel.Debug"/>
+/// and carry their own timestamp and thread id so the per-session trace remains readable.
 /// </summary>
 public static class DiagnosticLogger
 {
-    private const string OutputTemplate = "{DiagnosticLine:l}{NewLine}";
-
-    private static readonly object Lock = new();
-    internal static volatile bool Initialized;
-    private static Logger? _logger;
-
     /// <summary>Gets a value indicating whether diagnostic logging is enabled.</summary>
     public static bool IsEnabled { get; internal set; }
+
+    /// <summary>Gets a value indicating whether the underlying pipeline file sink was configured.</summary>
+    public static bool Initialized { get; internal set; }
 
     /// <summary>Gets the file path of the current diagnostic log, or <see langword="null"/> if not initialized.</summary>
     public static string? LogFilePath { get; internal set; }
 
     /// <summary>
-    /// Deletes all pre-existing log files (debug_*.log and error.log) from the application folder.
+    /// Deletes all pre-existing log files (debug_*.log and error.log) from the log directory.
     /// </summary>
-    /// <param name="logDir">Directory to clean. Defaults to the log directory under the system temp folder.</param>
+    /// <param name="logDir">Directory to clean. Defaults to the app's Logs folder.</param>
     public static void CleanupOldLogs(string? logDir = null)
     {
         var dir = logDir ?? GetDefaultLogDirectory();
@@ -70,70 +65,31 @@ public static class DiagnosticLogger
     }
 
     /// <summary>
-    /// Initializes the diagnostic logger with an optional directory and enabled flag.
+    /// Enables diagnostic logging and ensures the shared <see cref="AppLogger"/> pipeline is initialized.
     /// </summary>
-    /// <param name="logDir">Directory for the log file. Defaults to the log directory under the system temp folder.</param>
-    /// <param name="enabled">Whether logging is enabled.</param>
+    /// <param name="logDir">Directory for the log file. Defaults to the app's Logs folder.</param>
+    /// <param name="enabled">Whether diagnostic logging is enabled.</param>
     public static void Initialize(string? logDir = null, bool enabled = true)
     {
         IsEnabled = enabled;
-        if (!enabled) return;
-
-        var dir = logDir ?? GetDefaultLogDirectory();
-        try
-        {
-            // Throws if 'dir' is actually an existing file or otherwise invalid.
-            Directory.CreateDirectory(dir);
-            var logFilePath = Path.Combine(dir, $"debug_{DateTime.Now:yyyyMMdd_HHmmss}_{Guid.NewGuid():N}.log");
-
-            var logger = new LoggerConfiguration()
-                .MinimumLevel.Verbose()
-                .WriteTo.File(
-                    logFilePath,
-                    outputTemplate: OutputTemplate,
-                    formatProvider: CultureInfo.InvariantCulture,
-                    buffered: false,
-                    shared: false)
-                .CreateLogger();
-
-            lock (Lock)
-            {
-                DisposeLogger();
-                _logger = logger;
-                LogFilePath = logFilePath;
-            }
-
-            Initialized = true;
-        }
-        catch
+        if (!enabled)
         {
             Initialized = false;
+            LogFilePath = null;
+            return;
         }
+
+        AppLogger.Initialize(logDir);
+        LogFilePath = AppLogger.LogFilePath;
+        Initialized = AppLogger.IsInitialized;
     }
 
     /// <summary>
-    /// Closes the underlying log sink. Call during application shutdown.
+    /// Flushes and closes the underlying pipeline. Call during application shutdown.
     /// </summary>
     public static void Close()
     {
-        lock (Lock)
-        {
-            DisposeLogger();
-        }
-    }
-
-    private static void DisposeLogger()
-    {
-        try
-        {
-            _logger?.Dispose();
-        }
-        catch
-        {
-            // ignored
-        }
-
-        _logger = null;
+        AppLogger.CloseAndFlush();
     }
 
     /// <summary>
@@ -142,7 +98,7 @@ public static class DiagnosticLogger
     /// <param name="message">The message to log.</param>
     public static void Log(string message)
     {
-        if (!Initialized) return;
+        if (!IsEnabled) return;
 
         var timestamp = DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture);
         var threadId = Environment.CurrentManagedThreadId;
@@ -150,10 +106,7 @@ public static class DiagnosticLogger
 
         try
         {
-            lock (Lock)
-            {
-                _logger?.Write(LogEventLevel.Debug, "{DiagnosticLine}", line);
-            }
+            Serilog.Log.Debug("{DiagnosticLine}", line);
         }
         catch
         {

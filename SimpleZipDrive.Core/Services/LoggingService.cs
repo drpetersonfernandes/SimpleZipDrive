@@ -49,9 +49,9 @@ public class LoggingService : ILoggingService
 
         AddEntry(entry);
 
-        // Mirror to the Serilog pipeline at Warning so it is forwarded to the bug report API
+        // Mirror to the Serilog pipeline at Error so it is forwarded to the bug report API
         // (subject to the user-error filtering applied inside BugReportSink).
-        Serilog.Log.Warning("{LogMessage}", entry.Message);
+        Serilog.Log.Error("{LogMessage}", entry.Message);
     }
 
     /// <inheritdoc />

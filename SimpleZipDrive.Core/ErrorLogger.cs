@@ -4,6 +4,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
+using Serilog;
+using SimpleZipDrive.Core.Logging;
 
 namespace SimpleZipDrive.Core;
 
@@ -102,215 +104,109 @@ public class ErrorLogger : IDisposable
     /// </summary>
     /// <param name="ex">The exception that was caught.</param>
     /// <param name="context">Description of where/why the exception occurred.</param>
-    /// <param name="silent">If true, only logs to file without showing console output.</param>
+    /// <param name="silent">Retained for backwards compatibility; no longer affects behavior.</param>
     public void ReportSilentException(Exception ex, string context, bool silent = false)
     {
+        _ = silent;
         DiagnosticLogger.Log(ex, $"[SILENT] {context}");
+
+        // Route through the single Serilog pipeline at Warning. BugReportSink forwards the event to the
+        // remote API (expected user/environment errors are filtered out inside the sink).
         try
         {
-            var logContent = FormatErrorMessage(ex, $"[SILENT CATCH] {context}");
-
-            try
-            {
-                File.AppendAllText(ErrorLogFilePath, logContent, Encoding.UTF8);
-            }
-            catch (Exception writeEx)
-            {
-                WriteToCriticalLog(writeEx, $"Failed to write silent exception to log. Context: {context}");
-            }
-
-            if (!silent)
-            {
-                Console.Error.WriteLine($"\n{AppTheme.Section("SILENT EXCEPTION CAUGHT")}");
-                Console.Error.WriteLine($"Context: {context}");
-                Console.Error.WriteLine($"Exception: {ex.GetType().Name} - {ex.Message}");
-            }
-
-            // Send to API in background (don't block)
-            if (!IsUserError(ex))
-            {
-                FireAndForgetAsync(Task.Run(async () =>
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                    try
-                    {
-                        await SendLogToApiAsync(ex, $"[SILENT CATCH] {context}", cts.Token);
-                    }
-                    catch
-                    {
-                        // Ignore API failures for silent exceptions
-                    }
-                }));
-            }
+            Log.Warning(ex, "[SILENT] {Context}", context);
         }
         catch
         {
-            // Absolute last resort - ignore any failures in the reporting itself
+            // Logging must never throw.
         }
     }
 
     /// <summary>
-    /// Logs an error synchronously. This method blocks until logging is complete
-    /// and the API call has finished (or timed out after 30 seconds).
-    /// Use this when the application is about to exit or crash.
+    /// Logs an error synchronously. This method blocks until the API call has finished
+    /// (or timed out after 30 seconds). Use this when the application is about to exit or crash,
+    /// where the fire-and-forget <see cref="Logging.BugReportSink"/> could be lost before the process exits.
     /// </summary>
     /// <param name="ex">The exception to log.</param>
     /// <param name="contextMessage">Additional context about where the error occurred.</param>
     public void LogErrorSync(Exception? ex, string? contextMessage = null)
     {
         var originalWasNull = ex == null;
-        if (ex == null)
-        {
-            ex = new ArgumentNullException(nameof(ex), "ErrorLogger.LogErrorSync was called with a null exception object.");
-        }
-
+        ex ??= new ArgumentNullException(nameof(ex), "ErrorLogger.LogErrorSync was called with a null exception object.");
         contextMessage ??= "No additional context provided.";
 
         DiagnosticLogger.LogSection("ERROR (SYNC)");
         DiagnosticLogger.Log(ex, contextMessage);
 
-        // Log to console immediately (synchronously)
+        // Emit to the pipeline (file + UI) but suppress the sink's fire-and-forget forward: this path
+        // performs its own *synchronous* POST below so the crash report is not lost when the process exits.
         try
         {
-            Console.Error.WriteLine($"\n{AppTheme.Section("ERROR (SYNC)")}");
-            Console.Error.WriteLine($"Timestamp: {DateTime.Now}");
-            Console.Error.WriteLine($"Context: {contextMessage}");
-            Console.Error.WriteLine($"Exception Type: {ex.GetType().Name}");
-            Console.Error.WriteLine($"Exception Message: {ex.Message}");
-            Console.Error.WriteLine($"Stack Trace:\n{ex.StackTrace}");
-            Console.Error.WriteLine($"{AppTheme.Section("END ERROR (SYNC)")}\n");
+            Log.ForContext(BugReportSink.SkipProperty, true).Fatal(ex, "{Context}", contextMessage);
         }
-        catch (ObjectDisposedException)
+        catch
         {
-            // Console stream may be closed during shutdown or test teardown
+            // Logging must never throw.
         }
 
-        var logContent = FormatErrorMessage(ex, contextMessage);
+        if (originalWasNull || SuppressApiCalls || IsUserError(ex))
+            return;
 
+        // Synchronously wait for the API call to complete (with timeout). Using Task.Run avoids
+        // sync-over-async deadlocks in contexts that carry a synchronization context.
+        CancellationTokenSource? cts = null;
         try
         {
-            File.AppendAllText(ErrorLogFilePath, logContent, Encoding.UTF8);
-        }
-        catch (Exception writeEx)
-        {
+            cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            // ReSharper disable once AccessToDisposedClosure
+            var apiTask = Task.Run(async () => await SendLogToApiAsync(ex, contextMessage, cts.Token), cts.Token);
             try
             {
-                Console.Error.WriteLine($"Failed to write to local error log (sync): {writeEx.Message}");
+                apiTask.GetAwaiter().GetResult();
             }
-            catch (ObjectDisposedException)
+            catch (OperationCanceledException)
             {
+                // Timed out; the event is still captured locally in the session log.
             }
-
-            WriteToCriticalLog(writeEx, $"Failed to write main error to '{ErrorLogFilePath}'. Original error: {ex.Message}");
         }
-
-        // Synchronously wait for the async API call to complete (with timeout)
-        // This ensures exceptions are not lost if the app exits immediately after logging
-        // Using Task.Run to avoid sync-over-async deadlock issues in contexts with a synchronization context
-        if (!originalWasNull && !IsUserError(ex))
+        catch (Exception apiEx)
         {
-            CancellationTokenSource? cts = null;
-            try
-            {
-                cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-
-                // Offload to thread pool to avoid blocking the current synchronization context
-                // ReSharper disable once AccessToDisposedClosure
-                var apiTask = Task.Run(async () => await SendLogToApiAsync(ex, contextMessage, cts.Token), cts.Token);
-
-                try
-                {
-                    // Await the API task to get the result and propagate any exceptions
-                    var result = apiTask.GetAwaiter().GetResult();
-                    if (result)
-                    {
-                        LogToService("Error details successfully sent to remote logging service (from sync path).");
-                    }
-                    else
-                    {
-                        Console.Error.WriteLine("Failed to send error details to remote logging service (from sync path). Error is saved locally.");
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    Console.Error.WriteLine("Timeout: Failed to send error details to remote logging service (from sync path). Error is saved locally.");
-                }
-            }
-            catch (Exception apiEx)
-            {
-                WriteToCriticalLog(apiEx, "Exception in SendLogToApiAsync from LogErrorSync.");
-            }
-            finally
-            {
-                cts?.Dispose();
-            }
+            WriteToCriticalLog(apiEx, "Exception in SendLogToApiAsync from LogErrorSync.");
+        }
+        finally
+        {
+            cts?.Dispose();
         }
     }
 
     /// <summary>
-    /// Logs an error asynchronously. This method returns immediately and logs in the background.
-    /// Use this for normal error handling where the application continues running.
+    /// Logs an error asynchronously by routing it through the single Serilog pipeline.
+    /// <see cref="Logging.BugReportSink"/> forwards warning-and-above events to the remote API.
     /// </summary>
     /// <param name="ex">The exception to log.</param>
     /// <param name="contextMessage">Additional context about where the error occurred.</param>
-    /// <param name="cancellationToken">Cancellation token for the async operation.</param>
-    public async Task LogErrorAsync(Exception? ex, string? contextMessage = null, CancellationToken cancellationToken = default)
+    /// <param name="cancellationToken">Unused; retained for backwards compatibility.</param>
+    public Task LogErrorAsync(Exception? ex, string? contextMessage = null, CancellationToken cancellationToken = default)
     {
+        _ = cancellationToken;
         var originalWasNull = ex == null;
-        if (ex == null)
-        {
-            ex = new ArgumentNullException(nameof(ex), "ErrorLogger.LogErrorAsync was called with a null exception object.");
-        }
-
+        ex ??= new ArgumentNullException(nameof(ex), "ErrorLogger.LogErrorAsync was called with a null exception object.");
         contextMessage ??= "No additional context provided.";
 
-        // Log to console immediately
         try
         {
-            await Console.Error.WriteLineAsync($"\n{AppTheme.Section("ERROR (ASYNC)")}");
-            await Console.Error.WriteLineAsync($"Timestamp: {DateTime.Now}");
-            await Console.Error.WriteLineAsync($"Context: {contextMessage}");
-            await Console.Error.WriteLineAsync($"Exception Type: {ex.GetType().Name}");
-            await Console.Error.WriteLineAsync($"Exception Message: {ex.Message}");
-            await Console.Error.WriteLineAsync($"Stack Trace:\n{ex.StackTrace}");
-            await Console.Error.WriteLineAsync($"{AppTheme.Section("END ERROR (ASYNC)")}\n");
-        }
-        catch (ObjectDisposedException)
-        {
-            // Console stream may be closed during shutdown or test teardown
-        }
-
-        var logContent = FormatErrorMessage(ex, contextMessage);
-
-        try
-        {
-            await File.AppendAllTextAsync(ErrorLogFilePath, logContent, Encoding.UTF8, cancellationToken);
-        }
-        catch (Exception writeEx)
-        {
-            try
-            {
-                await Console.Error.WriteLineAsync($"Failed to write to local error log (async): {writeEx.Message}");
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-
-            WriteToCriticalLog(writeEx, $"Failed to write main error to '{ErrorLogFilePath}'. Original error: {ex.Message}");
-        }
-
-        if (!originalWasNull && !IsUserError(ex))
-        {
-            var sent = await SendLogToApiAsync(ex, contextMessage, cancellationToken);
-            if (sent)
-            {
-                LogToService("Error details successfully sent to remote logging service (async path).");
-            }
+            // A null exception is a caller bug, not an app error worth reporting: log it but skip the API.
+            if (originalWasNull)
+                Log.ForContext(BugReportSink.SkipProperty, true).Error(ex, "{Context}", contextMessage);
             else
-            {
-                await Console.Error.WriteLineAsync("Failed to send error details to remote logging service (async path). Error is saved locally.");
-            }
+                Log.Error(ex, "{Context}", contextMessage);
         }
+        catch
+        {
+            // Logging must never throw.
+        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -328,57 +224,12 @@ public class ErrorLogger : IDisposable
         }
     }
 
-    /// <summary>
-    /// Logs a message to the logging service if available, otherwise falls back to console.
-    /// </summary>
-    private static void LogToService(string message)
-    {
-        try
-        {
-            var loggingService = ServiceProvider.TryGet<ILoggingService>();
-            loggingService?.Log(message);
-        }
-        catch
-        {
-            // Ignore logging failures
-        }
-    }
-
     private static (string Version, string OsDescription, string OsArchitecture) GetBasicEnvironmentInfo()
     {
         var version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "Unknown";
         var osDescription = RuntimeInformation.OSDescription;
         var osArchitecture = RuntimeInformation.OSArchitecture.ToString();
         return (version, osDescription, osArchitecture);
-    }
-
-    internal static string FormatErrorMessage(Exception ex, string contextMessage)
-    {
-        var (version, osDescription, osArchitecture) = GetBasicEnvironmentInfo();
-        var frameworkDescription = RuntimeInformation.FrameworkDescription;
-
-        var fullErrorMessage = new StringBuilder();
-        fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Timestamp: {DateTime.Now:yyyy-MM-dd HH:mm:ss zzz}");
-        fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Application: {ApplicationName}");
-        fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Version: {version}");
-        fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Context: {contextMessage}");
-        fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"OS: {osDescription}");
-        fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"OS Architecture: {osArchitecture}");
-        fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Framework: {frameworkDescription}");
-        fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Exception Type: {ex.GetType().Name}");
-        fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Exception Message: {ex.Message}");
-        fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"\n{AppTheme.Section("Stack Trace")}");
-        fullErrorMessage.AppendLine(ex.StackTrace);
-        if (ex.InnerException != null)
-        {
-            fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"\n{AppTheme.Section("Inner Exception")}");
-            fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Type: {ex.InnerException.GetType().Name}");
-            fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Message: {ex.InnerException.Message}");
-            fullErrorMessage.AppendLine(CultureInfo.InvariantCulture, $"Stack Trace:\n{ex.InnerException.StackTrace}");
-        }
-
-        fullErrorMessage.AppendLine(AppTheme.LogEntrySeparator);
-        return fullErrorMessage.ToString();
     }
 
     internal string GetEnvironmentDetails()

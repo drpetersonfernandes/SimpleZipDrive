@@ -2,7 +2,7 @@ using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests;
 
-[Collection("ErrorLogger")]
+[Collection("Logging")]
 public class ErrorLoggerStaticAdditionalTests
 {
     // ─── ReportSilentException: non-silent mode ───

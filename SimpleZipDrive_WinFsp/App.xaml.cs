@@ -1,7 +1,5 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Channels;
 using System.Windows;
 using SimpleZipDrive.Core.Logging;
 using SimpleZipDrive_WinFsp.Services;
@@ -28,7 +26,6 @@ public partial class App
 
             DiagnosticLogger.CleanupOldLogs();
             DiagnosticLogger.Initialize();
-            AppLogger.Initialize();
             DiagnosticLogger.LogSection("APPLICATION STARTUP");
             DiagnosticLogger.Log($"  Version: {Assembly.GetExecutingAssembly().GetName().Version}");
             DiagnosticLogger.Log($"  Arguments: [{string.Join(", ", StartupArgs)}]");
@@ -286,7 +283,6 @@ public partial class App
         try
         {
             AppLogger.CloseAndFlush();
-            DiagnosticLogger.Close();
         }
         catch (Exception ex)
         {
@@ -305,141 +301,5 @@ public partial class App
         }
 
         base.OnExit(e);
-    }
-}
-
-internal class LogTextWriter : TextWriter
-{
-    public override Encoding Encoding => Encoding.UTF8;
-
-    private readonly Channel<string> _channel;
-    private readonly CancellationTokenSource _cts = new();
-    private readonly Task _processingTask;
-    private readonly TextWriter? _fallbackWriter;
-
-    public LogTextWriter(TextWriter? fallbackWriter = null)
-    {
-        _fallbackWriter = fallbackWriter;
-
-        _channel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
-        {
-            SingleReader = true,
-            SingleWriter = false
-        });
-
-        _processingTask = ProcessMessagesAsync(_cts.Token);
-    }
-
-    public override void Write(char value)
-    {
-        _channel.Writer.TryWrite(value.ToString());
-    }
-
-    public override void Write(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return;
-
-        _channel.Writer.TryWrite(value);
-    }
-
-    public override void Write(char[] buffer, int index, int count)
-    {
-        if (count <= 0) return;
-
-        _channel.Writer.TryWrite(new string(buffer, index, count));
-    }
-
-    public override void WriteLine()
-    {
-        _channel.Writer.TryWrite(CoreNewLine.ToString() ?? Environment.NewLine);
-        _channel.Writer.TryWrite(string.Empty);
-    }
-
-    public override void WriteLine(string? value)
-    {
-        _channel.Writer.TryWrite(string.Concat(value, CoreNewLine));
-        _channel.Writer.TryWrite(string.Empty);
-    }
-
-    public override void WriteLine(ReadOnlySpan<char> value)
-    {
-        _channel.Writer.TryWrite(string.Concat(value, CoreNewLine));
-        _channel.Writer.TryWrite(string.Empty);
-    }
-
-    private async Task ProcessMessagesAsync(CancellationToken cancellationToken)
-    {
-        var buffer = new StringBuilder();
-
-        try
-        {
-            await foreach (var message in _channel.Reader.ReadAllAsync(cancellationToken))
-            {
-                if (message.Length == 0)
-                {
-                    FlushBufferToLog(buffer);
-                    buffer.Clear();
-                }
-                else
-                {
-                    buffer.Append(message);
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        finally
-        {
-            if (buffer.Length > 0)
-            {
-                FlushBufferToLog(buffer);
-            }
-        }
-    }
-
-    private void FlushBufferToLog(StringBuilder buffer)
-    {
-        if (buffer.Length == 0) return;
-
-        var message = buffer.ToString().TrimEnd('\r', '\n');
-        if (string.IsNullOrWhiteSpace(message)) return;
-
-        DiagnosticLogger.Log($"[Console] {message}");
-
-        var loggingService = ServiceProvider.TryGet<ILoggingService>();
-        if (loggingService != null)
-        {
-            loggingService.Log(message);
-        }
-        else
-        {
-            _fallbackWriter?.WriteLine(message);
-        }
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            _channel.Writer.Complete();
-
-            try
-            {
-                if (!_processingTask.Wait(TimeSpan.FromSeconds(2)))
-                {
-                    _cts.Cancel();
-                    _processingTask.Wait(TimeSpan.FromMilliseconds(500));
-                }
-            }
-            catch (Exception ex)
-            {
-                ErrorLoggerStatic.ReportSilentException(ex, "LogTextWriter.Dispose: Processing task wait failed", true);
-            }
-
-            _cts.Dispose();
-        }
-
-        base.Dispose(disposing);
     }
 }

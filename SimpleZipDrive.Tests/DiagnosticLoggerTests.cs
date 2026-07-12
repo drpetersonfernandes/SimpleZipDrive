@@ -3,7 +3,7 @@ using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests;
 
-[Collection("DiagnosticLogger")]
+[Collection("Logging")]
 [SuppressMessage("ReSharper", "NullableWarningSuppressionIsUsed")]
 public class DiagnosticLoggerTests
 {

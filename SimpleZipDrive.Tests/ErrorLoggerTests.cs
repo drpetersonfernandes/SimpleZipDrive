@@ -3,7 +3,7 @@ using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests;
 
-[Collection("ErrorLogger")]
+[Collection("Logging")]
 public class ErrorLoggerTests : IDisposable
 {
     private readonly ErrorLogger _errorLogger;
@@ -35,88 +35,69 @@ public class ErrorLoggerTests : IDisposable
     }
 
     [Fact]
-    public void LogErrorSyncUserErrorWritesToLogFile()
+    public void LogErrorSyncUserError_DoesNotThrowAndWritesNoLocalFile()
     {
         var ex = new FileNotFoundException("test file missing");
-        _errorLogger.LogErrorSync(ex, "test context");
+        var thrown = Record.Exception(() => _errorLogger.LogErrorSync(ex, "test context"));
 
-        Assert.True(File.Exists(_tempLogFilePath));
-        var content = File.ReadAllText(_tempLogFilePath);
-        Assert.Contains("test file missing", content);
-        Assert.Contains("test context", content);
-        Assert.Contains("FileNotFoundException", content);
+        Assert.Null(thrown);
+        // error.log has been retired in favor of the single Serilog session log.
+        Assert.False(File.Exists(_tempLogFilePath));
     }
 
     [Fact]
-    public void LogErrorSyncNullExceptionCreatesPlaceholder()
+    public void LogErrorSyncNullException_DoesNotThrow()
     {
-        _errorLogger.LogErrorSync(null, "null test");
+        var thrown = Record.Exception(() => _errorLogger.LogErrorSync(null, "null test"));
 
-        Assert.True(File.Exists(_tempLogFilePath));
-        var content = File.ReadAllText(_tempLogFilePath);
-        Assert.Contains("null exception object", content);
-        Assert.Contains("null test", content);
+        Assert.Null(thrown);
+        Assert.False(File.Exists(_tempLogFilePath));
     }
 
     [Fact]
-    public async Task LogErrorAsyncUserErrorWritesToLogFileAsync()
+    public async Task LogErrorAsyncUserError_DoesNotThrowAsync()
     {
         var ex = new DirectoryNotFoundException("test dir missing");
-        await _errorLogger.LogErrorAsync(ex, "async test");
+        var thrown = await Record.ExceptionAsync(() => _errorLogger.LogErrorAsync(ex, "async test"));
 
-        Assert.True(File.Exists(_tempLogFilePath));
-        var content = await File.ReadAllTextAsync(_tempLogFilePath);
-        Assert.Contains("test dir missing", content);
-        Assert.Contains("async test", content);
-        Assert.Contains("DirectoryNotFoundException", content);
+        Assert.Null(thrown);
+        Assert.False(File.Exists(_tempLogFilePath));
     }
 
     [Fact]
-    public void LogErrorSyncNullContextWritesDefault()
+    public void LogErrorSyncNullContext_DoesNotThrow()
     {
         var ex = new FileNotFoundException("test");
-        _errorLogger.LogErrorSync(ex);
+        var thrown = Record.Exception(() => _errorLogger.LogErrorSync(ex));
 
-        Assert.True(File.Exists(_tempLogFilePath));
-        var content = File.ReadAllText(_tempLogFilePath);
-        Assert.Contains("No additional context provided.", content);
+        Assert.Null(thrown);
     }
 
     [Fact]
-    public async Task LogErrorAsyncNullContextWritesDefaultAsync()
+    public async Task LogErrorAsyncNullContext_DoesNotThrowAsync()
     {
         var ex = new FileNotFoundException("test");
-        await _errorLogger.LogErrorAsync(ex);
+        var thrown = await Record.ExceptionAsync(() => _errorLogger.LogErrorAsync(ex));
 
-        Assert.True(File.Exists(_tempLogFilePath));
-        var content = await File.ReadAllTextAsync(_tempLogFilePath);
-        Assert.Contains("No additional context provided.", content);
+        Assert.Null(thrown);
     }
 
     [Fact]
-    public void LogErrorSyncWithInnerExceptionIncludesInnerDetails()
+    public void LogErrorSyncWithInnerException_DoesNotThrow()
     {
         var inner = new InvalidOperationException("inner cause");
         var outer = new IOException("outer error", inner);
-        _errorLogger.LogErrorSync(outer, "inner test");
+        var thrown = Record.Exception(() => _errorLogger.LogErrorSync(outer, "inner test"));
 
-        Assert.True(File.Exists(_tempLogFilePath));
-        var content = File.ReadAllText(_tempLogFilePath);
-        Assert.Contains("outer error", content);
-        Assert.Contains("inner cause", content);
-        Assert.Contains("Inner Exception", content);
-        Assert.Contains("InvalidOperationException", content);
+        Assert.Null(thrown);
     }
 
     [Fact]
-    public async Task LogErrorAsyncNullExceptionCreatesPlaceholderAsync()
+    public async Task LogErrorAsyncNullException_DoesNotThrowAsync()
     {
-        await _errorLogger.LogErrorAsync(null, "async null test");
+        var thrown = await Record.ExceptionAsync(() => _errorLogger.LogErrorAsync(null, "async null test"));
 
-        Assert.True(File.Exists(_tempLogFilePath));
-        var content = await File.ReadAllTextAsync(_tempLogFilePath);
-        Assert.Contains("null exception object", content);
-        Assert.Contains("async null test", content);
+        Assert.Null(thrown);
     }
 
     [Fact]
@@ -408,32 +389,6 @@ public class ErrorLoggerTests : IDisposable
     }
 
     [Fact]
-    public void FormatErrorMessage_ContainsAllSections()
-    {
-        var ex = new InvalidOperationException("format test error");
-        var result = ErrorLogger.FormatErrorMessage(ex, "format context");
-        Assert.NotNull(result);
-        Assert.Contains("Timestamp", result);
-        Assert.Contains("Application:", result);
-        Assert.Contains("Context: format context", result);
-        Assert.Contains("InvalidOperationException", result);
-        Assert.Contains("format test error", result);
-        Assert.Contains("Stack Trace", result);
-    }
-
-    [Fact]
-    public void FormatErrorMessage_WithInnerException_IncludesInnerDetails()
-    {
-        var inner = new InvalidOperationException("inner cause");
-        var ex = new IOException("outer", inner);
-        var result = ErrorLogger.FormatErrorMessage(ex, "inner test");
-        Assert.NotNull(result);
-        Assert.Contains("Inner Exception", result);
-        Assert.Contains("InvalidOperationException", result);
-        Assert.Contains("inner cause", result);
-    }
-
-    [Fact]
     public void WriteToCriticalLog_WritesToConsoleError()
     {
         var originalError = Console.Error;
@@ -458,38 +413,21 @@ public class ErrorLoggerTests : IDisposable
     }
 
     [Fact]
-    public void LogErrorSync_WritesToConfiguredFilePath()
+    public void LogErrorSync_UserError_DoesNotWriteLocalFile()
     {
         var ex = new FileNotFoundException("custom path test");
         _errorLogger.LogErrorSync(ex, "path test");
 
-        Assert.True(File.Exists(_tempLogFilePath));
-        var content = File.ReadAllText(_tempLogFilePath);
-        Assert.Contains("custom path test", content);
-        Assert.Contains("path test", content);
+        Assert.False(File.Exists(_tempLogFilePath));
     }
 
     [Fact]
     public void ErrorLogFilePath_IsConfigurable()
     {
         var customPath = Path.Combine(Path.GetTempPath(), $"custom_{Guid.NewGuid()}.log");
-        try
-        {
-            using var logger = new ErrorLogger(customPath);
-            logger.LogErrorSync(new IOException("custom"), "test");
-            Assert.True(File.Exists(customPath));
-        }
-        finally
-        {
-            try
-            {
-                File.Delete(customPath);
-            }
-            catch
-            {
-                // ignored
-            }
-        }
+        using var logger = new ErrorLogger(customPath);
+
+        Assert.Equal(customPath, logger.ErrorLogFilePath);
     }
 
     [Fact]

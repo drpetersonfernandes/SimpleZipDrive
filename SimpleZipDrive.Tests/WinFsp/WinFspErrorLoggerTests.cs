@@ -3,7 +3,7 @@ using WinFspErrorLoggerStatic = SimpleZipDrive.Core.ErrorLoggerStatic;
 
 namespace SimpleZipDrive.Tests.WinFsp;
 
-[Collection("ErrorLogger")]
+[Collection("Logging")]
 public class WinFspErrorLoggerTests : IDisposable
 {
     private readonly WinFspErrorLogger _logger;
@@ -215,32 +215,6 @@ public class WinFspErrorLoggerTests : IDisposable
         Assert.Contains("=== Environment Details ===", result);
     }
 
-    // ─── FormatErrorMessage tests (private, via reflection) ───
-
-    [Fact]
-    public void FormatErrorMessage_ReturnsFormattedString()
-    {
-        var result = WinFspErrorLogger.FormatErrorMessage(new InvalidOperationException("Format test"), "Test context");
-
-        Assert.NotNull(result);
-        Assert.Contains("Exception Type:", result);
-        Assert.Contains("Format test", result);
-        Assert.Contains("Test context", result);
-    }
-
-    [Fact]
-    public void FormatErrorMessage_WithInnerException_IncludesInnerDetails()
-    {
-        var inner = new ArgumentException("Inner exception");
-        var ex = new InvalidOperationException("Outer", inner);
-        var result = WinFspErrorLogger.FormatErrorMessage(ex, "Inner exception test");
-
-        Assert.NotNull(result);
-        Assert.Contains("Inner Exception", result);
-        Assert.Contains("ArgumentException", result);
-        Assert.Contains("Inner exception", result);
-    }
-
     [Fact]
     public void Dispose_DoubleDispose_DoesNotThrow()
     {
@@ -272,6 +246,7 @@ public class WinFspErrorLoggerTests : IDisposable
     }
 }
 
+[Collection("Logging")]
 public class WinFspErrorLoggerStaticTests
 {
     [Fact]

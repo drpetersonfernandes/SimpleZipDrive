@@ -2,6 +2,7 @@ using SimpleZipDrive.Core;
 
 namespace SimpleZipDrive.Tests;
 
+[Collection("Logging")]
 public class ErrorLoggerStaticTests
 {
     [Fact]
