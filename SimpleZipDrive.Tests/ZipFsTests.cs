@@ -492,6 +492,29 @@ public class ZipFsTests : IDisposable
     }
 
     [Fact]
+    public void ReadFilePagingIoWithoutContextReadsOnDemand()
+    {
+        var info = new FakeDokanFileInfo { Context = null, PagingIo = true };
+        var buffer = new byte[100];
+        var result = _zipFs.ReadFile("\\readme.txt", buffer, out var bytesRead, 0, info);
+
+        Assert.Equal(DokanResult.Success, result);
+        Assert.Equal(Encoding.UTF8.GetByteCount("Hello World"), bytesRead);
+        Assert.Equal("Hello World", Encoding.UTF8.GetString(buffer, 0, bytesRead));
+    }
+
+    [Fact]
+    public void ReadFilePagingIoWithoutContextForMissingEntryReturnsInvalidHandle()
+    {
+        var info = new FakeDokanFileInfo { Context = null, PagingIo = true };
+        var buffer = new byte[100];
+        var result = _zipFs.ReadFile("\\does-not-exist.txt", buffer, out var bytesRead, 0, info);
+
+        Assert.Equal(DokanResult.InvalidHandle, result);
+        Assert.Equal(0, bytesRead);
+    }
+
+    [Fact]
     public void ReadFileAtEofReturnsSuccessZeroBytes()
     {
         var info = new FakeDokanFileInfo();

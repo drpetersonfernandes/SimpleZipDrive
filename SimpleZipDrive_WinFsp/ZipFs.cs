@@ -350,7 +350,10 @@ public sealed class ZipFs : FileSystemBase, IDisposable
 
         if (FileDesc is not Stream stream)
         {
-            return STATUS_INVALID_HANDLE;
+            // The file descriptor did not carry the entry stream created during open.
+            // Fall back to a transient on-demand read so paging I/O (e.g. thumbnail
+            // generation via memory-mapped reads) does not fail with STATUS_INVALID_HANDLE.
+            return ReadOnDemand(FileNode, Buffer, Offset, Length, out BytesTransferred);
         }
 
         try
@@ -377,6 +380,60 @@ public sealed class ZipFs : FileSystemBase, IDisposable
             DiagnosticLogger.LogOperation("Read", $"Offset={Offset}, Length={Length}", STATUS_UNSUCCESSFUL, $"{ex.GetType().Name}: {ex.Message}");
             _logErrorAction(ex, $"ZipFs.Read: EXCEPTION reading from stream, Offset={Offset}.");
             return STATUS_UNSUCCESSFUL;
+        }
+    }
+
+    private int ReadOnDemand(object fileNode, IntPtr buffer, ulong offset, uint length, out uint bytesTransferred)
+    {
+        bytesTransferred = 0;
+
+        if (fileNode is not EntryNode { IsDir: false, Entry: not null } node)
+        {
+            DiagnosticLogger.LogOperation("Read", "?", STATUS_INVALID_HANDLE, "FileDesc is not a Stream and FileNode has no entry for on-demand read");
+            return STATUS_INVALID_HANDLE;
+        }
+
+        var normalizedPath = node.NormalizedPath;
+        if (Core.IsFailedEntry(normalizedPath))
+        {
+            return STATUS_UNSUCCESSFUL;
+        }
+
+        Stream? transientStream = null;
+        try
+        {
+            transientStream = Core.OpenEntryStream(node.Entry, normalizedPath);
+            if (transientStream == null)
+            {
+                return STATUS_UNSUCCESSFUL;
+            }
+
+            var readBuffer = ArrayPool<byte>.Shared.Rent((int)length);
+            try
+            {
+                var read = Core.ReadStream(transientStream, (long)offset, readBuffer, 0, (int)length);
+                if (read > 0)
+                {
+                    Marshal.Copy(readBuffer, 0, buffer, read);
+                }
+
+                bytesTransferred = (uint)read;
+                return STATUS_SUCCESS;
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(readBuffer);
+            }
+        }
+        catch (Exception ex)
+        {
+            DiagnosticLogger.LogOperation("Read", $"Offset={offset}, Length={length}", STATUS_UNSUCCESSFUL, $"on-demand {ex.GetType().Name}: {ex.Message}");
+            _logErrorAction(ex, $"ZipFs.Read: EXCEPTION during on-demand read for '{normalizedPath}', Offset={offset}.");
+            return STATUS_UNSUCCESSFUL;
+        }
+        finally
+        {
+            transientStream?.Dispose();
         }
     }
 

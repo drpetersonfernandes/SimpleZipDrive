@@ -5,7 +5,8 @@
         MinHeight="400" MinWidth="500"
         WindowStartupLocation="CenterScreen"
         Style="{StaticResource ModernWindowStyle}"
-        Closing="MainWindow_Closing">
+        Closing="MainWindow_Closing"
+        KeyDown="Window_KeyDown">
 
     <Grid>
         <Grid.RowDefinitions>

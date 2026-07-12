@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Threading;
 using SimpleZipDrive_WinFsp.Views;
 
@@ -11,6 +12,7 @@ public partial class MainWindow : IDisposable
 {
     private readonly IMountService _mountService;
     private readonly ILoggingService _loggingService;
+    private readonly IScreenshotService _screenshotService;
     private int _isShuttingDown;
     private static volatile bool _shutdownCompleted;
 
@@ -20,6 +22,7 @@ public partial class MainWindow : IDisposable
 
         _mountService = ServiceProvider.Get<IMountService>();
         _loggingService = ServiceProvider.Get<ILoggingService>();
+        _screenshotService = ServiceProvider.Get<IScreenshotService>();
 
         _mountService.MountStatusChanged += OnMountStatusChanged;
 
@@ -213,6 +216,40 @@ public partial class MainWindow : IDisposable
     private void Exit_Click(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private void Window_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.F8) return;
+
+        e.Handled = true;
+        TakeScreenshot();
+    }
+
+    private void TakeScreenshot()
+    {
+        try
+        {
+            var result = _screenshotService.CaptureActiveWindow();
+            if (result.Success)
+            {
+                StatusText.Text = $"Screenshot saved: {result.FilePath}";
+            }
+            else
+            {
+                StatusText.Text = "Screenshot failed.";
+                MessageBox.Show(
+                    "The screenshot could not be saved due to write permission issues.",
+                    "Screenshot Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorLoggerStatic.ReportSilentException(ex, "MainWindow.TakeScreenshot: Failed to capture screenshot");
+            MessageBox.Show(
+                "The screenshot could not be saved due to write permission issues.",
+                "Screenshot Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
     }
 
     private async void Mount_ClickAsync(object sender, RoutedEventArgs e)

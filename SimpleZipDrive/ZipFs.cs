@@ -292,25 +292,78 @@ public class ZipFs : IDokanOperations, IDisposable
         if (pathValidationResult != DokanResult.Success)
             return pathValidationResult;
 
-        var normalizedPath = ZipFsHelpers.NormalizePath(fileName);
+        Core.TryResolvePath(fileName, out var normalizedPath);
 
-        if (info.Context is not Stream stream)
+        // Fast path: the per-handle stream created in CreateFile is available.
+        if (info.Context is Stream stream)
+        {
+            try
+            {
+                bytesRead = Core.ReadStream(stream, offset, buffer, 0, buffer.Length);
+                return DokanResult.Success;
+            }
+            catch (Exception ex)
+            {
+                _logErrorAction(ex, $"ZipFs.ReadFile: EXCEPTION reading from stream for '{normalizedPath}', Offset={offset}.");
+                return DokanResult.Error;
+            }
+        }
+
+        // No per-handle stream in the context. During paging I/O this is expected — for
+        // example, when Windows Explorer generates thumbnails via memory-mapped reads it
+        // issues ReadFile on a file object that was never routed through CreateFile. Rather
+        // than failing the read (which corrupts thumbnails/previews), open a transient
+        // stream for the entry, satisfy this read, then dispose it. This mirrors the Dokan
+        // mirror sample's handling of a missing handle context during paging I/O.
+        if (info.PagingIo)
+        {
+            return ReadFileOnDemand(normalizedPath, buffer, out bytesRead, offset);
+        }
+
+        _logErrorAction(
+            new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context did not contain a Stream and the read was not paging I/O. The handle may have already been closed."),
+            "ZipFs.ReadFile: Context is not a Stream - handle already cleaned up.");
+        return DokanResult.InvalidHandle;
+    }
+
+    private NtStatus ReadFileOnDemand(string normalizedPath, byte[] buffer, out int bytesRead, long offset)
+    {
+        bytesRead = 0;
+
+        var node = Core.GetEntryNode(normalizedPath);
+        if (node is not { IsDir: false, Entry: not null })
         {
             _logErrorAction(
-                new InvalidOperationException($"ReadFile called for '{normalizedPath}' but info.Context was null. This indicates CloseFile was already called."),
-                "ZipFs.ReadFile: Context is null - handle already cleaned up.");
+                new InvalidOperationException($"ReadFile called for '{normalizedPath}' without a handle context and the entry could not be resolved for an on-demand read."),
+                "ZipFs.ReadFile: Missing context and entry not found.");
             return DokanResult.InvalidHandle;
         }
 
+        if (Core.IsFailedEntry(normalizedPath))
+        {
+            return DokanResult.Error;
+        }
+
+        Stream? transientStream = null;
         try
         {
-            bytesRead = Core.ReadStream(stream, offset, buffer, 0, buffer.Length);
+            transientStream = Core.OpenEntryStream(node.Entry, normalizedPath);
+            if (transientStream == null)
+            {
+                return DokanResult.Error;
+            }
+
+            bytesRead = Core.ReadStream(transientStream, offset, buffer, 0, buffer.Length);
             return DokanResult.Success;
         }
         catch (Exception ex)
         {
-            _logErrorAction(ex, $"ZipFs.ReadFile: EXCEPTION reading from stream for '{normalizedPath}', Offset={offset}.");
+            _logErrorAction(ex, $"ZipFs.ReadFile: EXCEPTION during on-demand read for '{normalizedPath}', Offset={offset}.");
             return DokanResult.Error;
+        }
+        finally
+        {
+            transientStream?.Dispose();
         }
     }
 

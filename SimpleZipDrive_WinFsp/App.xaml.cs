@@ -175,6 +175,9 @@ public partial class App
         var userNotificationService = new UserNotificationService(loggingService);
         ServiceProvider.Register<IUserNotificationService>(userNotificationService);
 
+        var screenshotService = new ScreenshotService(loggingService);
+        ServiceProvider.Register<IScreenshotService>(screenshotService);
+
         var updateService = new UpdateService(userNotificationService);
         ServiceProvider.Register<IUpdateService>(updateService);
 
