@@ -5,8 +5,8 @@
         <UseWPF>true</UseWPF>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <AssemblyVersion>2.7.0</AssemblyVersion>
-        <FileVersion>2.7.0</FileVersion>
+        <AssemblyVersion>2.7.1</AssemblyVersion>
+        <FileVersion>2.7.1</FileVersion>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <ApplicationManifest>app.manifest</ApplicationManifest>
         <DebugType>embedded</DebugType>
