@@ -33,8 +33,9 @@ Unlike traditional archive utilities that extract the entire archive to a tempor
 *   **Configurable Mount Type:** Open `Settings` to choose the default mount type: **Drive Letter** (auto-selects M-Q) or **Folder** (browse for an NTFS directory). You can also use `File > Mount as Drive Letter` or `File > Mount as Folder` for one-time selection.
 *   **Encrypted Archive Support:** Prompts for passwords when accessing protected archives.
 *   **Cross-Integrity Mount (WinFsp):** When enabled in Settings, mounts archives to a folder path with a permissive security descriptor so that both standard and elevated (Administrator) processes can access the mounted drive. When SimpleZipDrive_WinFsp runs as Administrator, this mode is automatically enforced. Drive letter mounts remain isolated by Windows UAC — this is an OS limitation, not a WinFsp limitation.
+*   **Screenshot Capture:** Press `F8` at any time to capture the active window and save it as a PNG in the `Screenshot` folder next to the application — handy for attaching visuals to bug reports.
 *   **Automated Maintenance:** Integrated update checker (with MessageBox prompt before opening the browser) and automatic cleanup of temporary cache files upon unmounting. Also cleans up orphaned temp directories from previous sessions on startup.
-*   **Enterprise Logging:** Comprehensive error tracking with local log rotation and remote diagnostic reporting.
+*   **Enterprise Logging:** Comprehensive error tracking via a unified per-session log file and remote diagnostic reporting.
 
 ---
 
@@ -108,6 +109,9 @@ SimpleZipDrive.exe <PathToArchiveFile> <MountPoint>
 To safely unmount the drive and clean up temporary resources:
 1.  Click the **Unmount** button in the toolbar.
 2.  Alternatively, close the application window.
+
+### Capturing a Screenshot
+Press `F8` at any time to capture the active window. The image is saved as a PNG in the `Screenshot` folder located next to the application executable. A status message confirms the saved file path.
 
 ---
 
