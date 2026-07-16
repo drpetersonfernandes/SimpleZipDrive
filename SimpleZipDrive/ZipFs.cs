@@ -91,6 +91,14 @@ public class ZipFs : IDokanOperations, IDisposable
                 return DokanResult.Error;
             }
 
+            if (node.Entry == null)
+            {
+                _logErrorAction(
+                    new InvalidOperationException($"ZipFs.CreateFile: node.Entry is null for non-directory '{normalizedPath}'. This indicates a corrupted archive entry or a race condition."),
+                    "ZipFs.CreateFile: Null entry for non-directory node.");
+                return DokanResult.Error;
+            }
+
             switch (mode)
             {
                 case FileMode.Open:
@@ -304,7 +312,8 @@ public class ZipFs : IDokanOperations, IDisposable
             }
             catch (Exception ex)
             {
-                _logErrorAction(ex, $"ZipFs.ReadFile: EXCEPTION reading from stream for '{normalizedPath}', Offset={offset}.");
+                Core.AddFailedEntry(normalizedPath);
+                _logErrorAction(ex, $"ZipFs.ReadFile: EXCEPTION reading from stream for '{normalizedPath}', Offset={offset}. Entry marked as failed.");
                 return DokanResult.Error;
             }
         }
@@ -351,7 +360,8 @@ public class ZipFs : IDokanOperations, IDisposable
         }
         catch (Exception ex)
         {
-            _logErrorAction(ex, $"ZipFs.ReadFile: EXCEPTION during on-demand read for '{normalizedPath}', Offset={offset}.");
+            Core.AddFailedEntry(normalizedPath);
+            _logErrorAction(ex, $"ZipFs.ReadFile: EXCEPTION during on-demand read for '{normalizedPath}', Offset={offset}. Entry marked as failed.");
             return DokanResult.Error;
         }
         finally

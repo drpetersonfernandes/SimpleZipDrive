@@ -647,7 +647,7 @@ public class ZipFileSystemCore : IDisposable
             LogMessage($"Memory cache exhausted for '{normalizedPath}': falling back to disk cache.");
             return OpenDiskCachedStream(entry, normalizedPath, entrySize, false);
         }
-        catch (Exception ex) when (ex is ZlibException or ZstdException)
+        catch (Exception ex)
         {
             if (_sevenZipFallback != null)
             {
@@ -657,16 +657,6 @@ public class ZipFileSystemCore : IDisposable
             }
 
             LogMessage($"Decompression failed for '{normalizedPath}' ({ex.GetType().Name}), no fallback available.");
-            AddFailedEntry(normalizedPath);
-            return null;
-        }
-        catch (Exception ex) when (IsExtractionFailure(ex))
-        {
-            var fallback = TryFallbackExtraction(normalizedPath, entrySize, false);
-            if (fallback != null)
-                return fallback;
-
-            LogMessage($"Extraction failed for '{normalizedPath}' ({ex.GetType().Name}), no fallback available.");
             AddFailedEntry(normalizedPath);
             return null;
         }
@@ -797,6 +787,14 @@ public class ZipFileSystemCore : IDisposable
                             CleanupTempFile(newTempFilePath);
                             return null;
                         }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogMessage($"Disk-cached extraction failed for '{normalizedPath}' ({ex.GetType().Name}). Entry marked as failed.");
+                        AddFailedEntry(normalizedPath);
+                        CleanupTempFile(newTempFilePath);
+                        _logErrorAction(ex, $"ZipFs.OpenDiskCachedStream: Non-extraction exception during disk caching of '{normalizedPath}'.");
+                        return null;
                     }
 
                     lock (_archiveLock)

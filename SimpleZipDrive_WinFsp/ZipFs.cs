@@ -377,6 +377,10 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         catch (Exception ex)
         {
+            if (FileNode is EntryNode node)
+            {
+                Core.AddFailedEntry(node.NormalizedPath);
+            }
             DiagnosticLogger.LogOperation("Read", $"Offset={Offset}, Length={Length}", STATUS_UNSUCCESSFUL, $"{ex.GetType().Name}: {ex.Message}");
             _logErrorAction(ex, $"ZipFs.Read: EXCEPTION reading from stream, Offset={Offset}.");
             return STATUS_UNSUCCESSFUL;
@@ -427,8 +431,9 @@ public sealed class ZipFs : FileSystemBase, IDisposable
         }
         catch (Exception ex)
         {
+            Core.AddFailedEntry(normalizedPath);
             DiagnosticLogger.LogOperation("Read", $"Offset={offset}, Length={length}", STATUS_UNSUCCESSFUL, $"on-demand {ex.GetType().Name}: {ex.Message}");
-            _logErrorAction(ex, $"ZipFs.Read: EXCEPTION during on-demand read for '{normalizedPath}', Offset={offset}.");
+            _logErrorAction(ex, $"ZipFs.Read: EXCEPTION during on-demand read for '{normalizedPath}', Offset={offset}. Entry marked as failed.");
             return STATUS_UNSUCCESSFUL;
         }
         finally
