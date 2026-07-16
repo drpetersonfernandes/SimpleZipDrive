@@ -10,8 +10,8 @@
         <DebugSymbols>true</DebugSymbols>
         <ApplicationIcon>icon\zip.ico</ApplicationIcon>
         <IsPackable>false</IsPackable>
-        <AssemblyVersion>2.7.1</AssemblyVersion>
-        <FileVersion>2.7.1</FileVersion>
+        <AssemblyVersion>2.7.2</AssemblyVersion>
+        <FileVersion>2.7.2</FileVersion>
         <NeutralLanguage>en</NeutralLanguage>
         <Company>PureLogicCode.com</Company>
         <ApplicationManifest>app.manifest</ApplicationManifest>
