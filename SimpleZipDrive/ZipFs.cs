@@ -114,24 +114,21 @@ public class ZipFs : IDokanOperations, IDisposable
             try
             {
                 var entry = node.Entry;
-                if (entry != null)
+                var stream = Core.OpenEntryStream(entry, normalizedPath);
+                if (stream == null)
                 {
-                    var stream = Core.OpenEntryStream(entry, normalizedPath);
-                    if (stream == null)
+                    // Race condition: entry may have been marked as failed by a concurrent thread
+                    // between the IsFailedEntry check above and the OpenEntryStream call.
+                    if (Core.IsFailedEntry(normalizedPath))
                     {
-                        // Race condition: entry may have been marked as failed by a concurrent thread
-                        // between the IsFailedEntry check above and the OpenEntryStream call.
-                        if (Core.IsFailedEntry(normalizedPath))
-                        {
-                            return DokanResult.Error;
-                        }
-
-                        _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: OpenEntryStream returned null for '{normalizedPath}' but entry is not in the failed list."), "ZipFs.CreateFile: Unexpected null stream.");
                         return DokanResult.Error;
                     }
 
-                    info.Context = stream;
+                    _logErrorAction(new InvalidOperationException($"ZipFs.CreateFile: OpenEntryStream returned null for '{normalizedPath}' but entry is not in the failed list."), "ZipFs.CreateFile: Unexpected null stream.");
+                    return DokanResult.Error;
                 }
+
+                info.Context = stream;
 
                 return DokanResult.Success;
             }
